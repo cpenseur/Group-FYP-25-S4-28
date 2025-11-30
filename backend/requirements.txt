@@ -1,0 +1,9 @@
+Django
+djangorestframework
+djangorestframework-simplejwt
+faker
+pytest-django
+psycopg2-binary
+django-cors-headers
+python-dotenv
+requests
