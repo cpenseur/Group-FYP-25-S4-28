@@ -8,4 +8,4 @@ Vania Graciella Kwee
 kk
 hi
 mingyu
-mingyumingyu
+mingyumin
