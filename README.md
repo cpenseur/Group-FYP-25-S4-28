@@ -9,3 +9,4 @@ kk
 hi
 mingyu
 mingyumin
+ps my earpiece no batt le
