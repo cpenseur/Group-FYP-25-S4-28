@@ -223,3 +223,7 @@ __marimo__/
 
 # macOS Finder metadata
 .DS_Store
+
+# Ignore nested Vite scaffold
+frontend/frontend/
+
