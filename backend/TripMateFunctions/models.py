@@ -1,3 +1,783 @@
 from django.db import models
+from django.utils import timezone
+
+
+# --------------------------------------------------
+# USERS & PROFILES
+# --------------------------------------------------
+
+
+class AppUser(models.Model):
+    class Role(models.TextChoices):
+        NORMAL = "normal", "Normal"
+        ADMIN = "admin", "Admin"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        VERIFIED = "verified", "Verified"
+        SUSPENDED = "suspended", "Suspended"
+        DELETED = "deleted", "Deleted"
+
+    email = models.EmailField(unique=True)
+    password_hash = models.TextField()  # if using Supabase auth, you can ignore
+    full_name = models.CharField(max_length=255, blank=True, null=True)
+
+    role = models.CharField(
+        max_length=16,
+        choices=Role.choices,
+        default=Role.NORMAL,
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "app_user"
+
+    def __str__(self):
+        return self.email or f"User {self.pk}"
+
+
+class UserProfile(models.Model):
+    user = models.OneToOneField(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="profile",
+    )
+
+    avatar_url = models.URLField(blank=True, null=True)
+    bio = models.TextField(blank=True, null=True)
+    home_country = models.CharField(max_length=255, blank=True, null=True)
+    home_city = models.CharField(max_length=255, blank=True, null=True)
+    preferred_currency = models.CharField(max_length=3, blank=True, null=True)
+    date_of_birth = models.DateField(blank=True, null=True)
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "user_profile"
+
+    def __str__(self):
+        return f"Profile of {self.user_id}"
+
+
+# --------------------------------------------------
+# DESTINATION & LOCALE
+# --------------------------------------------------
+
+
+class CountryInfo(models.Model):
+    country_code = models.CharField(max_length=2, primary_key=True)
+    country_name = models.CharField(max_length=255)
+
+    currency_code = models.CharField(max_length=3, blank=True, null=True)
+    visa_requirements = models.TextField(blank=True, null=True)
+    holidays_json = models.JSONField(blank=True, null=True)
+    travel_notes = models.TextField(blank=True, null=True)
+    required_documents = models.TextField(blank=True, null=True)
+    local_transport_info = models.TextField(blank=True, null=True)
+    payment_notes = models.TextField(blank=True, null=True)
+
+    updated_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "country_info"
+
+    def __str__(self):
+        return self.country_name
+
+
+class Destination(models.Model):
+    name = models.CharField(max_length=255)
+    address = models.TextField(blank=True, null=True)
+    city = models.CharField(max_length=255, blank=True, null=True)
+    country = models.CharField(max_length=255, blank=True, null=True)
+    country_code = models.CharField(max_length=2, blank=True, null=True)
+
+    lat = models.FloatField(blank=True, null=True)
+    lon = models.FloatField(blank=True, null=True)
+    timezone = models.CharField(max_length=64, blank=True, null=True)
+
+    category = models.CharField(max_length=128, blank=True, null=True)
+    subcategory = models.CharField(max_length=128, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+
+    opening_hours_json = models.JSONField(blank=True, null=True)
+    average_rating = models.FloatField(blank=True, null=True)
+    rating_count = models.IntegerField(blank=True, null=True)
+
+    external_ref = models.CharField(
+        max_length=255, blank=True, null=True
+    )  # e.g. OpenTripMap ID
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "destination"
+
+    def __str__(self):
+        return self.name
+
+
+class LocalContextCache(models.Model):
+    destination = models.ForeignKey(
+        Destination, on_delete=models.CASCADE, null=True, blank=True
+    )
+    country_code = models.CharField(max_length=2, blank=True, null=True)
+    currency_code = models.CharField(max_length=3, blank=True, null=True)
+    data = models.JSONField(blank=True, null=True)  # currency, transport, GrabPay, etc.
+    fetched_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "local_context_cache"
+
+    def __str__(self):
+        return f"Context {self.id}"
+
+
+class BookingSiteRecommendation(models.Model):
+    country_code = models.CharField(max_length=2)
+    site_name = models.CharField(max_length=255)
+    url = models.URLField()
+    description = models.TextField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    sort_order = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = "booking_site_recommendation"
+        ordering = ["sort_order", "site_name"]
+
+    def __str__(self):
+        return f"{self.country_code} - {self.site_name}"
+
+
+# --------------------------------------------------
+# TRIPS, DAYS, COLLABORATION
+# --------------------------------------------------
+
+
+class Trip(models.Model):
+    class Visibility(models.TextChoices):
+        PRIVATE = "private", "Private"
+        SHARED = "shared", "Shared"
+        PUBLIC = "public", "Public"
+
+    owner = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="owned_trips",
+    )
+    title = models.CharField(max_length=255)
+    main_city = models.CharField(max_length=255, blank=True, null=True)
+    main_country = models.CharField(max_length=255, blank=True, null=True)
+    visibility = models.CharField(
+        max_length=16,
+        choices=Visibility.choices,
+        default=Visibility.PRIVATE,
+    )
+
+    start_date = models.DateField(blank=True, null=True)
+    end_date = models.DateField(blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    travel_type = models.CharField(max_length=64, blank=True, null=True)
+    is_demo = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "trip"
+
+    def __str__(self):
+        return self.title
+
+
+class TripCollaborator(models.Model):
+    class Role(models.TextChoices):
+        OWNER = "owner", "Owner"
+        EDITOR = "editor", "Editor"
+        VIEWER = "viewer", "Viewer"
+
+    trip = models.ForeignKey(
+        Trip,
+        on_delete=models.CASCADE,
+        related_name="collaborators",
+    )
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="trip_collaborations",
+    )
+    role = models.CharField(
+        max_length=16,
+        choices=Role.choices,
+        default=Role.EDITOR,
+    )
+
+    invited_at = models.DateTimeField(default=timezone.now)
+    accepted_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = "trip_collaborator"
+        unique_together = ("trip", "user")
+
+    def __str__(self):
+        return f"{self.user_id} in Trip {self.trip_id}"
+
+
+class TripShareLink(models.Model):
+    class Permission(models.TextChoices):
+        VIEW = "view", "View"
+        EDIT = "edit", "Edit"
+
+    trip = models.ForeignKey(
+        Trip,
+        on_delete=models.CASCADE,
+        related_name="share_links",
+    )
+    token = models.CharField(max_length=64, unique=True)
+    permission = models.CharField(
+        max_length=8,
+        choices=Permission.choices,
+        default=Permission.VIEW,
+    )
+    expires_at = models.DateTimeField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "trip_share_link"
+
+    def __str__(self):
+        return f"Link {self.token} for Trip {self.trip_id}"
+
+
+class TripDay(models.Model):
+    trip = models.ForeignKey(
+        Trip,
+        on_delete=models.CASCADE,
+        related_name="days",
+    )
+    date = models.DateField(blank=True, null=True)
+    day_index = models.IntegerField()  # 1..N
+    note = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = "trip_day"
+        unique_together = ("trip", "day_index")
+        ordering = ["trip", "day_index"]
+
+    def __str__(self):
+        return f"Day {self.day_index} of Trip {self.trip_id}"
+
+
+# --------------------------------------------------
+# ITINERARY ITEMS, NOTES, TAGS
+# --------------------------------------------------
+
+
+class ItineraryItem(models.Model):
+    trip = models.ForeignKey(
+        Trip,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    day = models.ForeignKey(
+        TripDay,
+        on_delete=models.SET_NULL,
+        related_name="items",
+        null=True,
+        blank=True,
+    )
+    destination = models.ForeignKey(
+        Destination,
+        on_delete=models.SET_NULL,
+        related_name="itinerary_items",
+        null=True,
+        blank=True,
+    )
+
+    title = models.CharField(max_length=255)
+    item_type = models.CharField(max_length=64, blank=True, null=True)  # food, activity, etc.
+
+    start_time = models.DateTimeField(blank=True, null=True)
+    end_time = models.DateTimeField(blank=True, null=True)
+
+    lat = models.FloatField(blank=True, null=True)
+    lon = models.FloatField(blank=True, null=True)
+    address = models.TextField(blank=True, null=True)
+
+    notes_summary = models.TextField(blank=True, null=True)
+
+    cost_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, blank=True, null=True
+    )
+    cost_currency = models.CharField(max_length=3, blank=True, null=True)
+    booking_reference = models.CharField(max_length=255, blank=True, null=True)
+
+    is_all_day = models.BooleanField(default=False)
+    sort_order = models.IntegerField(default=0)
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "itinerary_item"
+        ordering = ["trip", "day", "sort_order", "start_time"]
+
+    def __str__(self):
+        return self.title
+
+
+class ItineraryItemNote(models.Model):
+    item = models.ForeignKey(
+        ItineraryItem,
+        on_delete=models.CASCADE,
+        related_name="notes",
+    )
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="itinerary_notes",
+    )
+    content = models.TextField()
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "itinerary_item_note"
+
+    def __str__(self):
+        return f"Note {self.id} on Item {self.item_id}"
+
+
+class ItineraryItemTag(models.Model):
+    item = models.ForeignKey(
+        ItineraryItem,
+        on_delete=models.CASCADE,
+        related_name="tags",
+    )
+    tag = models.CharField(max_length=64)
+
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "itinerary_item_tag"
+        unique_together = ("item", "tag")
+
+    def __str__(self):
+        return f"{self.tag} on {self.item_id}"
+
+
+# --------------------------------------------------
+# BUDGET & EXPENSES
+# --------------------------------------------------
+
+
+class TripBudget(models.Model):
+    trip = models.OneToOneField(
+        Trip,
+        on_delete=models.CASCADE,
+        related_name="budget",
+    )
+    currency = models.CharField(max_length=3)
+    planned_total = models.DecimalField(
+        max_digits=12, decimal_places=2, blank=True, null=True
+    )
+    actual_total = models.DecimalField(
+        max_digits=12, decimal_places=2, blank=True, null=True
+    )
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "trip_budget"
+
+    def __str__(self):
+        return f"Budget for Trip {self.trip_id}"
+
+
+class TripExpense(models.Model):
+    trip = models.ForeignKey(
+        Trip,
+        on_delete=models.CASCADE,
+        related_name="expenses",
+    )
+    payer = models.ForeignKey(
+        AppUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="expenses_paid",
+    )
+
+    description = models.CharField(max_length=255)
+    category = models.CharField(max_length=64, blank=True, null=True)
+
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3)
+
+    paid_at = models.DateTimeField(blank=True, null=True)
+
+    linked_day = models.ForeignKey(
+        TripDay,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="expenses",
+    )
+    linked_item = models.ForeignKey(
+        ItineraryItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="expenses",
+    )
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "trip_expense"
+
+    def __str__(self):
+        return self.description
+
+
+class ExpenseSplit(models.Model):
+    expense = models.ForeignKey(
+        TripExpense,
+        on_delete=models.CASCADE,
+        related_name="splits",
+    )
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="expense_splits",
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    is_settled = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "expense_split"
+        unique_together = ("expense", "user")
+
+    def __str__(self):
+        return f"{self.user_id} owes {self.amount} on expense {self.expense_id}"
+
+
+# --------------------------------------------------
+# CHECKLISTS
+# --------------------------------------------------
+
+
+class Checklist(models.Model):
+    class Type(models.TextChoices):
+        PACKING = "packing", "Packing"
+        BOOKINGS = "bookings", "Bookings"
+        CUSTOM = "custom", "Custom"
+
+    owner = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="checklists",
+    )
+    trip = models.ForeignKey(
+        Trip,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="checklists",
+    )
+
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    checklist_type = models.CharField(
+        max_length=32,
+        choices=Type.choices,
+        default=Type.CUSTOM,
+    )
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "checklist"
+
+    def __str__(self):
+        return self.name
+
+
+class ChecklistItem(models.Model):
+    checklist = models.ForeignKey(
+        Checklist,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    label = models.CharField(max_length=255)
+    is_completed = models.BooleanField(default=False)
+    sort_order = models.IntegerField(default=0)
+    due_date = models.DateField(blank=True, null=True)
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "checklist_item"
+        ordering = ["checklist", "sort_order"]
+
+    def __str__(self):
+        return self.label
+
+
+# --------------------------------------------------
+# DOCUMENTS & MEDIA
+# --------------------------------------------------
+
+
+class TravelDocument(models.Model):
+    class DocType(models.TextChoices):
+        PASSPORT = "passport", "Passport"
+        VISA = "visa", "Visa"
+        TICKET = "ticket", "Ticket"
+        INSURANCE = "insurance", "Insurance"
+        OTHER = "other", "Other"
+
+    trip = models.ForeignKey(
+        Trip,
+        on_delete=models.CASCADE,
+        related_name="travel_documents",
+    )
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="travel_documents",
+    )
+    document_type = models.CharField(
+        max_length=32,
+        choices=DocType.choices,
+        default=DocType.OTHER,
+    )
+    file_url = models.URLField()
+    filename = models.CharField(max_length=255, blank=True, null=True)
+    mime_type = models.CharField(max_length=128, blank=True, null=True)
+    uploaded_at = models.DateTimeField(default=timezone.now)
+    notes = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = "travel_document"
+
+    def __str__(self):
+        return self.filename or f"Doc {self.id}"
+
+
+class TripPhoto(models.Model):
+    trip = models.ForeignKey(
+        Trip,
+        on_delete=models.CASCADE,
+        related_name="photos",
+    )
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="trip_photos",
+    )
+    itinerary_item = models.ForeignKey(
+        ItineraryItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="photos",
+    )
+
+    file_url = models.URLField()
+    caption = models.TextField(blank=True, null=True)
+    lat = models.FloatField(blank=True, null=True)
+    lon = models.FloatField(blank=True, null=True)
+    taken_at = models.DateTimeField(blank=True, null=True)
+
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "trip_photo"
+
+    def __str__(self):
+        return f"Photo {self.id}"
+
+
+class TripMediaHighlight(models.Model):
+    trip = models.ForeignKey(
+        Trip,
+        on_delete=models.CASCADE,
+        related_name="media_highlights",
+    )
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="media_highlights",
+    )
+
+    title = models.CharField(max_length=255, blank=True, null=True)
+    video_url = models.URLField()
+    metadata = models.JSONField(blank=True, null=True)
+
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "trip_media_highlight"
+
+    def __str__(self):
+        return self.title or f"Highlight {self.id}"
+
+
+class TripHistoryEntry(models.Model):
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="trip_history_entries",
+    )
+    trip = models.ForeignKey(
+        Trip,
+        on_delete=models.CASCADE,
+        related_name="history_entries",
+    )
+    media_highlight = models.ForeignKey(
+        TripMediaHighlight,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="history_entries",
+    )
+
+    summary = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "trip_history_entry"
+
+    def __str__(self):
+        return f"History {self.id}"
+
+
+# --------------------------------------------------
+# COMMUNITY FAQ & Q&A
+# --------------------------------------------------
+
+
+class DestinationFAQ(models.Model):
+    class SourceType(models.TextChoices):
+        AI = "ai", "AI"
+        COMMUNITY = "community", "Community"
+        ADMIN = "admin", "Admin"
+
+    destination = models.ForeignKey(
+        Destination,
+        on_delete=models.CASCADE,
+        related_name="faqs",
+    )
+    question = models.TextField()
+    answer = models.TextField()
+    source_type = models.CharField(
+        max_length=16,
+        choices=SourceType.choices,
+        default=SourceType.COMMUNITY,
+    )
+    upvotes = models.IntegerField(default=0)
+    is_published = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "destination_faq"
+
+    def __str__(self):
+        return self.question[:50]
+
+
+class DestinationQA(models.Model):
+    destination = models.ForeignKey(
+        Destination,
+        on_delete=models.CASCADE,
+        related_name="qa_entries",
+    )
+    author = models.ForeignKey(
+        AppUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="qa_entries",
+    )
+    question = models.TextField()
+    answer = models.TextField(blank=True, null=True)
+    upvotes = models.IntegerField(default=0)
+    is_public = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "destination_qa"
+
+    def __str__(self):
+        return self.question[:50]
+
+
+# --------------------------------------------------
+# SUPPORT & LEGAL
+# --------------------------------------------------
+
+
+class SupportTicket(models.Model):
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="support_tickets",
+    )
+    email = models.EmailField(blank=True, null=True)
+    subject = models.CharField(max_length=255)
+    message = models.TextField()
+    status = models.CharField(max_length=32, default="open")
+
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "support_ticket"
+
+    def __str__(self):
+        return self.subject
+
+
+class LegalDocument(models.Model):
+    doc_type = models.CharField(max_length=64)  # e.g. 'privacy', 'terms'
+    content = models.TextField()
+    version = models.CharField(max_length=32, blank=True, null=True)
+    published_at = models.DateTimeField(default=timezone.now)
+    is_current = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "legal_document"
+
+    def __str__(self):
+        return f"{self.doc_type} v{self.version or '1.0'}"
+
+from django.db import models
 
 # Create your models here.
