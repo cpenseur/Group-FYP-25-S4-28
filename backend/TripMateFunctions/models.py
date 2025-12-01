@@ -777,7 +777,3 @@ class LegalDocument(models.Model):
 
     def __str__(self):
         return f"{self.doc_type} v{self.version or '1.0'}"
-
-from django.db import models
-
-# Create your models here.
