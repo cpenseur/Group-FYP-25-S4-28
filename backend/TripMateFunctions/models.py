@@ -1,5 +1,6 @@
 from django.db import models
-from django.utils import timezone
+from django.contrib.auth.models import User
+from django.utils import timezone as django_timezone
 
 
 # --------------------------------------------------
@@ -33,7 +34,7 @@ class AppUser(models.Model):
         default=Status.PENDING,
     )
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -57,7 +58,7 @@ class UserProfile(models.Model):
     preferred_currency = models.CharField(max_length=3, blank=True, null=True)
     date_of_birth = models.DateField(blank=True, null=True)
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -84,7 +85,7 @@ class CountryInfo(models.Model):
     local_transport_info = models.TextField(blank=True, null=True)
     payment_notes = models.TextField(blank=True, null=True)
 
-    updated_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(default=django_timezone.now)
 
     class Meta:
         db_table = "country_info"
@@ -116,7 +117,7 @@ class Destination(models.Model):
         max_length=255, blank=True, null=True
     )  # e.g. OpenTripMap ID
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -133,7 +134,7 @@ class LocalContextCache(models.Model):
     country_code = models.CharField(max_length=2, blank=True, null=True)
     currency_code = models.CharField(max_length=3, blank=True, null=True)
     data = models.JSONField(blank=True, null=True)  # currency, transport, GrabPay, etc.
-    fetched_at = models.DateTimeField(default=timezone.now)
+    fetched_at = models.DateTimeField(default=django_timezone.now)
 
     class Meta:
         db_table = "local_context_cache"
@@ -189,7 +190,7 @@ class Trip(models.Model):
     travel_type = models.CharField(max_length=64, blank=True, null=True)
     is_demo = models.BooleanField(default=False)
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -221,7 +222,7 @@ class TripCollaborator(models.Model):
         default=Role.EDITOR,
     )
 
-    invited_at = models.DateTimeField(default=timezone.now)
+    invited_at = models.DateTimeField(default=django_timezone.now)
     accepted_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
@@ -251,7 +252,7 @@ class TripShareLink(models.Model):
     expires_at = models.DateTimeField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
 
     class Meta:
         db_table = "trip_share_link"
@@ -326,7 +327,7 @@ class ItineraryItem(models.Model):
     is_all_day = models.BooleanField(default=False)
     sort_order = models.IntegerField(default=0)
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -352,7 +353,7 @@ class ItineraryItemNote(models.Model):
     )
     content = models.TextField()
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -370,7 +371,7 @@ class ItineraryItemTag(models.Model):
     )
     tag = models.CharField(max_length=64)
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
 
     class Meta:
         db_table = "itinerary_item_tag"
@@ -399,7 +400,7 @@ class TripBudget(models.Model):
         max_digits=12, decimal_places=2, blank=True, null=True
     )
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -446,7 +447,7 @@ class TripExpense(models.Model):
         related_name="expenses",
     )
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -510,7 +511,7 @@ class Checklist(models.Model):
         default=Type.CUSTOM,
     )
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -531,7 +532,7 @@ class ChecklistItem(models.Model):
     sort_order = models.IntegerField(default=0)
     due_date = models.DateField(blank=True, null=True)
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -573,7 +574,7 @@ class TravelDocument(models.Model):
     file_url = models.URLField()
     filename = models.CharField(max_length=255, blank=True, null=True)
     mime_type = models.CharField(max_length=128, blank=True, null=True)
-    uploaded_at = models.DateTimeField(default=timezone.now)
+    uploaded_at = models.DateTimeField(default=django_timezone.now)
     notes = models.TextField(blank=True, null=True)
 
     class Meta:
@@ -610,7 +611,7 @@ class TripPhoto(models.Model):
     lon = models.FloatField(blank=True, null=True)
     taken_at = models.DateTimeField(blank=True, null=True)
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
 
     class Meta:
         db_table = "trip_photo"
@@ -635,7 +636,7 @@ class TripMediaHighlight(models.Model):
     video_url = models.URLField()
     metadata = models.JSONField(blank=True, null=True)
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
 
     class Meta:
         db_table = "trip_media_highlight"
@@ -664,7 +665,7 @@ class TripHistoryEntry(models.Model):
     )
 
     summary = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
 
     class Meta:
         db_table = "trip_history_entry"
@@ -699,7 +700,7 @@ class DestinationFAQ(models.Model):
     upvotes = models.IntegerField(default=0)
     is_published = models.BooleanField(default=True)
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -727,7 +728,7 @@ class DestinationQA(models.Model):
     upvotes = models.IntegerField(default=0)
     is_public = models.BooleanField(default=True)
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -755,7 +756,7 @@ class SupportTicket(models.Model):
     message = models.TextField()
     status = models.CharField(max_length=32, default="open")
 
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -769,7 +770,7 @@ class LegalDocument(models.Model):
     doc_type = models.CharField(max_length=64)  # e.g. 'privacy', 'terms'
     content = models.TextField()
     version = models.CharField(max_length=32, blank=True, null=True)
-    published_at = models.DateTimeField(default=timezone.now)
+    published_at = models.DateTimeField(default=django_timezone.now)
     is_current = models.BooleanField(default=True)
 
     class Meta:

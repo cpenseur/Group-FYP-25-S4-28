@@ -13,11 +13,16 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+import environ
 
 load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Env setup
+env = environ.Env()
+environ.Env.read_env(BASE_DIR / ".env")  # looks for .env in backend root
 
 
 # Quick-start development settings - unsuitable for production
@@ -41,9 +46,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'rest_framework',       
-    'corsheaders',          
-    'TripMateFunctions',               
+    'rest_framework',
+    'corsheaders',
+    'TripMateFunctions',
 ]
 
 
@@ -63,10 +68,11 @@ ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / "templates"],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                "django.template.context_processors.debug",
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
@@ -83,14 +89,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 # Supabase Postgres connection
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME", "postgres"),
-        "USER": os.getenv("DB_USER", "postgres"),
-        "PASSWORD": os.getenv("DB_PASSWORD", ""),
-        "HOST": os.getenv("DB_HOST", "localhost"),
-        "PORT": os.getenv("DB_PORT", "5432"),
-    }
+    'default': env.db('DATABASE_URL')
 }
 
 
@@ -137,12 +136,31 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CORS_ALLOW_ALL_ORIGINS = True
 
-# Django REST Framework configuration
+
+# 🔐 Django REST Framework configuration
 REST_FRAMEWORK = {
+    # ✅ Default: everything is public unless a view overrides it
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.AllowAny",  # tighten later with auth
+        "rest_framework.permissions.AllowAny",
     ],
-    "DEFAULT_RENDERER_CLASSES": [
-        "rest_framework.renderers.JSONRenderer",
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+        "rest_framework.authentication.BasicAuthentication",
+        # later you can add your custom Supabase authentication class here
     ],
 }
+
+
+# Session-based login URLs (still okay to keep;
+# mostly used if you ever rely on Django's login_required)
+LOGIN_URL = "/login/"
+LOGIN_REDIRECT_URL = "/dashboard/"
+LOGOUT_REDIRECT_URL = "/"
+
+
+# Supabase settings (for frontend helper / any backend calls)
+SUPABASE_URL = env("SUPABASE_URL")
+SUPABASE_ANON_KEY = env("SUPABASE_ANON_KEY")
+
+# NEW: Supabase JWT secret for verifying access tokens from frontend
+SUPABASE_JWT_SECRET = env("SUPABASE_JWT_SECRET", default="")
