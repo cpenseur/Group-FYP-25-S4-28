@@ -1,0 +1,386 @@
+===========================================================
+       TRIPMATE – FULL PROJECT SETUP GUIDE 
+===========================================================
+
+This guide explains EXACTLY how to set up the project from zero.
+Follow each step carefully in order.
+
+You ONLY need:
+- GitHub Desktop
+- VS Code
+- Python 3.11+
+- Node.js (LTS)
+- Your assigned branch (named after you)
+
+This project contains:
+- /backend → Django + Supabase
+- /frontend → React + TypeScript (Vite)
+
+
+-----------------------------------------------------------
+PART A – INSTALL & CONFIGURE REQUIRED TOOLS (VERY IMPORTANT)
+-----------------------------------------------------------
+
+==========================================
+1. Install Python and ADD TO PATH
+==========================================
+Download Python 3.12 (or 3.11 if needed):
+https://www.python.org/downloads/
+
+During installation:
+✔ CHECK THIS BOX (VERY IMPORTANT):
+   [x] Add Python to PATH
+
+If you forget this, Python commands WILL NOT work.
+
+After installing:
+1. Open a NEW VS Code terminal
+2. Run:
+      python --version
+      pip --version
+
+You MUST see version numbers.
+If you see errors → reinstall Python and make sure "Add to PATH" is checked.
+
+
+==========================================
+2. Install Node.js and ADD TO PATH
+==========================================
+Download Node.js LTS:
+https://nodejs.org/
+
+During install →
+- Keep everything default.
+- Node automatically adds itself to PATH.
+
+After installation:
+1. Open a NEW VS Code terminal
+2. Run:
+      node --version
+      npm --version
+
+If both show numbers → OK.
+If not → reinstall Node and restart computer.
+
+
+==========================================
+3. Install GitHub Desktop
+==========================================
+Download from:
+https://desktop.github.com/
+Install + log in.
+
+
+==========================================
+4. Install VS Code
+==========================================
+Download:
+https://code.visualstudio.com/
+Install with default options.
+
+
+
+-----------------------------------------------------------
+PART B – GET THE PROJECT CODE (PULL MAIN → YOUR BRANCH)
+-----------------------------------------------------------
+
+IMPORTANT:
+Each team member already has their **own branch** named after themselves:
+- vania
+- pohyee
+- mingyu
+- kk
+- su
+
+You must ALWAYS update your branch from MAIN before coding.
+
+
+==========================================
+1. Open GitHub Desktop
+==========================================
+Select the TripMate repository.
+
+
+==========================================
+2. Switch to YOUR branch
+==========================================
+Top left → Current Branch  
+Select your branch (e.g., pohyee, mingyu, su, etc.)
+
+
+==========================================
+3. Fetch + Pull MAIN into your branch
+==========================================
+You need the latest backend/frontend updates.
+
+1. Click **Fetch origin**
+2. Create pull request (your_branch <- main)
+3. Merge to update your branch
+
+
+==========================================
+4. Open project in VS Code
+==========================================
+GitHub Desktop → "Open in Visual Studio Code"
+
+
+
+-----------------------------------------------------------
+PART C – BACKEND SETUP (DJANGO + SUPABASE)
+-----------------------------------------------------------
+
+The backend lives in `/backend`.
+
+Vania already provided `.env` → DO NOT EDIT.
+Copy the file EXACTLY.
+
+
+==========================================
+1. Open terminal in VS Code
+==========================================
+VS Code:
+→ View  
+→ Terminal
+
+
+==========================================
+2. Go into backend folder
+==========================================
+Run:
+
+    cd backend
+
+
+==========================================
+3. Create a Python virtual environment
+==========================================
+Run:
+
+    python -m venv venv
+
+
+==========================================
+4. Activate virtual environment
+==========================================
+Run:
+
+    venv\Scripts\activate
+
+You should now see:
+
+    (venv) C:\...
+
+
+==========================================
+5. Install required backend dependencies
+==========================================
+
+***IMPORTANT: DO THIS IMMEDIATELY AFTER DOWNLOADING THE PROJECT***
+
+Run these EXACT commands:
+
+    cd backend
+    venv\Scripts\activate
+    python -m pip install --upgrade pip
+    python -m pip install -r requirements.txt
+
+
+==========================================
+6. Apply database migrations
+==========================================
+Run:
+
+    python manage.py migrate
+
+
+==========================================
+7. Start backend server
+==========================================
+Run:
+
+    python manage.py runserver
+
+Backend will start at:
+→ http://127.0.0.1:8000/
+
+Leave this terminal running.
+
+
+
+-----------------------------------------------------------
+PART D – FRONTEND SETUP (React + TS + Supabase)
+-----------------------------------------------------------
+
+Frontend lives in `/frontend`.
+
+Your `.env` is already provided — DO NOT EDIT.
+
+
+==========================================
+1. Open NEW terminal (NOT inside venv)
+==========================================
+In VS Code Terminal panel:  
+Click the **+** button
+
+
+==========================================
+2. Enter frontend folder
+==========================================
+Run:
+
+    cd frontend
+
+
+==========================================
+3. Install frontend dependencies
+==========================================
+Run:
+
+    npm install
+
+
+==========================================
+4. Start the frontend dev server
+==========================================
+Run:
+
+    npm run dev
+
+You will see:
+
+    Local: http://localhost:5173/
+
+Open the link in browser.
+
+
+
+-----------------------------------------------------------
+PART E – TEST THE WHOLE SYSTEM WORKS
+-----------------------------------------------------------
+
+==========================================
+Test 1 – Open the Development Menu
+==========================================
+Open:
+
+    http://localhost:5173/
+
+You should see the **Team Development Menu** with all test buttons.
+
+
+==========================================
+Test 2 – Login Flow
+==========================================
+1. Click → Sign In (F7.1)
+2. Enter Supabase email + password
+3. Click Login
+4. You should be redirected to:
+
+    /dashboard
+
+Dashboard will show:
+- Supabase user info  
+- Django backend authenticated response
+
+
+==========================================
+Test 3 – Logout
+==========================================
+Click Logout  
+Session should clear.
+
+
+
+-----------------------------------------------------------
+PART F – WORKFLOW FOR EACH TEAM MEMBER
+-----------------------------------------------------------
+
+==========================================
+1. Always work in YOUR OWN branch
+==========================================
+Branches:
+- vania  
+- pohyee  
+- mingyu  
+- kk  
+- su  
+
+
+==========================================
+2. BEFORE you code anything:
+==========================================
+Pull changes from MAIN:
+
+GitHub Desktop:
+→ Branch  
+→ Merge into current branch  
+→ Select **main**  
+
+
+==========================================
+3. After coding:
+==========================================
+1. Commit your changes  
+2. Push to YOUR branch  
+3. DO NOT push to main  
+
+
+==========================================
+4. Vania will merge into main after review
+==========================================
+
+
+
+-----------------------------------------------------------
+PART G – COMMON ERRORS & FIXES
+-----------------------------------------------------------
+
+------------------------------------------
+❌ python not found  
+→ Python not in PATH
+------------------------------------------
+Fix:
+Reinstall Python with “Add to PATH” checked.
+
+
+------------------------------------------
+❌ npm not recognized  
+→ Node.js missing from PATH
+------------------------------------------
+Fix:
+Reinstall Node.js and restart PC.
+
+
+------------------------------------------
+❌ ModuleNotFoundError (frontend)
+------------------------------------------
+Fix:
+
+    cd frontend
+    npm install
+
+
+------------------------------------------
+❌ Backend API failing
+------------------------------------------
+Fix:
+Check:
+- `.env` copied exactly  
+- Backend server running  
+- Python venv is activated  
+
+
+------------------------------------------
+❌ Dashboard: "Backend failed"
+------------------------------------------
+Check backend terminal for errors.
+
+
+
+===========================================================
+IF ANYTHING BREAKS:  
+Send Vania/call on Discord:
+1. Screenshot of error  
+2. Backend terminal  
+3. Frontend terminal  
+===========================================================

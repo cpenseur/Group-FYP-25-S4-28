@@ -1,0 +1,30 @@
+# ===== Django & Core Framework =====
+Django
+djangorestframework
+django-cors-headers
+django-environ
+
+# ===== Authentication / JWT =====
+djangorestframework-simplejwt
+
+# ===== Environment & Config =====
+python-dotenv
+
+# ===== Database (Supabase uses Postgres) =====
+psycopg2-binary
+
+# ===== Supabase Python Client =====
+supabase
+httpx
+
+# ===== Utilities =====
+requests
+faker
+
+# ===== Testing =====
+pytest
+pytest-django
+
+# ===== Optional but recommended =====
+Jinja2
+gunicorn
