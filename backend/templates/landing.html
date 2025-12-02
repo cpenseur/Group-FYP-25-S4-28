@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>TripMate – Welcome</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #020817;
+      color: #e5e7eb;
+      margin: 0;
+      padding: 2.5rem;
+      display: flex;
+      justify-content: center;
+    }
+    .container {
+      max-width: 720px;
+      width: 100%;
+    }
+    h1 {
+      font-size: 2.25rem;
+      margin-bottom: 0.5rem;
+    }
+    p {
+      color: #9ca3af;
+    }
+    .card {
+      background: #020617;
+      border-radius: 1rem;
+      padding: 1.5rem 1.75rem;
+      margin-top: 1.75rem;
+      border: 1px solid #1f2937;
+    }
+    .btn-row {
+      margin-top: 1.5rem;
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    a.button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.6rem 1.2rem;
+      border-radius: 999px;
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.95rem;
+      border: 1px solid transparent;
+    }
+    a.button.primary {
+      background: linear-gradient(to right, #22c55e, #14b8a6);
+      color: #020617;
+    }
+    a.button.secondary {
+      background: transparent;
+      color: #e5e7eb;
+      border-color: #374151;
+    }
+    code {
+      background: #020617;
+      padding: 0.15rem 0.4rem;
+      border-radius: 0.25rem;
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>TripMate Backend Landing</h1>
+  <p>Use this mini flow to test authentication and view the logged-in user on a dashboard.</p>
+
+  <div class="card">
+    <h2>Get started</h2>
+    <p>
+      1. Log in with a Django user account<br />
+      2. Open the dashboard to confirm your session and username.
+    </p>
+    <div class="btn-row">
+        {% if user.is_authenticated %}
+            <!-- Already logged in -->
+            <a href="{% url 'dashboard' %}" class="button primary">Go to dashboard</a>
+
+            <form method="post" action="{% url 'logout' %}" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" class="button secondary">Log out</button>
+            </form>
+        {% else %}
+            <!-- Not logged in yet -->
+            <a href="{% url 'login' %}" class="button primary">Sign in</a>
+            <a href="{% url 'dashboard' %}" class="button secondary">Go to dashboard</a>
+        {% endif %}
+
+        <a href="{% url 'api-index' %}" class="button secondary">API index</a>
+    </div>
+    <p style="margin-top:1rem;font-size:0.85rem;color:#6b7280;">
+      Tip: create a user with <code>python manage.py createsuperuser</code> if you don't have one yet.
+    </p>
+  </div>
+</div>
+</body>
+</html>
