@@ -4,8 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import logo from "../assets/logo.png";
 import hallstatt from "../assets/hallstatt.png";
-import cappadocia from "../assets/Cappadocia.jpg";
-import yosemite from "../assets/Yosemite.jpg";
+import Cappadocia from "../assets/Cappadocia.jpg";
+import Yosemite from "../assets/Yosemite.jpg";
 import heroBackground from "../assets/heroBackground.jpeg";
 import { 
   Plane, 
@@ -1149,12 +1149,12 @@ const TripCardTilt = styled.div<{ rotate: number; top: string; left: string }>`
   top: ${(p) => p.top};
   left: ${(p) => p.left};
   width: 260px;
-  height: 340px;
+  height: 380;  
   background: white;
   border-radius: 20px;
   box-shadow: 0 20px 30px rgba(0,0,0,0.12);
   transform: rotate(${(p) => p.rotate}deg);
-  overflow: hidden;
+  overflow: visible;  // optional, but good
   padding-bottom: 1rem;
 
   img {
