@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Dashboard – TripMate</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #020817;
+      color: #e5e7eb;
+      margin: 0;
+      padding: 2.5rem;
+      display: flex;
+      justify-content: center;
+    }
+    .container {
+      max-width: 720px;
+      width: 100%;
+    }
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 0.25rem;
+    }
+    p {
+      color: #9ca3af;
+    }
+    .card {
+      background: #020617;
+      border-radius: 1rem;
+      padding: 1.5rem 1.75rem;
+      margin-top: 1.5rem;
+      border: 1px solid #1f2937;
+    }
+    a.button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.5rem 1.1rem;
+      border-radius: 999px;
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.9rem;
+      border: 1px solid #374151;
+      color: #e5e7eb;
+      margin-right: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    code {
+      background: #020617;
+      padding: 0.15rem 0.4rem;
+      border-radius: 0.25rem;
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Dashboard</h1>
+  <p>Authentication test for TripMate backend.</p>
+
+  <div class="card">
+    <h2>Welcome, {{ request.user.get_full_name|default:request.user.username }} 👋</h2>
+    <p>
+      You are logged in as <strong>{{ request.user.username }}</strong>.
+    </p>
+
+    <p>
+      Use this page to confirm that session authentication is working.
+    </p>
+
+    <p>
+    <a href="/api-index/" class="button">API index</a>
+
+    <form method="post" action="{% url 'logout' %}" style="display:inline;">
+        {% csrf_token %}
+        <button type="submit" class="button">Log out</button>
+    </form>
+    </p>
+  </div>
+</div>
+</body>
+</html>

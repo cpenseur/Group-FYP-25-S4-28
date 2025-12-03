@@ -1,0 +1,36 @@
+# config/urls.py
+
+from django.contrib import admin
+from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
+from django.views.generic import TemplateView
+
+# ✅ Only import the Supabase-backed "who am I" endpoint
+from TripMateFunctions.views.auth_views import WhoAmIView
+
+urlpatterns = [
+    # Django Admin
+    path("admin/", admin.site.urls),
+
+    # All feature-based API routes
+    path("api/", include("TripMateFunctions.root_urls")),
+
+    # Supabase-auth-backed "current user" endpoint
+    path("api/auth/whoami/", WhoAmIView.as_view(), name="auth-whoami"),
+
+    # (Optional) Browsable API login/logout (not Supabase auth)
+    path("api-auth/", include("rest_framework.urls")),
+
+    # Simple HTML index that lists your API endpoints
+    path(
+        "",
+        TemplateView.as_view(template_name="api_index.html"),
+        name="api-index",
+    ),
+]
+
+# Serve static/media files in development
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

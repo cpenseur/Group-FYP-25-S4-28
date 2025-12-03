@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Log in – TripMate</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #020817;
+      color: #e5e7eb;
+      margin: 0;
+      padding: 2.5rem;
+      display: flex;
+      justify-content: center;
+    }
+    .container {
+      max-width: 420px;
+      width: 100%;
+      background: #020617;
+      border-radius: 1rem;
+      border: 1px solid #1f2937;
+      padding: 1.75rem 1.75rem 1.5rem;
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+    p {
+      color: #9ca3af;
+      font-size: 0.9rem;
+    }
+    form {
+      margin-top: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+    }
+    label {
+      display: block;
+      font-size: 0.9rem;
+      margin-bottom: 0.15rem;
+    }
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      border-radius: 0.5rem;
+      border: 1px solid #374151;
+      background: #020617;
+      color: #e5e7eb;
+    }
+    button {
+      margin-top: 0.5rem;
+      padding: 0.6rem 1.0rem;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      font-weight: 500;
+      background: linear-gradient(to right, #22c55e, #14b8a6);
+      color: #020617;
+    }
+    .errorlist {
+      color: #fca5a5;
+      list-style: none;
+      padding-left: 0;
+      font-size: 0.85rem;
+      margin-bottom: 0.5rem;
+    }
+    .footer-link {
+      margin-top: 0.9rem;
+      font-size: 0.85rem;
+      color: #9ca3af;
+    }
+    .footer-link a {
+      color: #22c55e;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Log in</h1>
+  <p>Enter your Django username and password to access the dashboard.</p>
+
+  {% if form.errors %}
+    <ul class="errorlist">
+      <li>Invalid username or password.</li>
+    </ul>
+  {% endif %}
+
+  <form method="post" action="">
+    {% csrf_token %}
+    <div>
+      <label for="id_username">Username</label>
+      {{ form.username }}
+    </div>
+    <div>
+      <label for="id_password">Password</label>
+      {{ form.password }}
+    </div>
+    <button type="submit">Log in</button>
+    <input type="hidden" name="next" value="{{ next }}">
+  </form>
+
+  <p class="footer-link">
+    ← <a href="{% url 'landing' %}">Back to landing</a>
+  </p>
+</div>
+</body>
+</html>
