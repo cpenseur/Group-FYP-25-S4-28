@@ -3,10 +3,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import logo from "../assets/logo.png";
+import hallstatt from "../assets/hallstatt.png";
+import cappadocia from "../assets/Cappadocia.jpg";
+import yosemite from "../assets/Yosemite.jpg";
 import heroBackground from "../assets/heroBackground.jpeg";
 import { 
   Plane, 
-  Users, 
   Globe, 
   Star, 
   MapPin, 
@@ -27,8 +29,12 @@ import {
   Camera,
   BookOpen,
   Menu,
-  X
-} from 'lucide-react';
+  X,
+  Bot,
+  Users,
+  ClipboardCheck,
+  FileText
+} from "lucide-react";
 
 const LandingPage: React.FC = () => {
   const navigate = useNavigate();
@@ -241,28 +247,39 @@ const LandingPage: React.FC = () => {
 
       {/* About Us */}
       <Section>
-        <SectionHeader>
-          <SectionSubtitle>
-            <BookOpen size={20} style={{ marginRight: '10px' }} />
+        <AboutHeader>
+          <AboutSubtitle>
+            <BookOpen size={18} />
             A LITTLE BIT ABOUT US
-          </SectionSubtitle>
-          <SectionTitle>Why We Built TripMate</SectionTitle>
-          <SectionDescription>
-            We believe travel planning should be joyful, not stressful. TripMate combines 
-            cutting-edge AI with intuitive design to help you create perfect itineraries, 
-            collaborate with friends, and preserve precious memories.
-          </SectionDescription>
-        </SectionHeader>
-        
-        <FeaturesGrid>
+          </AboutSubtitle>
+
+          <AboutTitle>Why We Built TripMate</AboutTitle>
+
+          <AboutDescription>
+            Travel planning should be joyful, not stressful. TripMate combines cutting-edge AI 
+            with intuitive design to help you create perfect itineraries, collaborate with friends, 
+            and preserve precious memories.
+          </AboutDescription>
+        </AboutHeader>
+
+        <AboutGrid>
           {features.map((feature, index) => (
-            <FeatureCard key={index}>
-              <FeatureIcon>{feature.icon}</FeatureIcon>
-              <FeatureTitle>{feature.title}</FeatureTitle>
-              <FeatureDescription>{feature.description}</FeatureDescription>
-            </FeatureCard>
+            <AboutCard key={index}>
+              <IconWrapper>{feature.icon}</IconWrapper>
+
+              <CardTitle>{feature.title}</CardTitle>
+
+              <CardText>{feature.description}</CardText>
+
+              <DiscoverMore>
+                Discover More <ChevronRight size={14} />
+              </DiscoverMore>
+
+              {/* Blue highlight bar */}
+              <HighlightBar />
+            </AboutCard>
           ))}
-        </FeaturesGrid>
+        </AboutGrid>
       </Section>
 
       {/* Why Choose TripMate */}
@@ -274,142 +291,129 @@ const LandingPage: React.FC = () => {
           </SectionDescription>
         </SectionHeader>
         
-        <BenefitsGrid>
-          <BenefitItem>
-            <CheckCircle size={20} color="#3b82f6" />
-            <span>AI-powered itinerary suggestions</span>
-          </BenefitItem>
-          <BenefitItem>
-            <CheckCircle size={20} color="#3b82f6" />
-            <span>Real-time collaboration</span>
-          </BenefitItem>
-          <BenefitItem>
-            <CheckCircle size={20} color="#3b82f6" />
-            <span>Budget tracking & expense splitting</span>
-          </BenefitItem>
-          <BenefitItem>
-            <CheckCircle size={20} color="#3b82f6" />
-            <span>Smart packing checklists</span>
-          </BenefitItem>
-          <BenefitItem>
-            <CheckCircle size={20} color="#3b82f6" />
-            <span>Destination insights & local tips</span>
-          </BenefitItem>
-          <BenefitItem>
-            <CheckCircle size={20} color="#3b82f6" />
-            <span>Travel document storage</span>
-          </BenefitItem>
-          <BenefitItem>
-            <CheckCircle size={20} color="#3b82f6" />
-            <span>Photo & memory timeline</span>
-          </BenefitItem>
-          <BenefitItem>
-            <CheckCircle size={20} color="#3b82f6" />
-            <span>Mobile app & web access</span>
-          </BenefitItem>
-        </BenefitsGrid>
+      <BenefitsGrid>
+
+        <FlipCard>
+          <FlipInner>
+            <FlipFront>
+              <BenefitIcon><Bot /></BenefitIcon>
+              <FlipTitle>AI-powered itinerary suggestions</FlipTitle>
+            </FlipFront>
+            <FlipBack>
+              <FlipBackText>Automatically create smart day-by-day plans tailored to your preferences.</FlipBackText>
+            </FlipBack>
+          </FlipInner>
+        </FlipCard>
+
+        <FlipCard>
+          <FlipInner>
+            <FlipFront>
+              <BenefitIcon><Users/></BenefitIcon>
+              <FlipTitle>Real-time collaboration</FlipTitle>
+            </FlipFront>
+            <FlipBack>
+              <FlipBackText>Plan together instantly with shared editing and synced trip updates.</FlipBackText>
+            </FlipBack>
+          </FlipInner>
+        </FlipCard>
+
+        <FlipCard>
+          <FlipInner>
+            <FlipFront>
+              <BenefitIcon><Wallet/></BenefitIcon>
+              <FlipTitle>Budget tracking & expense splitting</FlipTitle>
+            </FlipFront>
+            <FlipBack>
+              <FlipBackText>Auto-split expenses, track spending, and avoid money confusion.</FlipBackText>
+            </FlipBack>
+          </FlipInner>
+        </FlipCard>
+
+        <FlipCard>
+          <FlipInner>
+            <FlipFront>
+              <BenefitIcon><ClipboardCheck/></BenefitIcon>
+              <FlipTitle>Smart packing checklists</FlipTitle>
+            </FlipFront>
+            <FlipBack>
+              <FlipBackText>AI-generated lists ensure you never forget essentials again.</FlipBackText>
+            </FlipBack>
+          </FlipInner>
+        </FlipCard>
+
+        <FlipCard>
+          <FlipInner>
+            <FlipFront>
+              <BenefitIcon><MapPin size={20} /></BenefitIcon>
+              <FlipTitle>Destination insights & local tips</FlipTitle>
+            </FlipFront>
+            <FlipBack>
+              <FlipBackText>Get curated recommendations from real travelers and locals.</FlipBackText>
+            </FlipBack>
+          </FlipInner>
+        </FlipCard>
+
+        <FlipCard>
+          <FlipInner>
+            <FlipFront>
+              <BenefitIcon><FileText /></BenefitIcon>
+              <FlipTitle>Travel document storage</FlipTitle>
+            </FlipFront>
+            <FlipBack>
+              <FlipBackText>Keep all your tickets, bookings & passports securely in one place.</FlipBackText>
+            </FlipBack>
+          </FlipInner>
+        </FlipCard>
+      </BenefitsGrid>
       </Section>
 
       {/* Demo Trips Carousel */}
-      <Section>
-        <SectionHeader>
-          <SectionTitle>Our Highest-Rated Trips</SectionTitle>
-          <SectionDescription>
-            Explore sample itineraries created by our community of travelers
-          </SectionDescription>
-        </SectionHeader>
-        
-        {isLoading ? (
-          <LoadingContainer>Loading demo trips...</LoadingContainer>
-        ) : demoTrips.length === 0 ? (
-          <EmptyState>No demo trips available</EmptyState>
-        ) : (
-          <CarouselContainer>
-            <CarouselContent>
-              <TripCard>
-                <TripImage src="/demo-trip-placeholder.jpg" alt={currentTrip.title} />
-                <TripInfo>
-                  <TripTitle>{currentTrip.title}</TripTitle>
-                  <TripMeta>
-                    <MetaItem>
-                      <MapPin size={16} />
-                      <span>{currentTrip.main_city}, {currentTrip.main_country}</span>
-                    </MetaItem>
-                    <MetaItem>
-                      <Calendar size={16} />
-                      <span>{currentTrip.start_date} - {currentTrip.end_date}</span>
-                    </MetaItem>
-                    <MetaItem>
-                      <Users size={16} />
-                      <span>{currentTrip.travel_type || 'Adventure'}</span>
-                    </MetaItem>
-                  </TripMeta>
-                  <TripDescription>
-                    {currentTrip.description || 'A sample itinerary showing TripMate features.'}
-                  </TripDescription>
-                  <ViewDetailsButton>Explore This Trip</ViewDetailsButton>
-                </TripInfo>
-              </TripCard>
-            </CarouselContent>
-            
-            <CarouselControls>
-              <NavButton onClick={prevSlide}>
-                <ChevronLeft size={20} />
-              </NavButton>
-              
-              <Dots>
-                {demoTrips.map((_, index) => (
-                  <Dot 
-                    key={index} 
-                    active={index === currentTripIndex}
-                    onClick={() => setCurrentTripIndex(index)}
-                  />
-                ))}
-              </Dots>
-              
-              <NavButton onClick={nextSlide}>
-                <ChevronRight size={20} />
-              </NavButton>
-            </CarouselControls>
-          </CarouselContainer>
-        )}
-        
-        <CenterButton>
-          <OutlineButton onClick={() => navigate('/demo-gallery')}>
-            View All Demo Trips
-            <ChevronRight size={16} />
-          </OutlineButton>
-        </CenterButton>
-      </Section>
+      <ShowcaseSection>
+        <ShowcaseText>
+          <ShowcaseTitle>Our Highest-Rated Trips</ShowcaseTitle>
 
-      {/* Customization */}
-      <Section light>
-        <CustomizationSection>
-          <CustomizationContent>
-            <SectionSubtitle>YOUR TRIP, YOUR WAY</SectionSubtitle>
-            <SectionTitle>Personalized Travel Experience</SectionTitle>
-            <SectionDescription>
-              From food preferences to activity levels, we tailor recommendations just for you. 
-              Create the perfect balance of adventure, relaxation, and discovery.
-            </SectionDescription>
-            <CustomizationPoints>
-              <PointItem>
-                <Award size={18} color="#3b82f6" />
-                <span>Personalized activity suggestions</span>
-              </PointItem>
-              <PointItem>
-                <Clock size={18} color="#3b82f6" />
-                <span>Flexible day-by-day planning</span>
-              </PointItem>
-              <PointItem>
-                <Smartphone size={18} color="#3b82f6" />
-                <span>Mobile-optimized access anywhere</span>
-              </PointItem>
-            </CustomizationPoints>
-          </CustomizationContent>
-          <CustomizationImage src="/customization-demo.png" alt="Customization Preview" />
-        </CustomizationSection>
-      </Section>
+          <ShowcaseParagraph>
+            Immerse yourself in a world of wanderlust as you embark on a journey to the 
+            most coveted destinations, carefully curated by fellow travelers who've 
+            experienced the magic firsthand. These top-rated trips are more than just 
+            vacations—they're gateways to extraordinary experiences that leave an 
+            indelible mark on your soul.
+          </ShowcaseParagraph>
+
+          <ShowcaseParagraph>
+            From breathtaking landscapes to culturally rich cities, each destination 
+            offers a tapestry of sights, sounds, and sensations waiting to be explored. 
+            Our collection isn't just about ticking off landmarks; it's about creating 
+            moments that resonate long after the journey ends.
+          </ShowcaseParagraph>
+        </ShowcaseText>
+
+        <ShowcaseCards>
+          <TripCardTilt rotate={-6} top="20px" left="0">
+            <img src={hallstatt} alt="Hallstatt" />
+            <TripCardLabel>
+              Hallstatt Lake <br /> 400 ❤️
+            </TripCardLabel>
+          </TripCardTilt>
+
+          <TripCardTilt rotate={2} top="0" left="90px">
+            <img src={Cappadocia} alt="Cappadocia" />
+            <TripCardLabel>
+              Cappadocia <br /> 2000 ❤️
+            </TripCardLabel>
+          </TripCardTilt>
+
+          <TripCardTilt rotate={8} top="40px" left="180px">
+            <img src={Yosemite} alt="Yosemite" />
+            <TripCardLabel>
+              Yosemite Park <br /> 100K ❤️
+            </TripCardLabel>
+
+            <TripBadge>⭐ 4.9</TripBadge>
+            <TripButton>Learn More</TripButton>
+          </TripCardTilt>
+        </ShowcaseCards>
+      </ShowcaseSection>
 
       {/* Testimonials */}
       <Section>
@@ -854,6 +858,121 @@ const OutlineButton = styled(Button)`
   }
 `;
 
+const AboutSection = styled.section`
+  padding: 5rem 2rem;
+  background: #eef4ff;
+`;
+
+const AboutHeader = styled.div`
+  text-align: center;
+  max-width: 800px;
+  margin: 0 auto 4rem;
+`;
+
+const AboutSubtitle = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #6c7bd9;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  gap: 0.5rem;
+`;
+
+const AboutTitle = styled.h2`
+  font-size: 2.6rem;
+  font-weight: 800;
+  color: #1f2937;
+  margin-top: 0.5rem;
+`;
+
+const AboutDescription = styled.p`
+  font-size: 1.1rem;
+  color: #4b5563;
+  margin-top: 1rem;
+  line-height: 1.6;
+`;
+
+const AboutGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+`;
+
+const AboutCard = styled.div`
+  background: white;
+  padding: 2rem;
+  border-radius: 16px;
+  text-align: center;
+  position: relative;
+  box-shadow: 0 8px 25px rgba(0,0,0,0.06);
+  transition: transform 0.2s;
+
+  &:hover {
+    transform: translateY(-4px);
+  }
+`;
+
+const IconWrapper = styled.div`
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  background: #e8f0ff;
+  color: #3b82f6;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0 auto 1rem;
+
+  svg {
+    width: 32px;
+    height: 32px;
+  }
+`;
+
+const CardTitle = styled.h3`
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+`;
+
+const CardText = styled.p`
+  color: #6b7280;
+  font-size: 0.95rem;
+  margin-bottom: 1.5rem;
+  line-height: 1.5;
+`;
+
+const DiscoverMore = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #3b82f6;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+`;
+
+const HighlightBar = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 60%;
+  height: 4px;
+  background: #3b82f6;
+  border-radius: 0 0 4px 4px;
+  margin: 0 auto;
+  right: 0;
+`;
+
 const Section = styled.section<{ light?: boolean }>`
   padding: 5rem 2rem;
   background: ${props => props.light ? '#f9fafb' : 'transparent'};
@@ -896,93 +1015,185 @@ const SectionDescription = styled.p`
   margin-top: 1rem;
 `;
 
-const FeaturesGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 2rem;
-  max-width: 1200px;
-  margin: 0 auto;
-`;
-
-const FeatureCard = styled.div`
-  background: white;
-  padding: 2rem;
-  border-radius: 12px;
-  text-align: center;
-  transition: transform 0.2s, box-shadow 0.2s;
-  border: 1px solid #e5e7eb;
-
-  &:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-  }
-`;
-
-const FeatureIcon = styled.div`
-  color: #3b82f6;
-  margin-bottom: 1.5rem;
-`;
-
-const FeatureTitle = styled.h3`
-  font-size: 1.25rem;
-  font-weight: 600;
-  margin-bottom: 0.75rem;
-  color: #111827;
-`;
-
-const FeatureDescription = styled.p`
-  color: #6b7280;
-  font-size: 0.95rem;
-  line-height: 1.5;
-`;
-
 const BenefitsGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 1rem;
+  gap: 2.5rem;   /* ⭐ Add this ⭐ */
   max-width: 1000px;
   margin: 0 auto;
 `;
 
-const BenefitItem = styled.div`
+const BenefitIcon = styled.div`
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: #e8f0ff;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 1rem;
-  background: white;
-  border-radius: 8px;
-  border: 1px solid #e5e7eb;
-
-  span {
-    color: #374151;
-    font-weight: 500;
+  justify-content: center;
+  flex-shrink: 0;
+  svg {
+    color: #3b82f6;
+    width: 35px;
+    height: 35px;
   }
 `;
 
-const LoadingContainer = styled.div`
-  text-align: center;
-  padding: 4rem;
-  color: #6b7280;
+const FlipCard = styled.div`
+  background: transparent;
+  width: 100%;
+  height: 260px;
+  perspective: 1000px;
+  overflow: hidden;   /* ⭐ THE FIX ⭐ */
+  border-radius: 20px; /* ensures corners stay smooth */
 `;
 
-const EmptyState = styled.div`
+
+const FlipInner = styled.div`
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.6s ease;
+  transform-style: preserve-3d;
+
+  ${FlipCard}:hover & {
+    transform: rotateY(180deg);
+  }
+`;
+
+const FlipFront = styled.div`
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+`;
+
+const FlipBack = styled.div`
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  transform: rotateY(180deg);
+  background: #3b82f6;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+`;
+
+const FlipBackText = styled.p`
+  font-size: 1rem;
+  line-height: 1.5;
+  max-width: 250px;
+`;
+
+const FlipTitle = styled.h3`
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #111827;
   text-align: center;
-  padding: 4rem;
-  color: #6b7280;
+  margin: 0;
+`;
+
+
+const ShowcaseSection = styled.section`
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 4rem;
+  padding: 5rem 2rem;
+  max-width: 1300px;
+  margin: 0 auto;
+
+  @media (max-width: 980px) {
+    flex-direction: column;
+    text-align: center;
+  }
+`;
+
+const ShowcaseText = styled.div`
+  flex: 1;
+  max-width: 550px;
+`;
+
+const ShowcaseTitle = styled.h2`
+  font-size: 3rem;
+  font-weight: 800;
+  margin-bottom: 1.5rem;
+`;
+
+const ShowcaseParagraph = styled.p`
+  color: #374151;
+  line-height: 1.7;
+  font-size: 1.05rem;
+  margin-bottom: 1.2rem;
+`;
+
+const ShowcaseCards = styled.div`
+  position: relative;
+  width: 420px;
+  height: 480px;
+
+  @media (max-width: 980px) {
+    margin: 0 auto;
+  }
+`;
+
+const TripCardTilt = styled.div<{ rotate: number; top: string; left: string }>`
+  position: absolute;
+  top: ${(p) => p.top};
+  left: ${(p) => p.left};
+  width: 260px;
+  height: 340px;
   background: white;
-  border-radius: 12px;
-  max-width: 800px;
-  margin: 0 auto;
-  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  box-shadow: 0 20px 30px rgba(0,0,0,0.12);
+  transform: rotate(${(p) => p.rotate}deg);
+  overflow: hidden;
+  padding-bottom: 1rem;
+
+  img {
+    width: 100%;
+    height: 220px;
+    object-fit: cover;
+  }
 `;
 
-const CarouselContainer = styled.div`
-  max-width: 900px;
-  margin: 0 auto;
+const TripCardLabel = styled.div`
+  padding: 1rem;
+  font-weight: 600;
+  color: #111827;
 `;
 
-const CarouselContent = styled.div`
-  margin-bottom: 2rem;
+const TripBadge = styled.div`
+  background: #ffe9c2;
+  color: #d97706;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  width: fit-content;
+  margin: 0.5rem 1rem;
+`;
+
+const TripButton = styled.button`
+  background: #f59e0b;
+  color: white;
+  padding: 0.45rem 0.9rem;
+  border-radius: 6px;
+  border: none;
+  font-size: 0.75rem;
+  margin-left: 1rem;
+  cursor: pointer;
+
+  &:hover {
+    background: #d97706;
+  }
 `;
 
 const TripCard = styled.div`
