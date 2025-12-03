@@ -1,39 +1,1415 @@
-// frontend/src/pages/landingPage.tsx
-import { useNavigate } from "react-router-dom";
+// frontend/src/pages/landing/LandingPage.tsx
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import styled from 'styled-components';
+import logo from "../assets/logo.png";
+import heroBackground from "../assets/heroBackground.jpeg";
+import { 
+  Plane, 
+  Users, 
+  Globe, 
+  Star, 
+  MapPin, 
+  Heart, 
+  CheckCircle,
+  ChevronRight,
+  Award,
+  Clock,
+  Shield,
+  Smartphone,
+  Mail,
+  ChevronLeft,
+  Calendar,
+  Check,
+  Search,
+  Compass,
+  Wallet,
+  Camera,
+  BookOpen,
+  Menu,
+  X
+} from 'lucide-react';
 
-export default function LandingPage() {
+const LandingPage: React.FC = () => {
   const navigate = useNavigate();
+  const [demoTrips, setDemoTrips] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [currentTripIndex, setCurrentTripIndex] = useState(0);
+  const [email, setEmail] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const fetchDemoTrips = async () => {
+      try {
+        const response = await fetch('/api/f7/demo-itineraries/');
+        const data = await response.json();
+        setDemoTrips(data);
+      } catch (error) {
+        console.error('Error fetching demo trips:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchDemoTrips();
+  }, []);
+
+  const nextSlide = () => {
+    setCurrentTripIndex((prev) => (prev + 1) % demoTrips.length);
+  };
+
+  const prevSlide = () => {
+    setCurrentTripIndex((prev) => (prev - 1 + demoTrips.length) % demoTrips.length);
+  };
+
+  const handleNewsletterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    setIsSubmitting(false);
+    setIsSubmitted(true);
+    setEmail('');
+    
+    setTimeout(() => setIsSubmitted(false), 3000);
+  };
+
+  const toggleMenu = () => {
+    setIsMenuOpen(!isMenuOpen);
+  };
+
+  const features = [
+    {
+      icon: <Search size={24} />,
+      title: "AI Trip Finder",
+      description: "Get personalized destination suggestions based on your interests"
+    },
+    {
+      icon: <Compass size={24} />,
+      title: "Smart Itineraries",
+      description: "Automatically optimized daily schedules with travel times"
+    },
+    {
+      icon: <Wallet size={24} />,
+      title: "Budget Tracker",
+      description: "Track expenses and split costs with travel companions"
+    },
+    {
+      icon: <Camera size={24} />,
+      title: "Memory Book",
+      description: "Collect photos and memories in one beautiful timeline"
+    }
+  ];
+
+  const testimonials = [
+    {
+      name: "Alex Johnson",
+      location: "Bali, Indonesia",
+      text: "TripMate made our group trip planning seamless. The budget tracking saved us hundreds!",
+      rating: 5,
+      avatar: "AJ"
+    },
+    {
+      name: "Maria Chen",
+      location: "Tokyo, Japan",
+      text: "The AI suggestions helped us discover hidden gems we would have missed otherwise.",
+      rating: 5,
+      avatar: "MC"
+    },
+    {
+      name: "David Park",
+      location: "Paris, France",
+      text: "Collaborative features made planning our honeymoon a shared joy instead of a chore.",
+      rating: 5,
+      avatar: "DP"
+    }
+  ];
+
+  const insights = [
+    {
+      title: "Best Time to Visit Japan",
+      description: "Cherry Blossom Season Guide and optimal travel months",
+      icon: "🌸"
+    },
+    {
+      title: "Budget Travel Hacks",
+      description: "Smart ways to save on accommodation and transport",
+      icon: "💰"
+    },
+    {
+      title: "Sustainable Travel",
+      description: "How to reduce your carbon footprint while exploring",
+      icon: "🌿"
+    },
+    {
+      title: "Local Cuisine Guide",
+      description: "Must-try foods in Italy, Thailand, and Mexico",
+      icon: "🍝"
+    }
+  ];
+
+  const navLinks = [
+    { name: 'Home', path: '/' },
+    { name: 'About Us', path: '/about' },
+    { name: 'Travel Guides', path: '/guides' },
+    { name: 'FAQ', path: '/faq' },
+  ];
+
+  const currentTrip = demoTrips[currentTripIndex] || {};
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#020617",
-        color: "#e5e7eb",
-        padding: "2rem",
-      }}
-    >
-      <h1 style={{ fontSize: "2.2rem", fontWeight: 700, marginBottom: "0.5rem" }}>
-        TripMate – Plan, Share & Relive Your Trips
-      </h1>
-      <p style={{ maxWidth: 600, color: "#9ca3af", marginBottom: "1.5rem" }}>
-        Smart itineraries, AI planning, collaboration and more — all in one place.
-      </p>
+    <Container>
+      {/* Navigation Bar */}
+      <Navbar>
+        <NavContainer>
+          <LogoWrapper>
+            <Logo src={logo} alt="TripMate Logo" />
+          </LogoWrapper>
+          
+          <DesktopNav>
+            {navLinks.map((link) => (
+              <NavLink key={link.name} onClick={() => navigate(link.path)}>
+                {link.name}
+              </NavLink>
+            ))}
+          </DesktopNav>
+          
+          <AuthButtons>
+            <LoginButton onClick={() => navigate("/signin")}>
+              Log In
+            </LoginButton>
+            <SignUpButton onClick={() => navigate("/signin")}>
+              Sign Up Now
+            </SignUpButton>
+          </AuthButtons>
+          
+          <MobileMenuButton onClick={toggleMenu}>
+            {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
+          </MobileMenuButton>
+        </NavContainer>
+        
+        {isMenuOpen && (
+          <MobileMenu>
+            {navLinks.map((link) => (
+              <MobileNavLink 
+                key={link.name} 
+                onClick={() => {
+                  navigate(link.path);
+                  setIsMenuOpen(false);
+                }}
+              >
+                {link.name}
+              </MobileNavLink>
+            ))}
+            <MobileAuthButtons>
+              <LoginButton onClick={() => navigate('/login')}>
+                Log In
+              </LoginButton>
+              <SignUpButton onClick={() => navigate('/signin')}>
+                Sign Up Now
+              </SignUpButton>
+            </MobileAuthButtons>
+          </MobileMenu>
+        )}
+      </Navbar>
 
-      <button
-        onClick={() => navigate("/login-page")}
-        style={{
-          padding: "0.7rem 1.6rem",
-          borderRadius: "999px",
-          border: "none",
-          background: "linear-gradient(135deg, #4ade80, #22c55e)",
-          color: "#020617",
-          fontWeight: 600,
-          cursor: "pointer",
-        }}
-      >
-        Get started – Log in / Sign up
-      </button>
-    </div>
+      {/* Hero Section */}
+      <HeroSection>
+        <HeroContent>
+          <HeroTitle>Your Personal Travel Assistant</HeroTitle>
+
+          <HeroSubtitle>
+            Create, organise, and optimise your adventures with AI-powered planning, 
+            interactive maps, group collaboration, budget splitting, live weather adjustments, 
+            reservation syncing, and auto-generated trip highlight videos.
+          </HeroSubtitle>
+
+          <CTAGroup>
+            <PrimaryButton onClick={() => navigate('/signin')}>
+              Get Started
+            </PrimaryButton>
+
+            <SecondaryButton onClick={() => navigate('/demo')}>
+              Try Demo
+            </SecondaryButton>
+          </CTAGroup>
+        </HeroContent>
+      </HeroSection>
+
+      {/* About Us */}
+      <Section>
+        <SectionHeader>
+          <SectionSubtitle>
+            <BookOpen size={20} style={{ marginRight: '10px' }} />
+            A LITTLE BIT ABOUT US
+          </SectionSubtitle>
+          <SectionTitle>Why We Built TripMate</SectionTitle>
+          <SectionDescription>
+            We believe travel planning should be joyful, not stressful. TripMate combines 
+            cutting-edge AI with intuitive design to help you create perfect itineraries, 
+            collaborate with friends, and preserve precious memories.
+          </SectionDescription>
+        </SectionHeader>
+        
+        <FeaturesGrid>
+          {features.map((feature, index) => (
+            <FeatureCard key={index}>
+              <FeatureIcon>{feature.icon}</FeatureIcon>
+              <FeatureTitle>{feature.title}</FeatureTitle>
+              <FeatureDescription>{feature.description}</FeatureDescription>
+            </FeatureCard>
+          ))}
+        </FeaturesGrid>
+      </Section>
+
+      {/* Why Choose TripMate */}
+      <Section light>
+        <SectionHeader>
+          <SectionTitle>Why choose TripMate?</SectionTitle>
+          <SectionDescription>
+            Everything you need for stress-free travel planning in one beautiful platform
+          </SectionDescription>
+        </SectionHeader>
+        
+        <BenefitsGrid>
+          <BenefitItem>
+            <CheckCircle size={20} color="#3b82f6" />
+            <span>AI-powered itinerary suggestions</span>
+          </BenefitItem>
+          <BenefitItem>
+            <CheckCircle size={20} color="#3b82f6" />
+            <span>Real-time collaboration</span>
+          </BenefitItem>
+          <BenefitItem>
+            <CheckCircle size={20} color="#3b82f6" />
+            <span>Budget tracking & expense splitting</span>
+          </BenefitItem>
+          <BenefitItem>
+            <CheckCircle size={20} color="#3b82f6" />
+            <span>Smart packing checklists</span>
+          </BenefitItem>
+          <BenefitItem>
+            <CheckCircle size={20} color="#3b82f6" />
+            <span>Destination insights & local tips</span>
+          </BenefitItem>
+          <BenefitItem>
+            <CheckCircle size={20} color="#3b82f6" />
+            <span>Travel document storage</span>
+          </BenefitItem>
+          <BenefitItem>
+            <CheckCircle size={20} color="#3b82f6" />
+            <span>Photo & memory timeline</span>
+          </BenefitItem>
+          <BenefitItem>
+            <CheckCircle size={20} color="#3b82f6" />
+            <span>Mobile app & web access</span>
+          </BenefitItem>
+        </BenefitsGrid>
+      </Section>
+
+      {/* Demo Trips Carousel */}
+      <Section>
+        <SectionHeader>
+          <SectionTitle>Our Highest-Rated Trips</SectionTitle>
+          <SectionDescription>
+            Explore sample itineraries created by our community of travelers
+          </SectionDescription>
+        </SectionHeader>
+        
+        {isLoading ? (
+          <LoadingContainer>Loading demo trips...</LoadingContainer>
+        ) : demoTrips.length === 0 ? (
+          <EmptyState>No demo trips available</EmptyState>
+        ) : (
+          <CarouselContainer>
+            <CarouselContent>
+              <TripCard>
+                <TripImage src="/demo-trip-placeholder.jpg" alt={currentTrip.title} />
+                <TripInfo>
+                  <TripTitle>{currentTrip.title}</TripTitle>
+                  <TripMeta>
+                    <MetaItem>
+                      <MapPin size={16} />
+                      <span>{currentTrip.main_city}, {currentTrip.main_country}</span>
+                    </MetaItem>
+                    <MetaItem>
+                      <Calendar size={16} />
+                      <span>{currentTrip.start_date} - {currentTrip.end_date}</span>
+                    </MetaItem>
+                    <MetaItem>
+                      <Users size={16} />
+                      <span>{currentTrip.travel_type || 'Adventure'}</span>
+                    </MetaItem>
+                  </TripMeta>
+                  <TripDescription>
+                    {currentTrip.description || 'A sample itinerary showing TripMate features.'}
+                  </TripDescription>
+                  <ViewDetailsButton>Explore This Trip</ViewDetailsButton>
+                </TripInfo>
+              </TripCard>
+            </CarouselContent>
+            
+            <CarouselControls>
+              <NavButton onClick={prevSlide}>
+                <ChevronLeft size={20} />
+              </NavButton>
+              
+              <Dots>
+                {demoTrips.map((_, index) => (
+                  <Dot 
+                    key={index} 
+                    active={index === currentTripIndex}
+                    onClick={() => setCurrentTripIndex(index)}
+                  />
+                ))}
+              </Dots>
+              
+              <NavButton onClick={nextSlide}>
+                <ChevronRight size={20} />
+              </NavButton>
+            </CarouselControls>
+          </CarouselContainer>
+        )}
+        
+        <CenterButton>
+          <OutlineButton onClick={() => navigate('/demo-gallery')}>
+            View All Demo Trips
+            <ChevronRight size={16} />
+          </OutlineButton>
+        </CenterButton>
+      </Section>
+
+      {/* Customization */}
+      <Section light>
+        <CustomizationSection>
+          <CustomizationContent>
+            <SectionSubtitle>YOUR TRIP, YOUR WAY</SectionSubtitle>
+            <SectionTitle>Personalized Travel Experience</SectionTitle>
+            <SectionDescription>
+              From food preferences to activity levels, we tailor recommendations just for you. 
+              Create the perfect balance of adventure, relaxation, and discovery.
+            </SectionDescription>
+            <CustomizationPoints>
+              <PointItem>
+                <Award size={18} color="#3b82f6" />
+                <span>Personalized activity suggestions</span>
+              </PointItem>
+              <PointItem>
+                <Clock size={18} color="#3b82f6" />
+                <span>Flexible day-by-day planning</span>
+              </PointItem>
+              <PointItem>
+                <Smartphone size={18} color="#3b82f6" />
+                <span>Mobile-optimized access anywhere</span>
+              </PointItem>
+            </CustomizationPoints>
+          </CustomizationContent>
+          <CustomizationImage src="/customization-demo.png" alt="Customization Preview" />
+        </CustomizationSection>
+      </Section>
+
+      {/* Testimonials */}
+      <Section>
+        <SectionHeader>
+          <SectionSubtitle>HEAR FROM TRAVELERS</SectionSubtitle>
+          <SectionTitle>Happy Travelers Love TripMate</SectionTitle>
+          <SectionDescription>
+            Join thousands of travelers who have transformed their trips with TripMate
+          </SectionDescription>
+        </SectionHeader>
+        
+        <TestimonialsGrid>
+          {testimonials.map((testimonial, index) => (
+            <TestimonialCard key={index}>
+              <Rating>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Star 
+                    key={i} 
+                    size={16} 
+                    fill={i < testimonial.rating ? "#f59e0b" : "#e5e7eb"} 
+                    color={i < testimonial.rating ? "#f59e0b" : "#e5e7eb"} 
+                  />
+                ))}
+              </Rating>
+              
+              <TestimonialText>"{testimonial.text}"</TestimonialText>
+              
+              <UserInfo>
+                <Avatar>{testimonial.avatar}</Avatar>
+                <UserDetails>
+                  <UserName>{testimonial.name}</UserName>
+                  <UserLocation>
+                    <MapPin size={12} />
+                    {testimonial.location}
+                  </UserLocation>
+                </UserDetails>
+              </UserInfo>
+            </TestimonialCard>
+          ))}
+        </TestimonialsGrid>
+      </Section>
+
+      {/* Travel Insights */}
+      <Section light>
+        <SectionHeader>
+          <SectionSubtitle>TRAVEL INTELLIGENCE</SectionSubtitle>
+          <SectionTitle>Insights for the Inquisitive Traveller</SectionTitle>
+          <SectionDescription>
+            Expert tips and guides to make your journeys even more memorable
+          </SectionDescription>
+        </SectionHeader>
+        
+        <InsightsGrid>
+          {insights.map((insight, index) => (
+            <InsightCard key={index}>
+              <InsightIcon>{insight.icon}</InsightIcon>
+              <InsightContent>
+                <InsightTitle>{insight.title}</InsightTitle>
+                <InsightDescription>{insight.description}</InsightDescription>
+                <ReadMore>
+                  Read More <ChevronRight size={14} />
+                </ReadMore>
+              </InsightContent>
+            </InsightCard>
+          ))}
+        </InsightsGrid>
+      </Section>
+
+      {/* Newsletter */}
+      <NewsletterSection>
+        <NewsletterContent>
+          <Mail size={40} color="#3b82f6" />
+          <SectionTitle>Stay in the Loop</SectionTitle>
+          <SectionDescription>
+            Subscribe to our newsletter for travel tips, feature updates, and exclusive offers
+          </SectionDescription>
+          
+          <NewsletterFormContainer>
+            {isSubmitted ? (
+              <SuccessMessage>
+                <Check size={20} />
+                Thank you for subscribing!
+              </SuccessMessage>
+            ) : (
+              <NewsletterForm onSubmit={handleNewsletterSubmit}>
+                <InputWrapper>
+                  <Mail size={20} color="#6b7280" />
+                  <NewsletterInput
+                    type="email"
+                    placeholder="Enter your email address"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </InputWrapper>
+                <NewsletterSubmitButton type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? 'Subscribing...' : 'Subscribe'}
+                </NewsletterSubmitButton>
+              </NewsletterForm>
+            )}
+            <PrivacyNote>
+              We respect your privacy. Unsubscribe at any time.
+            </PrivacyNote>
+          </NewsletterFormContainer>
+        </NewsletterContent>
+      </NewsletterSection>
+
+      {/* Footer CTA */}
+      <FooterSection>
+        <FooterTitle>Ready to Transform Your Travel Planning?</FooterTitle>
+        <FooterSubtitle>
+          Join thousands of travelers already using TripMate to create unforgettable journeys
+        </FooterSubtitle>
+        <CTAGroup>
+          <PrimaryButton large onClick={() => navigate("/signup")}>
+            Get Started Free
+          </PrimaryButton>
+        </CTAGroup>
+        <FooterNote>
+          No credit card required • Free forever plan available • Cancel anytime
+        </FooterNote>
+      </FooterSection>
+    </Container>
   );
-}
+};
+
+// Styled Components
+const Container = styled.div`
+  min-height: 100vh;
+  background: #ffffff;
+  color: #1f2937;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+`;
+
+// Navigation Styles
+const Navbar = styled.nav`
+  position: sticky;
+  top: 0;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid #e5e7eb;
+  z-index: 1000;
+  padding: 1rem 0;
+`;
+
+const NavContainer = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 2rem;
+  
+  @media (max-width: 768px) {
+    padding: 0 1rem;
+  }
+`;
+
+const LogoWrapper = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  
+  &:hover {
+    opacity: 0.8;
+  }
+`;
+
+const Logo = styled.img`
+  height: 50px;
+  width: auto;
+  
+  @media (max-width: 768px) {
+    height: 28px;
+  }
+`;
+
+const LogoText = styled.span`
+  font-size: 1.5rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+`;
+
+const DesktopNav = styled.div`
+  display: flex;
+  gap: 2rem;
+  
+  @media (max-width: 768px) {
+    display: none;
+  }
+`;
+
+const NavLink = styled.div`
+  color: #4b5563;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.2s;
+  padding: 0.5rem 0;
+  
+  &:hover {
+    color: #3b82f6;
+  }
+  
+  &:after {
+    content: '';
+    display: block;
+    width: 0;
+    height: 2px;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    transition: width 0.3s;
+  }
+  
+  &:hover:after {
+    width: 100%;
+  }
+`;
+
+const AuthButtons = styled.div`
+  display: flex;
+  gap: 1rem;
+  
+  @media (max-width: 768px) {
+    display: none;
+  }
+`;
+
+const LoginButton = styled.button`
+  background: transparent;
+  color: #3b82f6;
+  border: 2px solid #3b82f6;
+  padding: 0.5rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  
+  &:hover {
+    background: #eff6ff;
+  }
+`;
+
+const SignUpButton = styled.button`
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: white;
+  border: none;
+  padding: 0.5rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(59, 130, 246, 0.3);
+  }
+`;
+
+const MobileMenuButton = styled.button`
+  display: none;
+  background: transparent;
+  border: none;
+  color: #374151;
+  cursor: pointer;
+  
+  @media (max-width: 768px) {
+    display: block;
+  }
+`;
+
+const MobileMenu = styled.div`
+  display: none;
+  
+  @media (max-width: 768px) {
+    display: flex;
+    flex-direction: column;
+    background: white;
+    padding: 1rem;
+    border-top: 1px solid #e5e7eb;
+    animation: slideDown 0.3s ease-out;
+  }
+  
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+`;
+
+const MobileNavLink = styled.div`
+  color: #4b5563;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 1rem 0;
+  border-bottom: 1px solid #f3f4f6;
+  transition: color 0.2s;
+  
+  &:hover {
+    color: #3b82f6;
+  }
+  
+  &:last-child {
+    border-bottom: none;
+  }
+`;
+
+const MobileAuthButtons = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem 0;
+`;
+
+// Hero Section Styles
+const HeroSection = styled.section`
+  position: relative;
+  width: 100%;
+  height: 90vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 0 2rem;
+  text-align: center;
+
+  background-image: url(${heroBackground});
+  background-size: cover;
+  background-position: center; /* Best for 16:9 images */
+  background-repeat: no-repeat;
+
+  color: white;
+
+  /* Soft overlay for text readability */
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    backdrop-filter: blur(1px);
+  }
+
+  > * {
+    position: relative;
+    z-index: 2;
+  }
+`;
+
+
+const HeroContent = styled.div`
+  max-width: 800px;
+`;
+
+const HeroTitle = styled.h1`
+  font-size: 4rem;
+  font-weight: 800;
+  margin-bottom: 1.5rem;
+  line-height: 1.1;
+
+  @media (max-width: 768px) {
+    font-size: 2.8rem;
+  }
+`;
+
+const HeroSubtitle = styled.p`
+  font-size: 1.25rem;
+  margin-bottom: 2.5rem;
+  line-height: 1.6;
+  color: #f0f0f0;
+
+  @media (max-width: 768px) {
+    font-size: 1.1rem;
+  }
+`;
+
+const CTAGroup = styled.div`
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+
+  @media (max-width: 640px) {
+    flex-direction: column;
+    width: 100%;
+  }
+`;
+
+const Button = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.875rem 2rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+  font-family: inherit;
+`;
+
+const PrimaryButton = styled(Button)<{ large?: boolean }>`
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: white;
+  padding: ${props => props.large ? '1rem 2.5rem' : '0.875rem 2rem'};
+  font-size: ${props => props.large ? '1.1rem' : '1rem'};
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px rgba(59, 130, 246, 0.3);
+  }
+`;
+
+const SecondaryButton = styled(Button)`
+  background: rgba(59, 130, 246, 0.15); /* light ocean blue */
+  color: #bfdbfe; /* soft blue text */
+  border: 2px solid rgba(59, 130, 246, 0.5);
+  backdrop-filter: blur(4px);
+
+  &:hover {
+    background: rgba(59, 130, 246, 0.25);
+    border-color: rgba(59, 130, 246, 0.8);
+  }
+`;
+
+
+const OutlineButton = styled(Button)`
+  background: transparent;
+  color: #3b82f6;
+  border: 2px solid #3b82f6;
+  padding: 0.75rem 1.5rem;
+
+  &:hover {
+    background: #eff6ff;
+  }
+`;
+
+const Section = styled.section<{ light?: boolean }>`
+  padding: 5rem 2rem;
+  background: ${props => props.light ? '#f9fafb' : 'transparent'};
+`;
+
+const SectionHeader = styled.div`
+  text-align: center;
+  max-width: 800px;
+  margin: 0 auto 4rem;
+`;
+
+const SectionTitle = styled.h2`
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  color: #111827;
+
+  @media (max-width: 768px) {
+    font-size: 2rem;
+  }
+`;
+
+const SectionSubtitle = styled.div`
+  font-size: 0.875rem;
+  color: #3b82f6;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+`;
+
+const SectionDescription = styled.p`
+  font-size: 1.125rem;
+  color: #6b7280;
+  line-height: 1.6;
+  margin-top: 1rem;
+`;
+
+const FeaturesGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+`;
+
+const FeatureCard = styled.div`
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  text-align: center;
+  transition: transform 0.2s, box-shadow 0.2s;
+  border: 1px solid #e5e7eb;
+
+  &:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  }
+`;
+
+const FeatureIcon = styled.div`
+  color: #3b82f6;
+  margin-bottom: 1.5rem;
+`;
+
+const FeatureTitle = styled.h3`
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  color: #111827;
+`;
+
+const FeatureDescription = styled.p`
+  color: #6b7280;
+  font-size: 0.95rem;
+  line-height: 1.5;
+`;
+
+const BenefitsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+  max-width: 1000px;
+  margin: 0 auto;
+`;
+
+const BenefitItem = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+
+  span {
+    color: #374151;
+    font-weight: 500;
+  }
+`;
+
+const LoadingContainer = styled.div`
+  text-align: center;
+  padding: 4rem;
+  color: #6b7280;
+`;
+
+const EmptyState = styled.div`
+  text-align: center;
+  padding: 4rem;
+  color: #6b7280;
+  background: white;
+  border-radius: 12px;
+  max-width: 800px;
+  margin: 0 auto;
+  border: 1px solid #e5e7eb;
+`;
+
+const CarouselContainer = styled.div`
+  max-width: 900px;
+  margin: 0 auto;
+`;
+
+const CarouselContent = styled.div`
+  margin-bottom: 2rem;
+`;
+
+const TripCard = styled.div`
+  background: white;
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+
+  @media (min-width: 768px) {
+    flex-direction: row;
+  }
+`;
+
+const TripImage = styled.img`
+  width: 100%;
+  height: 240px;
+  object-fit: cover;
+
+  @media (min-width: 768px) {
+    width: 40%;
+    height: auto;
+  }
+`;
+
+const TripInfo = styled.div`
+  padding: 2rem;
+  flex: 1;
+`;
+
+const TripTitle = styled.h3`
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: #111827;
+`;
+
+const TripMeta = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+`;
+
+const MetaItem = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #6b7280;
+  font-size: 0.9rem;
+`;
+
+const TripDescription = styled.p`
+  color: #4b5563;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+`;
+
+const ViewDetailsButton = styled.button`
+  background: transparent;
+  color: #3b82f6;
+  border: 2px solid #3b82f6;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: #eff6ff;
+  }
+`;
+
+const CarouselControls = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+  margin-top: 2rem;
+`;
+
+const NavButton = styled.button`
+  background: white;
+  border: 1px solid #e5e7eb;
+  color: #374151;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    background: #3b82f6;
+    color: white;
+    border-color: #3b82f6;
+  }
+`;
+
+const Dots = styled.div`
+  display: flex;
+  gap: 0.5rem;
+`;
+
+const Dot = styled.button<{ active: boolean }>`
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  background: ${props => props.active ? '#3b82f6' : '#e5e7eb'};
+  transition: all 0.2s;
+
+  &:hover {
+    background: #3b82f6;
+  }
+`;
+
+const CenterButton = styled.div`
+  display: flex;
+  justify-content: center;
+  margin-top: 3rem;
+`;
+
+const CustomizationSection = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4rem;
+  max-width: 1200px;
+  margin: 0 auto;
+
+  @media (max-width: 1024px) {
+    flex-direction: column;
+    text-align: center;
+  }
+`;
+
+const CustomizationContent = styled.div`
+  flex: 1;
+`;
+
+const CustomizationImage = styled.img`
+  flex: 1;
+  max-width: 100%;
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e5e7eb;
+`;
+
+const CustomizationPoints = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 2rem;
+`;
+
+const PointItem = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: #374151;
+  font-weight: 500;
+
+  @media (max-width: 1024px) {
+    justify-content: center;
+  }
+`;
+
+const TestimonialsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+  max-width: 1000px;
+  margin: 0 auto;
+`;
+
+const TestimonialCard = styled.div`
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  transition: transform 0.2s, box-shadow 0.2s;
+  border: 1px solid #e5e7eb;
+
+  &:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  }
+`;
+
+const Rating = styled.div`
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+`;
+
+const TestimonialText = styled.p`
+  color: #4b5563;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+  font-style: italic;
+  font-size: 1rem;
+`;
+
+const UserInfo = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+`;
+
+const Avatar = styled.div`
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: white;
+`;
+
+const UserDetails = styled.div``;
+
+const UserName = styled.div`
+  font-weight: 600;
+  color: #111827;
+`;
+
+const UserLocation = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: #6b7280;
+`;
+
+const InsightsGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+`;
+
+const InsightCard = styled.div`
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  display: flex;
+  gap: 1rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+  border: 1px solid #e5e7eb;
+
+  &:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  }
+`;
+
+const InsightIcon = styled.div`
+  font-size: 2rem;
+`;
+
+const InsightContent = styled.div`
+  flex: 1;
+`;
+
+const InsightTitle = styled.h4`
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: #111827;
+`;
+
+const InsightDescription = styled.p`
+  color: #6b7280;
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+  line-height: 1.5;
+`;
+
+const ReadMore = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #3b82f6;
+  font-size: 0.9rem;
+  cursor: pointer;
+  font-weight: 500;
+
+  &:hover {
+    text-decoration: underline;
+  }
+`;
+
+const NewsletterSection = styled.section`
+  padding: 5rem 2rem;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+`;
+
+const NewsletterContent = styled.div`
+  max-width: 600px;
+  margin: 0 auto;
+  text-align: center;
+`;
+
+const NewsletterFormContainer = styled.div`
+  margin: 2rem auto 0;
+`;
+
+const NewsletterForm = styled.form`
+  display: flex;
+  gap: 1rem;
+
+  @media (max-width: 640px) {
+    flex-direction: column;
+  }
+`;
+
+const InputWrapper = styled.div`
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: white;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  transition: border-color 0.2s;
+
+  &:focus-within {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+`;
+
+const NewsletterInput = styled.input`
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #111827;
+  font-size: 1rem;
+  outline: none;
+
+  &::placeholder {
+    color: #9ca3af;
+  }
+`;
+
+const NewsletterSubmitButton = styled.button`
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  color: white;
+  border: none;
+  padding: 0 2rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px rgba(59, 130, 246, 0.3);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+`;
+
+const SuccessMessage = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: #d1fae5;
+  color: #059669;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid #10b981;
+`;
+
+const PrivacyNote = styled.p`
+  text-align: center;
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin-top: 1rem;
+`;
+
+const FooterSection = styled.section`
+  padding: 5rem 2rem;
+  text-align: center;
+  background: #111827;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center; 
+`;
+
+const FooterTitle = styled.h2`
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  color: white;
+
+  @media (max-width: 768px) {
+    font-size: 2rem;
+  }
+`;
+
+const FooterSubtitle = styled.p`
+  font-size: 1.1rem;
+  color: #d1d5db;
+  margin-bottom: 2rem;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+`;
+
+const FooterNote = styled.p`
+  margin-top: 2rem;
+  color: #9ca3af;
+  font-size: 0.9rem;
+`;
+
+export default LandingPage;
