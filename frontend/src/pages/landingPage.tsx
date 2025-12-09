@@ -2,34 +2,23 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import logo from "../assets/logo.png";
 import hallstatt from "../assets/hallstatt.png";
 import Cappadocia from "../assets/Cappadocia.jpg";
 import Yosemite from "../assets/Yosemite.jpg";
 import heroBackground from "../assets/heroBackground.jpeg";
+import LandingNavbar from "../components/landingNavbar";
+import LandingFooter from "../components/landingFooter";
 import { 
-  Plane, 
-  Globe, 
   Star, 
   MapPin, 
-  Heart, 
-  CheckCircle,
   ChevronRight,
-  Award,
-  Clock,
-  Shield,
-  Smartphone,
   Mail,
-  ChevronLeft,
-  Calendar,
   Check,
   Search,
   Compass,
   Wallet,
   Camera,
   BookOpen,
-  Menu,
-  X,
   Bot,
   Users,
   ClipboardCheck,
@@ -44,7 +33,6 @@ const LandingPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
     const fetchDemoTrips = async () => {
@@ -81,10 +69,6 @@ const LandingPage: React.FC = () => {
     setEmail('');
     
     setTimeout(() => setIsSubmitted(false), 3000);
-  };
-
-  const toggleMenu = () => {
-    setIsMenuOpen(!isMenuOpen);
   };
 
   const features = [
@@ -158,72 +142,21 @@ const LandingPage: React.FC = () => {
   ];
 
   const navLinks = [
-    { name: 'Home', path: '/' },
-    { name: 'About Us', path: '/about' },
-    { name: 'Travel Guides', path: '/guides' },
-    { name: 'FAQ', path: '/faq' },
+    { name: 'Home', path: '/landing-page#hero' },
+    { name: 'About Us', path: '/landing-page#about' },
+    { name: 'Travel Guides', path: '/travel-guides-tutorial' },
+    { name: 'FAQ', path: '/guest-faq' },
   ];
 
   const currentTrip = demoTrips[currentTripIndex] || {};
 
   return (
     <Container>
-      {/* Navigation Bar */}
-      <Navbar>
-        <NavContainer>
-          <LogoWrapper>
-            <Logo src={logo} alt="TripMate Logo" />
-          </LogoWrapper>
-          
-          <DesktopNav>
-            {navLinks.map((link) => (
-              <NavLink key={link.name} onClick={() => navigate(link.path)}>
-                {link.name}
-              </NavLink>
-            ))}
-          </DesktopNav>
-          
-          <AuthButtons>
-            <LoginButton onClick={() => navigate("/signin")}>
-              Log In
-            </LoginButton>
-            <SignUpButton onClick={() => navigate("/signin")}>
-              Sign Up Now
-            </SignUpButton>
-          </AuthButtons>
-          
-          <MobileMenuButton onClick={toggleMenu}>
-            {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
-          </MobileMenuButton>
-        </NavContainer>
-        
-        {isMenuOpen && (
-          <MobileMenu>
-            {navLinks.map((link) => (
-              <MobileNavLink 
-                key={link.name} 
-                onClick={() => {
-                  navigate(link.path);
-                  setIsMenuOpen(false);
-                }}
-              >
-                {link.name}
-              </MobileNavLink>
-            ))}
-            <MobileAuthButtons>
-              <LoginButton onClick={() => navigate('/login')}>
-                Log In
-              </LoginButton>
-              <SignUpButton onClick={() => navigate('/signin')}>
-                Sign Up Now
-              </SignUpButton>
-            </MobileAuthButtons>
-          </MobileMenu>
-        )}
-      </Navbar>
+      {/* Navigation Bar - Using Component */}
+      <LandingNavbar navLinks={navLinks} />
 
       {/* Hero Section */}
-      <HeroSection>
+      <HeroSection id="hero" style={{ scrollMarginTop: '80px' }}>
         <HeroContent>
           <HeroTitle>Your Personal Travel Assistant</HeroTitle>
 
@@ -246,7 +179,7 @@ const LandingPage: React.FC = () => {
       </HeroSection>
 
       {/* About Us */}
-      <Section>
+      <Section id="about" style={{ scrollMarginTop: '20px' }}>
         <AboutHeader>
           <AboutSubtitle>
             <BookOpen size={18} />
@@ -291,80 +224,79 @@ const LandingPage: React.FC = () => {
           </SectionDescription>
         </SectionHeader>
         
-      <BenefitsGrid>
+        <BenefitsGrid>
+          <FlipCard>
+            <FlipInner>
+              <FlipFront>
+                <BenefitIcon><Bot /></BenefitIcon>
+                <FlipTitle>AI-powered itinerary suggestions</FlipTitle>
+              </FlipFront>
+              <FlipBack>
+                <FlipBackText>Automatically create smart day-by-day plans tailored to your preferences.</FlipBackText>
+              </FlipBack>
+            </FlipInner>
+          </FlipCard>
 
-        <FlipCard>
-          <FlipInner>
-            <FlipFront>
-              <BenefitIcon><Bot /></BenefitIcon>
-              <FlipTitle>AI-powered itinerary suggestions</FlipTitle>
-            </FlipFront>
-            <FlipBack>
-              <FlipBackText>Automatically create smart day-by-day plans tailored to your preferences.</FlipBackText>
-            </FlipBack>
-          </FlipInner>
-        </FlipCard>
+          <FlipCard>
+            <FlipInner>
+              <FlipFront>
+                <BenefitIcon><Users/></BenefitIcon>
+                <FlipTitle>Real-time collaboration</FlipTitle>
+              </FlipFront>
+              <FlipBack>
+                <FlipBackText>Plan together instantly with shared editing and synced trip updates.</FlipBackText>
+              </FlipBack>
+            </FlipInner>
+          </FlipCard>
 
-        <FlipCard>
-          <FlipInner>
-            <FlipFront>
-              <BenefitIcon><Users/></BenefitIcon>
-              <FlipTitle>Real-time collaboration</FlipTitle>
-            </FlipFront>
-            <FlipBack>
-              <FlipBackText>Plan together instantly with shared editing and synced trip updates.</FlipBackText>
-            </FlipBack>
-          </FlipInner>
-        </FlipCard>
+          <FlipCard>
+            <FlipInner>
+              <FlipFront>
+                <BenefitIcon><Wallet/></BenefitIcon>
+                <FlipTitle>Budget tracking & expense splitting</FlipTitle>
+              </FlipFront>
+              <FlipBack>
+                <FlipBackText>Auto-split expenses, track spending, and avoid money confusion.</FlipBackText>
+              </FlipBack>
+            </FlipInner>
+          </FlipCard>
 
-        <FlipCard>
-          <FlipInner>
-            <FlipFront>
-              <BenefitIcon><Wallet/></BenefitIcon>
-              <FlipTitle>Budget tracking & expense splitting</FlipTitle>
-            </FlipFront>
-            <FlipBack>
-              <FlipBackText>Auto-split expenses, track spending, and avoid money confusion.</FlipBackText>
-            </FlipBack>
-          </FlipInner>
-        </FlipCard>
+          <FlipCard>
+            <FlipInner>
+              <FlipFront>
+                <BenefitIcon><ClipboardCheck/></BenefitIcon>
+                <FlipTitle>Smart packing checklists</FlipTitle>
+              </FlipFront>
+              <FlipBack>
+                <FlipBackText>AI-generated lists ensure you never forget essentials again.</FlipBackText>
+              </FlipBack>
+            </FlipInner>
+          </FlipCard>
 
-        <FlipCard>
-          <FlipInner>
-            <FlipFront>
-              <BenefitIcon><ClipboardCheck/></BenefitIcon>
-              <FlipTitle>Smart packing checklists</FlipTitle>
-            </FlipFront>
-            <FlipBack>
-              <FlipBackText>AI-generated lists ensure you never forget essentials again.</FlipBackText>
-            </FlipBack>
-          </FlipInner>
-        </FlipCard>
+          <FlipCard>
+            <FlipInner>
+              <FlipFront>
+                <BenefitIcon><MapPin size={20} /></BenefitIcon>
+                <FlipTitle>Destination insights & local tips</FlipTitle>
+              </FlipFront>
+              <FlipBack>
+                <FlipBackText>Get curated recommendations from real travelers and locals.</FlipBackText>
+              </FlipBack>
+            </FlipInner>
+          </FlipCard>
 
-        <FlipCard>
-          <FlipInner>
-            <FlipFront>
-              <BenefitIcon><MapPin size={20} /></BenefitIcon>
-              <FlipTitle>Destination insights & local tips</FlipTitle>
-            </FlipFront>
-            <FlipBack>
-              <FlipBackText>Get curated recommendations from real travelers and locals.</FlipBackText>
-            </FlipBack>
-          </FlipInner>
-        </FlipCard>
-
-        <FlipCard>
-          <FlipInner>
-            <FlipFront>
-              <BenefitIcon><FileText /></BenefitIcon>
-              <FlipTitle>Travel document storage</FlipTitle>
-            </FlipFront>
-            <FlipBack>
-              <FlipBackText>Keep all your tickets, bookings & passports securely in one place.</FlipBackText>
-            </FlipBack>
-          </FlipInner>
-        </FlipCard>
-      </BenefitsGrid>
+          <FlipCard>
+            <FlipInner>
+              <FlipFront>
+                <BenefitIcon><FileText /></BenefitIcon>
+                <FlipTitle>Travel document storage</FlipTitle>
+              </FlipFront>
+              <FlipBack>
+                <FlipBackText>Keep all your tickets, bookings & passports securely in one place.</FlipBackText>
+              </FlipBack>
+            </FlipInner>
+          </FlipCard>
+        </BenefitsGrid>
       </Section>
 
       {/* Demo Trips Carousel */}
@@ -521,21 +453,8 @@ const LandingPage: React.FC = () => {
         </NewsletterContent>
       </NewsletterSection>
 
-      {/* Footer CTA */}
-      <FooterSection>
-        <FooterTitle>Ready to Transform Your Travel Planning?</FooterTitle>
-        <FooterSubtitle>
-          Join thousands of travelers already using TripMate to create unforgettable journeys
-        </FooterSubtitle>
-        <CTAGroup>
-          <PrimaryButton large onClick={() => navigate("/signup")}>
-            Get Started Free
-          </PrimaryButton>
-        </CTAGroup>
-        <FooterNote>
-          No credit card required • Free forever plan available • Cancel anytime
-        </FooterNote>
-      </FooterSection>
+      {/* Footer CTA - Using Component */}
+      <LandingFooter />
     </Container>
   );
 };
@@ -546,193 +465,6 @@ const Container = styled.div`
   background: #ffffff;
   color: #1f2937;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-`;
-
-// Navigation Styles
-const Navbar = styled.nav`
-  position: sticky;
-  top: 0;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid #e5e7eb;
-  z-index: 1000;
-  padding: 1rem 0;
-`;
-
-const NavContainer = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 2rem;
-  
-  @media (max-width: 768px) {
-    padding: 0 1rem;
-  }
-`;
-
-const LogoWrapper = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  cursor: pointer;
-  
-  &:hover {
-    opacity: 0.8;
-  }
-`;
-
-const Logo = styled.img`
-  height: 50px;
-  width: auto;
-  
-  @media (max-width: 768px) {
-    height: 28px;
-  }
-`;
-
-const LogoText = styled.span`
-  font-size: 1.5rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-`;
-
-const DesktopNav = styled.div`
-  display: flex;
-  gap: 2rem;
-  
-  @media (max-width: 768px) {
-    display: none;
-  }
-`;
-
-const NavLink = styled.div`
-  color: #4b5563;
-  font-weight: 500;
-  cursor: pointer;
-  transition: color 0.2s;
-  padding: 0.5rem 0;
-  
-  &:hover {
-    color: #3b82f6;
-  }
-  
-  &:after {
-    content: '';
-    display: block;
-    width: 0;
-    height: 2px;
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-    transition: width 0.3s;
-  }
-  
-  &:hover:after {
-    width: 100%;
-  }
-`;
-
-const AuthButtons = styled.div`
-  display: flex;
-  gap: 1rem;
-  
-  @media (max-width: 768px) {
-    display: none;
-  }
-`;
-
-const LoginButton = styled.button`
-  background: transparent;
-  color: #3b82f6;
-  border: 2px solid #3b82f6;
-  padding: 0.5rem 1.5rem;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  
-  &:hover {
-    background: #eff6ff;
-  }
-`;
-
-const SignUpButton = styled.button`
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-  color: white;
-  border: none;
-  padding: 0.5rem 1.5rem;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 20px rgba(59, 130, 246, 0.3);
-  }
-`;
-
-const MobileMenuButton = styled.button`
-  display: none;
-  background: transparent;
-  border: none;
-  color: #374151;
-  cursor: pointer;
-  
-  @media (max-width: 768px) {
-    display: block;
-  }
-`;
-
-const MobileMenu = styled.div`
-  display: none;
-  
-  @media (max-width: 768px) {
-    display: flex;
-    flex-direction: column;
-    background: white;
-    padding: 1rem;
-    border-top: 1px solid #e5e7eb;
-    animation: slideDown 0.3s ease-out;
-  }
-  
-  @keyframes slideDown {
-    from {
-      opacity: 0;
-      transform: translateY(-10px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-`;
-
-const MobileNavLink = styled.div`
-  color: #4b5563;
-  font-weight: 500;
-  cursor: pointer;
-  padding: 1rem 0;
-  border-bottom: 1px solid #f3f4f6;
-  transition: color 0.2s;
-  
-  &:hover {
-    color: #3b82f6;
-  }
-  
-  &:last-child {
-    border-bottom: none;
-  }
-`;
-
-const MobileAuthButtons = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  padding: 1rem 0;
 `;
 
 // Hero Section Styles
@@ -749,7 +481,7 @@ const HeroSection = styled.section`
 
   background-image: url(${heroBackground});
   background-size: cover;
-  background-position: center; /* Best for 16:9 images */
+  background-position: center;
   background-repeat: no-repeat;
 
   color: white;
@@ -768,7 +500,6 @@ const HeroSection = styled.section`
     z-index: 2;
   }
 `;
-
 
 const HeroContent = styled.div`
   max-width: 800px;
@@ -835,8 +566,8 @@ const PrimaryButton = styled(Button)<{ large?: boolean }>`
 `;
 
 const SecondaryButton = styled(Button)`
-  background: rgba(59, 130, 246, 0.15); /* light ocean blue */
-  color: #bfdbfe; /* soft blue text */
+  background: rgba(59, 130, 246, 0.15);
+  color: #bfdbfe;
   border: 2px solid rgba(59, 130, 246, 0.5);
   backdrop-filter: blur(4px);
 
@@ -844,23 +575,6 @@ const SecondaryButton = styled(Button)`
     background: rgba(59, 130, 246, 0.25);
     border-color: rgba(59, 130, 246, 0.8);
   }
-`;
-
-
-const OutlineButton = styled(Button)`
-  background: transparent;
-  color: #3b82f6;
-  border: 2px solid #3b82f6;
-  padding: 0.75rem 1.5rem;
-
-  &:hover {
-    background: #eff6ff;
-  }
-`;
-
-const AboutSection = styled.section`
-  padding: 5rem 2rem;
-  background: #eef4ff;
 `;
 
 const AboutHeader = styled.div`
@@ -1018,7 +732,7 @@ const SectionDescription = styled.p`
 const BenefitsGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 2.5rem;   /* ⭐ Add this ⭐ */
+  gap: 2.5rem;
   max-width: 1000px;
   margin: 0 auto;
 `;
@@ -1044,10 +758,9 @@ const FlipCard = styled.div`
   width: 100%;
   height: 260px;
   perspective: 1000px;
-  overflow: hidden;   /* ⭐ THE FIX ⭐ */
-  border-radius: 20px; /* ensures corners stay smooth */
+  overflow: hidden;
+  border-radius: 20px;
 `;
-
 
 const FlipInner = styled.div`
   position: relative;
@@ -1100,7 +813,6 @@ const FlipTitle = styled.h3`
   margin: 0;
 `;
 
-
 const ShowcaseSection = styled.section`
   display: flex;
   justify-content: space-between;
@@ -1149,12 +861,12 @@ const TripCardTilt = styled.div<{ rotate: number; top: string; left: string }>`
   top: ${(p) => p.top};
   left: ${(p) => p.left};
   width: 260px;
-  height: 380;  
+  height: 380px;
   background: white;
   border-radius: 20px;
   box-shadow: 0 20px 30px rgba(0,0,0,0.12);
   transform: rotate(${(p) => p.rotate}deg);
-  overflow: visible;  // optional, but good
+  overflow: visible;
   padding-bottom: 1rem;
 
   img {
@@ -1193,176 +905,6 @@ const TripButton = styled.button`
 
   &:hover {
     background: #d97706;
-  }
-`;
-
-const TripCard = styled.div`
-  background: white;
-  border-radius: 16px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-
-  @media (min-width: 768px) {
-    flex-direction: row;
-  }
-`;
-
-const TripImage = styled.img`
-  width: 100%;
-  height: 240px;
-  object-fit: cover;
-
-  @media (min-width: 768px) {
-    width: 40%;
-    height: auto;
-  }
-`;
-
-const TripInfo = styled.div`
-  padding: 2rem;
-  flex: 1;
-`;
-
-const TripTitle = styled.h3`
-  font-size: 1.5rem;
-  font-weight: 600;
-  margin-bottom: 1rem;
-  color: #111827;
-`;
-
-const TripMeta = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-`;
-
-const MetaItem = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: #6b7280;
-  font-size: 0.9rem;
-`;
-
-const TripDescription = styled.p`
-  color: #4b5563;
-  line-height: 1.6;
-  margin-bottom: 1.5rem;
-`;
-
-const ViewDetailsButton = styled.button`
-  background: transparent;
-  color: #3b82f6;
-  border: 2px solid #3b82f6;
-  padding: 0.75rem 1.5rem;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover {
-    background: #eff6ff;
-  }
-`;
-
-const CarouselControls = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2rem;
-  margin-top: 2rem;
-`;
-
-const NavButton = styled.button`
-  background: white;
-  border: 1px solid #e5e7eb;
-  color: #374151;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover {
-    background: #3b82f6;
-    color: white;
-    border-color: #3b82f6;
-  }
-`;
-
-const Dots = styled.div`
-  display: flex;
-  gap: 0.5rem;
-`;
-
-const Dot = styled.button<{ active: boolean }>`
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  border: none;
-  cursor: pointer;
-  background: ${props => props.active ? '#3b82f6' : '#e5e7eb'};
-  transition: all 0.2s;
-
-  &:hover {
-    background: #3b82f6;
-  }
-`;
-
-const CenterButton = styled.div`
-  display: flex;
-  justify-content: center;
-  margin-top: 3rem;
-`;
-
-const CustomizationSection = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 4rem;
-  max-width: 1200px;
-  margin: 0 auto;
-
-  @media (max-width: 1024px) {
-    flex-direction: column;
-    text-align: center;
-  }
-`;
-
-const CustomizationContent = styled.div`
-  flex: 1;
-`;
-
-const CustomizationImage = styled.img`
-  flex: 1;
-  max-width: 100%;
-  border-radius: 12px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-  border: 1px solid #e5e7eb;
-`;
-
-const CustomizationPoints = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin-top: 2rem;
-`;
-
-const PointItem = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  color: #374151;
-  font-weight: 500;
-
-  @media (max-width: 1024px) {
-    justify-content: center;
   }
 `;
 
@@ -1585,42 +1127,6 @@ const PrivacyNote = styled.p`
   font-size: 0.85rem;
   color: #6b7280;
   margin-top: 1rem;
-`;
-
-const FooterSection = styled.section`
-  padding: 5rem 2rem;
-  text-align: center;
-  background: #111827;
-  color: white;
-  display: flex;
-  flex-direction: column;
-  align-items: center; 
-`;
-
-const FooterTitle = styled.h2`
-  font-size: 2.5rem;
-  font-weight: 700;
-  margin-bottom: 1rem;
-  color: white;
-
-  @media (max-width: 768px) {
-    font-size: 2rem;
-  }
-`;
-
-const FooterSubtitle = styled.p`
-  font-size: 1.1rem;
-  color: #d1d5db;
-  margin-bottom: 2rem;
-  max-width: 600px;
-  margin-left: auto;
-  margin-right: auto;
-`;
-
-const FooterNote = styled.p`
-  margin-top: 2rem;
-  color: #9ca3af;
-  font-size: 0.9rem;
 `;
 
 export default LandingPage;
