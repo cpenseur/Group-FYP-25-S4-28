@@ -2,6 +2,13 @@ import LandingNavbar from "../components/landingNavbar";
 import LandingFooter from "../components/landingFooter";
 import map from "../assets/sgMap.jpg";
 import { useNavigate } from "react-router-dom";
+import honglim from "../assets/honglim.jpg";
+import mbs from "../assets/mbs.jpg";
+import maxwell from "../assets/maxwell.jpg";
+import sentosa from "../assets/sentosa.jpg";
+import gbtb from "../assets/gbtb.jpg";
+import floral from "../assets/floral.jpg";
+import hill from "../assets/hill.jpg";
 
 type TravelGuidesTutorialProps = {
   onLoginClick: () => void;
@@ -17,13 +24,13 @@ export default function TravelGuidesTutorial({ onLoginClick, onSignupClick, }: T
   ];
 
   const activities = [
-    { time: "10:00", name: "Hong Lim Food Centre", img: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Kaya_toast_on_a_plate.jpg/1200px-Kaya_toast_on_a_plate.jpg" },
-    { time: "13:00", name: "Marina Bay Sands", img: "https://www.marinabaysands.com/content/dam/marinabaysands/guides/exceptional-experiences/architecture-of-mbs/masthead-m.jpg" },
-    { time: "15:00", name: "Gardens by the Bay", img: "https://image-tc.galaxy.tf/wijpeg-lnp4f65q18syzcto9c4g8vet/gardens-by-the-bay_standard.jpg?crop=57%2C0%2C867%2C650"},
-    { time: "18:00", name: "Maxwell Food Centre", img: "https://sethlui.com/wp-content/uploads/2019/06/maxwell-food-centre-ah-tai-tian-tian-hainanese-chicken-rice-chinatown-25.jpg" },
-    { time: "10:00", name: "Floral Fantasy", img: "https://www.gardensbythebay.com.sg/content/dam/gbb-2021/image/things-to-do/attractions/floral-fantasy/main/floral-fantasy-main.jpg" },
-    { time: "18:00", name: "Sentosa", img: "https://media.cnn.com/api/v1/images/stellar/prod/220905203459-05-old-sentosa-island.jpg?c=original" },
-    { time: "20:00", name: "Hiking Trail", img: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400" },
+    { time: "10:00", name: "Hong Lim Food Centre", img: honglim },
+    { time: "13:00", name: "Marina Bay Sands", img: mbs },
+    { time: "15:00", name: "Gardens by the Bay", img: gbtb},
+    { time: "18:00", name: "Maxwell Food Centre", img: maxwell },
+    { time: "10:00", name: "Floral Fantasy", img: floral },
+    { time: "18:00", name: "Sentosa", img: sentosa },
+    { time: "20:00", name: "Hiking Trail", img: hill },
   ];
 
   // Coordinates from your code
