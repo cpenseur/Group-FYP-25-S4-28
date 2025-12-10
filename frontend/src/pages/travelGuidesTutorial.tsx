@@ -2,9 +2,12 @@ import LandingNavbar from "../components/landingNavbar";
 import LandingFooter from "../components/landingFooter";
 import map from "../assets/sgMap.jpg";
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
 
-export default function TravelGuidesTutorial() {
+type TravelGuidesTutorialProps = {
+  onLoginClick: () => void;
+  onSignupClick: () => void;
+};
+export default function TravelGuidesTutorial({ onLoginClick, onSignupClick, }: TravelGuidesTutorialProps) {
   const navigate = useNavigate();
   const navLinks = [
     { name: 'Home', path: '/landing-page#hero' },
@@ -32,10 +35,10 @@ export default function TravelGuidesTutorial() {
   ];
 
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#fff", fontFamily: "'Inter', sans-serif", color: "#333" }}onClick={() => navigate('/signin')}>
+    <div style={{ minHeight: "100vh", backgroundColor: "#fff", fontFamily: "'Inter', sans-serif", color: "#333" }}>
       
       {/* 1. NAVBAR */}
-      <LandingNavbar navLinks={navLinks} />
+      <LandingNavbar navLinks={navLinks} onLoginClick={onLoginClick} onSignupClick={onSignupClick} />
 
       {/* 2. HEADER - Stats Section */}
       <div style={{ backgroundColor: "white", padding: "20px 40px" }}>
@@ -45,14 +48,14 @@ export default function TravelGuidesTutorial() {
           <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
             <h1 style={{ fontSize: "32px", fontWeight: "bold", margin: 0 }}>Trip to Singapore</h1>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button style={{ padding: "8px 16px", backgroundColor: "#5b4ddb", color: "white", border: "none", borderRadius: "999px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }} onClick={() => navigate('/signin')}>+ invite collaborators</button>
-              <button style={{ padding: "8px 16px", backgroundColor: "#ede9fe", color: "#5b4ddb", border: "none", borderRadius: "999px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }} onClick={() => navigate('/signin')}>Share</button>
-              <button style={{ padding: "8px 16px", backgroundColor: "#a855f7", color: "white", border: "none", borderRadius: "999px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }} onClick={() => navigate('/signin')}>Export</button>
+              <button style={{ padding: "8px 16px", backgroundColor: "#5b4ddb", color: "white", border: "none", borderRadius: "999px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }} onClick={() => onSignupClick()}>+ invite collaborators</button>
+              <button style={{ padding: "8px 16px", backgroundColor: "#ede9fe", color: "#5b4ddb", border: "none", borderRadius: "999px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }} onClick={() => onSignupClick()}>Share</button>
+              <button style={{ padding: "8px 16px", backgroundColor: "#a855f7", color: "white", border: "none", borderRadius: "999px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }} onClick={() => onSignupClick()}>Export</button>
             </div>
           </div>
 
           {/* Stats Section with Location/Duration Icons */}
-          <div style={{ display: "flex", gap: "50px" }}>
+          <div style={{ display: "flex", gap: "50px" }} onClick={() => onSignupClick()}>
             
             {/* Location */}
             <div>
@@ -93,7 +96,7 @@ export default function TravelGuidesTutorial() {
             <div>
                <div style={{ fontSize: "12px", color: "#9CA3AF", fontWeight: "bold", marginBottom: "5px", letterSpacing: "0.5px" }}>CURRENCY</div>
                <div style={{ fontSize: "18px", fontWeight: "bold", color: "#1F2937" }}>
-                  $ 800
+                  SGD$ 800
                </div>
             </div>
 
@@ -102,32 +105,70 @@ export default function TravelGuidesTutorial() {
       </div>
 
       {/* 3. TABS */}
-      <div style={{ backgroundColor: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
-        <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "0 40px" }}>
-          <div style={{ display: "flex", gap: "40px" }}>
-            {["Itinerary", "Notes & Checklists", "Budget", "Media Highlights", "Recommendations"].map(tab => (
-              <button key={tab} style={{
-                padding: "16px 0",
-                border: "none",
-                background: "none",
-                fontSize: "14px",
-                fontWeight: tab === "Itinerary" ? "bold" : "500",
-                color: tab === "Itinerary" ? "#111" : "#666",
-                borderBottom: tab === "Itinerary" ? "3px solid #111" : "3px solid transparent",
-                cursor: "pointer"
-              }}>
-                {tab}
-              </button>
-            ))}
+      <div
+        style={{
+          background: "linear-gradient(90deg, #e0f2ff, #f5e9ff)",
+          borderBottom: "1px solid #e5e7eb",
+        }}
+      >
+        <div
+          style={{
+            maxWidth: "1600px",
+            margin: "0 auto",
+            padding: "0 40px",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              height: "52px",
+              gap: "40px",
+            }}
+          >
+            {["Itinerary", "Notes & Checklists", "Budget", "Media Highlights", "Recommendations"].map(
+              (tab) => {
+                const isActive = tab === "Itinerary";
+
+                return (
+                  <div
+                    key={tab}
+                    onClick={() => onSignupClick()}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: "none",
+                      background: isActive ? "#111827" : "transparent",
+                      color: isActive ? "#ffffff" : "#6b7280",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      padding: isActive ? "6px 18px" : "0",
+                      borderRadius: isActive ? "999px" : "0",
+                      cursor: "pointer",
+                      boxShadow: isActive
+                        ? "0 4px 10px rgba(15, 23, 42, 0.35)"
+                        : "none",
+                      transition: "all 0.15s ease",
+                      textDecoration: "none",
+                      outline: "none",
+                      lineHeight: 1,
+                    }}
+                  >
+                    {tab}
+                  </div>
+                );
+              }
+            )}
           </div>
         </div>
       </div>
-
       {/* 4. MAIN GRID LAYOUT - 3 Columns */}
-      <div style={{ display: "flex", maxWidth: "1600px", margin: "0 auto", padding: "30px 40px", gap: "30px" }}>
+      <div style={{ display: "flex", maxWidth: "1600px", margin: "0 auto", padding: "12px 40px 30px", gap: "30px" }}>
         
         {/* COLUMN 1: Map */}
-        <div style={{ width: "500px", flexShrink: 0 }}>
+        <div style={{ width: "500px", flexShrink: 0 }} onClick={() => onSignupClick()}>
           <div style={{ 
             position: "relative", 
             width: "100%", 
@@ -198,7 +239,7 @@ export default function TravelGuidesTutorial() {
 
         {/* COLUMN 2: Timeline */}
         <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0px" }} onClick={() => onSignupClick()}>
             <h2 style={{ fontSize: "24px", fontWeight: "bold" }}>Itinerary Planner</h2>
             <div style={{ display: "flex", gap: "15px", alignItems: "center" }}>
               
@@ -215,7 +256,7 @@ export default function TravelGuidesTutorial() {
           </div>
 
           {/* Day 1 Section */}
-          <div style={{ marginBottom: "30px" }}>
+          <div style={{ marginBottom: "30px" }} onClick={() => onSignupClick()}>
             <div style={{ 
               backgroundColor: "#ede9fe", color: "#5b4ddb", 
               padding: "15px 20px", borderRadius: "12px", 
@@ -241,7 +282,7 @@ export default function TravelGuidesTutorial() {
                       <div style={{ fontWeight: "bold", fontSize: "16px", marginBottom: "4px" }}>{act.name}</div>
                       <div style={{ color: "#999", fontSize: "13px" }}>Location Singapore</div>
                     </div>
-                    <button style={{ padding: "6px 20px", backgroundColor: "#f3e8ff", color: "#7c3aed", border: "none", borderRadius: "999px", fontWeight: "600", cursor: "pointer", fontSize: "13px" }} onClick={() => navigate('/signin')}>Details</button>
+                    <button style={{ padding: "6px 20px", backgroundColor: "#f3e8ff", color: "#7c3aed", border: "none", borderRadius: "999px", fontWeight: "600", cursor: "pointer", fontSize: "13px" }} onClick={() => onSignupClick()}>Details</button>
                   </div>
                 </div>
               ))}
@@ -249,7 +290,7 @@ export default function TravelGuidesTutorial() {
           </div>
 
           {/* Day 2 Section */}
-           <div>
+           <div onClick={() => onSignupClick()}>
             <div style={{ 
               backgroundColor: "#f3f4f6", color: "#374151", 
               padding: "15px 20px", borderRadius: "12px", 
@@ -286,10 +327,10 @@ export default function TravelGuidesTutorial() {
 <div style={{ width: "130px", position: "relative" }}>
 
   {/* Planbot pill */}
-  <button onClick={() => navigate('/signin')}
+  <button onClick={() => onSignupClick()}
     style={{
       position: "absolute",
-      top: 10,
+      top: 0,
       left: "50%",
       transform: "translateX(-50%)",
       padding: "10px 30px",
@@ -318,12 +359,12 @@ export default function TravelGuidesTutorial() {
   {/* Vertical sidebar */}
   <div
     style={{
-      marginTop: "32px",
-      minHeight: "730px", // similar to map height
+      marginTop: "8px",
+      minHeight: "730px", 
       borderRadius: "20px 0 0 20px",
-      background: "linear-gradient(to bottom, #ffffff, #e5efff)",
+      background: "linear-gradient(90deg, #e0f2ff, #f5e9ff)",
       boxShadow: "0 10px 28px rgba(15, 23, 42, 0.08)",
-      padding: "70px 18px 24px", // space below pill
+      padding: "70px 18px 24px", 
       display: "flex",
       flexDirection: "column",
       alignItems: "center",
@@ -333,7 +374,7 @@ export default function TravelGuidesTutorial() {
     }}
   >
     {/* Title */}
-    <div onClick={() => navigate('/signin')}
+    <div onClick={() => onSignupClick()}
       style={{
         fontSize: "15px",
         fontWeight: "700",
@@ -345,7 +386,7 @@ export default function TravelGuidesTutorial() {
     </div>
 
     {/* Day 1 */}
-    <div style={{ fontSize: "11px", lineHeight: 1.4 }} onClick={() => navigate('/signin')}>
+    <div style={{ fontSize: "11px", lineHeight: 1.4 }} onClick={() => onSignupClick()}>
       <div style={{ color: "#6b7280", letterSpacing: "0.08em", fontWeight: 600 }}>
         THU&nbsp;&nbsp;20/10
       </div>
@@ -353,7 +394,7 @@ export default function TravelGuidesTutorial() {
     </div>
 
     {/* Day 2 */}
-    <div style={{ fontSize: "11px", lineHeight: 1.4 }} onClick={() => navigate('/signin')}>
+    <div style={{ fontSize: "11px", lineHeight: 1.4 }} onClick={() => onSignupClick()}>
       <div style={{ color: "#6b7280", letterSpacing: "0.08em", fontWeight: 600 }}>
         FRI&nbsp;&nbsp;21/10
       </div>
@@ -361,7 +402,6 @@ export default function TravelGuidesTutorial() {
     </div>
   </div>
 </div>
-
       </div>
       <LandingFooter />
     </div>

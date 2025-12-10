@@ -1,4 +1,5 @@
 // frontend/src/App.tsx
+import { useState } from "react";
 import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 
@@ -12,11 +13,11 @@ import ChatbotPage from "./pages/chatbot";
 
 // PohYee
 import ExportPDF from "./pages/exportPDF";
-import LoginPage from "./pages/LoginPage";
 import LandingPage from "./pages/landingPage";
 import TravelGuidesTutorial from "./pages/travelGuidesTutorial";
 import GuestFAQPage from "./pages/guestFAQpage";
 import AdminDashboard from "./pages/adminDashboard";
+import Login from "./components/login";
 
 // KK
 import DiscoveryLocal from "./pages/discoveryLocal";
@@ -35,7 +36,20 @@ import NotesAndChecklistPage from "./pages/notesAndChecklistPage";
 import BudgetPage from "./pages/budget";
 
 export default function App() {
+  const [showLogin, setShowLogin] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");  const openLogin = () => {
+    setShowLogin(true);
+    setAuthMode("login");
+  };
+
+  const openSignup = () => {
+    setShowLogin(true);
+    setAuthMode("signup");
+  };
+
+  const closeLogin = () => setShowLogin(false);  
   return (
+    <>
     <Routes>
       {/* Dev home (team testing menu) */}
       <Route path="/" element={<Home />} />
@@ -49,13 +63,12 @@ export default function App() {
       <Route path="/chatbot" element={<ChatbotPage />} />
 
       {/* PohYee */}
-      <Route path="/landing-page" element={<LandingPage />} />
-      <Route path="/signin" element={<LoginPage />} />
-      <Route path="/login-page" element={<LoginPage />} />
+      <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
       <Route path="/export-pdf" element={<ExportPDF />} />
-      <Route path="/travel-guides-tutorial" element={<TravelGuidesTutorial />} />
+      <Route path="/travel-guides-tutorial" element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />} />
       <Route path="/guest-faq" element={<GuestFAQPage />} />
       <Route path="/admin-dashboard" element={<AdminDashboard />} />
+      <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />
 
       {/* KK */}
       <Route path="/discovery-local" element={<DiscoveryLocal />} />
@@ -73,5 +86,11 @@ export default function App() {
       <Route path="/notes-and-checklists" element={<NotesAndChecklistPage />} />
       <Route path="/budget" element={<BudgetPage />} />
     </Routes>
+    <Login
+      isOpen={showLogin}
+      onClose={closeLogin}
+      defaultMode={authMode}
+    />    
+  </>  
   );
 }
