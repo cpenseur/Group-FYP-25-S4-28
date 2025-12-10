@@ -1,9 +1,11 @@
 import LandingNavbar from "../components/landingNavbar";
 import LandingFooter from "../components/landingFooter";
 import map from "../assets/sgMap.jpg";
+import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 
 export default function TravelGuidesTutorial() {
+  const navigate = useNavigate();
   const navLinks = [
     { name: 'Home', path: '/landing-page#hero' },
     { name: 'About Us', path: '/landing-page#about' },
@@ -30,7 +32,7 @@ export default function TravelGuidesTutorial() {
   ];
 
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#fff", fontFamily: "'Inter', sans-serif", color: "#333" }}>
+    <div style={{ minHeight: "100vh", backgroundColor: "#fff", fontFamily: "'Inter', sans-serif", color: "#333" }}onClick={() => navigate('/signin')}>
       
       {/* 1. NAVBAR */}
       <LandingNavbar navLinks={navLinks} />
@@ -43,9 +45,9 @@ export default function TravelGuidesTutorial() {
           <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
             <h1 style={{ fontSize: "32px", fontWeight: "bold", margin: 0 }}>Trip to Singapore</h1>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button style={{ padding: "8px 16px", backgroundColor: "#5b4ddb", color: "white", border: "none", borderRadius: "999px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}>+ invite collaborators</button>
-              <button style={{ padding: "8px 16px", backgroundColor: "#ede9fe", color: "#5b4ddb", border: "none", borderRadius: "999px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}>Share</button>
-              <button style={{ padding: "8px 16px", backgroundColor: "#a855f7", color: "white", border: "none", borderRadius: "999px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}>Export</button>
+              <button style={{ padding: "8px 16px", backgroundColor: "#5b4ddb", color: "white", border: "none", borderRadius: "999px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }} onClick={() => navigate('/signin')}>+ invite collaborators</button>
+              <button style={{ padding: "8px 16px", backgroundColor: "#ede9fe", color: "#5b4ddb", border: "none", borderRadius: "999px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }} onClick={() => navigate('/signin')}>Share</button>
+              <button style={{ padding: "8px 16px", backgroundColor: "#a855f7", color: "white", border: "none", borderRadius: "999px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }} onClick={() => navigate('/signin')}>Export</button>
             </div>
           </div>
 
@@ -239,7 +241,7 @@ export default function TravelGuidesTutorial() {
                       <div style={{ fontWeight: "bold", fontSize: "16px", marginBottom: "4px" }}>{act.name}</div>
                       <div style={{ color: "#999", fontSize: "13px" }}>Location Singapore</div>
                     </div>
-                    <button style={{ padding: "6px 20px", backgroundColor: "#f3e8ff", color: "#7c3aed", border: "none", borderRadius: "999px", fontWeight: "600", cursor: "pointer", fontSize: "13px" }}>Details</button>
+                    <button style={{ padding: "6px 20px", backgroundColor: "#f3e8ff", color: "#7c3aed", border: "none", borderRadius: "999px", fontWeight: "600", cursor: "pointer", fontSize: "13px" }} onClick={() => navigate('/signin')}>Details</button>
                   </div>
                 </div>
               ))}
@@ -284,7 +286,7 @@ export default function TravelGuidesTutorial() {
 <div style={{ width: "130px", position: "relative" }}>
 
   {/* Planbot pill */}
-  <button
+  <button onClick={() => navigate('/signin')}
     style={{
       position: "absolute",
       top: 10,
@@ -331,7 +333,7 @@ export default function TravelGuidesTutorial() {
     }}
   >
     {/* Title */}
-    <div
+    <div onClick={() => navigate('/signin')}
       style={{
         fontSize: "15px",
         fontWeight: "700",
@@ -343,7 +345,7 @@ export default function TravelGuidesTutorial() {
     </div>
 
     {/* Day 1 */}
-    <div style={{ fontSize: "11px", lineHeight: 1.4 }}>
+    <div style={{ fontSize: "11px", lineHeight: 1.4 }} onClick={() => navigate('/signin')}>
       <div style={{ color: "#6b7280", letterSpacing: "0.08em", fontWeight: 600 }}>
         THU&nbsp;&nbsp;20/10
       </div>
@@ -351,7 +353,7 @@ export default function TravelGuidesTutorial() {
     </div>
 
     {/* Day 2 */}
-    <div style={{ fontSize: "11px", lineHeight: 1.4 }}>
+    <div style={{ fontSize: "11px", lineHeight: 1.4 }} onClick={() => navigate('/signin')}>
       <div style={{ color: "#6b7280", letterSpacing: "0.08em", fontWeight: 600 }}>
         FRI&nbsp;&nbsp;21/10
       </div>
