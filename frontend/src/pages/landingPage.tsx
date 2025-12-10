@@ -5,7 +5,7 @@ import styled from 'styled-components';
 import hallstatt from "../assets/hallstatt.png";
 import Cappadocia from "../assets/Cappadocia.jpg";
 import Yosemite from "../assets/Yosemite.jpg";
-import heroBackground from "../assets/heroBackground.jpeg";
+import heroBackground from "../assets/heroBackground.jpg";
 import LandingNavbar from "../components/landingNavbar";
 import LandingFooter from "../components/landingFooter";
 import { 
@@ -492,7 +492,6 @@ const HeroSection = styled.section`
     position: absolute;
     inset: 0;
     background: rgba(0,0,0,0.35);
-    backdrop-filter: blur(1px);
   }
 
   > * {
