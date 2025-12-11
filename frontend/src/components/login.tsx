@@ -1,18 +1,64 @@
-import { useState, FormEvent } from "react";
+// src/components/login.tsx
+import React, { useState, FormEvent, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
+import styled from "styled-components";
 
 type Mode = "login" | "signup";
 
-export default function LoginPage() {
-  const [mode, setMode] = useState<Mode>("signup");
-  const [email, setEmail] = useState<string>("");      // ✅ now empty by default
-  const [password, setPassword] = useState<string>("");
-  const [showPassword, setShowPassword] = useState<boolean>(false); // ✅ NEW
-  const [status, setStatus] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(false);
+type LoginProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  defaultMode?: Mode;
+};
 
+/* ========= styled components ========= */
+
+const Overlay = styled.div`
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background-color: rgba(0, 0, 0, 0.45);
+  z-index: 2000; 
+  backdrop-filter: blur(4px);
+`;
+
+const Modal = styled.div`
+  width: 100%;
+  max-width: 380px;
+  max-height: 90vh;      /* ⬅️ add this */
+  overflow-y: auto;      /* ⬅️ and this */
+  padding: 2rem 2.25rem;
+  background: #ffffff;
+  border-radius: 1.25rem;
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #111827;
+  position: relative;
+`;
+
+/* ===================================== */
+
+export default function Login({
+  isOpen,
+  onClose,
+  defaultMode = "signup",
+}: LoginProps) {
+  const [mode, setMode] = useState<Mode>(defaultMode);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    setMode(defaultMode);
+  }, [defaultMode]);
   const navigate = useNavigate();
+
+  if (!isOpen) return null;
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -33,6 +79,7 @@ export default function LoginPage() {
 
         setStatus("Login successful. Redirecting to dashboard…");
         navigate("/dashboard");
+        onClose();
       } else {
         const { error } = await supabase.auth.signUp({
           email,
@@ -52,36 +99,39 @@ export default function LoginPage() {
     }
   };
 
-  const title = mode === "signup" ? "Create an account" : "Log in to your account";
+  const title =
+    mode === "signup" ? "Create an account" : "Log in to your account";
   const primaryButtonText = mode === "signup" ? "Create account" : "Log in";
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "1.5rem",
-        backgroundColor: "rgba(0, 0, 0, 0.5)", // Darker backdrop like in image
-        zIndex: 50,
-        backdropFilter: "blur(4px)",
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          maxWidth: "380px",
-          padding: "2rem 2.25rem",
-          background: "#ffffff",
-          borderRadius: "1.25rem",
-          boxShadow: "0 15px 40px rgba(0,0,0,0.15)",
-          fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-          color: "#111827",
-        }}
-      >
-        <h1 style={{ fontSize: "1.6rem", fontWeight: 700, marginBottom: "1.5rem" }}>
+    <Overlay onClick={onClose}>
+      <Modal onClick={(e) => e.stopPropagation()}>
+        {/* Close button */}
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            position: "absolute",
+            top: "0.9rem",
+            right: "1rem",
+            border: "none",
+            background: "none",
+            fontSize: "1.25rem",
+            cursor: "pointer",
+            opacity: 0.6,
+          }}
+          aria-label="Close"
+        >
+          ×
+        </button>
+
+        <h1
+          style={{
+            fontSize: "1.6rem",
+            fontWeight: 700,
+            marginBottom: "1.5rem",
+          }}
+        >
           {title}
         </h1>
 
@@ -89,9 +139,15 @@ export default function LoginPage() {
           onSubmit={handleSubmit}
           style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
         >
-          {/* ✅ Email */}
+          {/* Email */}
           <div>
-            <label style={{ display: "block", fontSize: "0.9rem", marginBottom: "0.35rem" }}>
+            <label
+              style={{
+                display: "block",
+                fontSize: "0.9rem",
+                marginBottom: "0.35rem",
+              }}
+            >
               Email
             </label>
             <input
@@ -99,7 +155,7 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"   // ✅ no prefilled email anymore
+              placeholder="you@example.com"
               style={{
                 width: "100%",
                 padding: "0.65rem 0.85rem",
@@ -111,7 +167,7 @@ export default function LoginPage() {
             />
           </div>
 
-          {/* ✅ Password with visibility toggle */}
+          {/* Password */}
           <div>
             <div
               style={{
@@ -140,7 +196,7 @@ export default function LoginPage() {
 
             <div style={{ position: "relative" }}>
               <input
-                type={showPassword ? "text" : "password"} // ✅ toggle here
+                type={showPassword ? "text" : "password"}
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -155,7 +211,6 @@ export default function LoginPage() {
                 }}
               />
 
-              {/* ✅ Clickable eye toggle */}
               <button
                 type="button"
                 onClick={() => setShowPassword((prev) => !prev)}
@@ -177,7 +232,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* ✅ Primary button */}
           <button
             type="submit"
             disabled={loading}
@@ -199,7 +253,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* ✅ Bottom toggle */}
         <div
           style={{
             marginTop: "1.25rem",
@@ -247,7 +300,6 @@ export default function LoginPage() {
           )}
         </div>
 
-        {/* ✅ Status */}
         <div
           style={{
             minHeight: "1.5rem",
@@ -258,7 +310,7 @@ export default function LoginPage() {
         >
           {status}
         </div>
-      </div>
-    </div>
+      </Modal>
+    </Overlay>
   );
 }

@@ -7,9 +7,11 @@ import { useNavigate, useLocation } from "react-router-dom";
 
 interface NavbarProps {
   navLinks: { name: string; path: string }[];
+  onLoginClick: () => void;
+  onSignupClick: () => void;
 }
 
-const LandingNavbar: React.FC<NavbarProps> = ({ navLinks }) => {
+const LandingNavbar: React.FC<NavbarProps> = ({ navLinks, onLoginClick, onSignupClick, }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -113,8 +115,8 @@ const LandingNavbar: React.FC<NavbarProps> = ({ navLinks }) => {
         </DesktopNav>
 
         <AuthButtons>
-          <LoginButton onClick={() => navigate("/signin")}>Log In</LoginButton>
-          <SignUpButton onClick={() => navigate("/signin")}>Sign Up Now</SignUpButton>
+          <LoginButton onClick={onLoginClick}>Log In</LoginButton>
+          <SignUpButton onClick={onSignupClick}>Sign Up Now</SignUpButton>
         </AuthButtons>
 
         <MobileMenuButton onClick={() => setIsMenuOpen(!isMenuOpen)}>
@@ -135,8 +137,8 @@ const LandingNavbar: React.FC<NavbarProps> = ({ navLinks }) => {
           ))}
 
           <MobileAuthButtons>
-            <LoginButton onClick={() => navigate("/signin")}>Log In</LoginButton>
-            <SignUpButton onClick={() => navigate("/signin")}>Sign Up Now</SignUpButton>
+            <LoginButton onClick={onLoginClick}>Log In</LoginButton>
+            <SignUpButton onClick={onSignupClick}>Sign Up Now</SignUpButton>
           </MobileAuthButtons>
         </MobileMenu>
       )}
@@ -146,15 +148,10 @@ const LandingNavbar: React.FC<NavbarProps> = ({ navLinks }) => {
 
 export default LandingNavbar;
 
-/* ============================
-      Styled Components
-============================= */
-
 const Navbar = styled.nav`
   position: sticky;
   top: 0;
   background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
   border-bottom: 1px solid #e5e7eb;
   z-index: 1000;
   padding: 1rem 0;

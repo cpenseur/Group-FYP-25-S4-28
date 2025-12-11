@@ -8,6 +8,8 @@ import Yosemite from "../assets/Yosemite.jpg";
 import heroBackground from "../assets/heroBackground.jpg";
 import LandingNavbar from "../components/landingNavbar";
 import LandingFooter from "../components/landingFooter";
+import Login from "../components/login";
+
 import { 
   Star, 
   MapPin, 
@@ -25,7 +27,12 @@ import {
   FileText
 } from "lucide-react";
 
-const LandingPage: React.FC = () => {
+type LandingPageProps = {
+  onLoginClick: () => void;
+  onSignupClick: () => void;
+};
+
+const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, }) => {
   const navigate = useNavigate();
   const [demoTrips, setDemoTrips] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -153,7 +160,7 @@ const LandingPage: React.FC = () => {
   return (
     <Container>
       {/* Navigation Bar - Using Component */}
-      <LandingNavbar navLinks={navLinks} />
+      <LandingNavbar navLinks={navLinks} onLoginClick={onLoginClick} onSignupClick={onSignupClick}/>
 
       {/* Hero Section */}
       <HeroSection id="hero" style={{ scrollMarginTop: '80px' }}>
@@ -167,11 +174,11 @@ const LandingPage: React.FC = () => {
           </HeroSubtitle>
 
           <CTAGroup>
-            <PrimaryButton onClick={() => navigate('/signin')}>
+            <PrimaryButton onClick= {onSignupClick}>
               Get Started
             </PrimaryButton>
 
-            <SecondaryButton onClick={() => navigate('/demo')}>
+            <SecondaryButton onClick={() => navigate('/travel-guides-tutorial')}>
               Try Demo
             </SecondaryButton>
           </CTAGroup>
@@ -452,7 +459,6 @@ const LandingPage: React.FC = () => {
           </NewsletterFormContainer>
         </NewsletterContent>
       </NewsletterSection>
-
       {/* Footer CTA - Using Component */}
       <LandingFooter />
     </Container>

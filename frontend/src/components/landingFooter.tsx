@@ -1,10 +1,12 @@
 // src/components/landingFooter.tsx
-import React from "react";
+import React, { useState } from "react";
 import styled from "styled-components";
 import { useNavigate } from "react-router-dom";
+import Login from "../components/login";
 
 const LandingFooter: React.FC = () => {
   const navigate = useNavigate();
+  const [showLogin, setShowLogin] = useState(false);
 
   return (
     <FooterSection>
@@ -15,9 +17,12 @@ const LandingFooter: React.FC = () => {
       </FooterSubtitle>
 
       <CTAWrapper>
-        <CTAButton onClick={() => navigate("/signin")}>Get Started Free</CTAButton>
+        <CTAButton onClick={() => setShowLogin(true)}>Get Started Free</CTAButton>
       </CTAWrapper>
-
+      <Login
+        isOpen={showLogin}
+        onClose={() => setShowLogin(false)}
+      />
       <FooterNote>No credit card required • Free forever plan • Cancel anytime</FooterNote>
     </FooterSection>
   );
