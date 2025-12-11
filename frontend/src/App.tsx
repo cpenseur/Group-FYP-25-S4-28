@@ -29,12 +29,16 @@ import LocalInformationPanel from "./pages/localInformationPanel";
 import GroupWaitForFriends from "./pages/groupWaitForFriends";
 import GroupItinerarySummary from "./pages/groupItinerarySummary";
 import ItineraryRecommendation from "./pages/itineraryRecommendation";
+import AiTripGeneratorGroup from "./pages/GroupTripGeneratorPage";
 
 // Su
 import NotesAndChecklistPage from "./pages/notesAndChecklistPage";
 import BudgetPage from "./pages/budget";
 
 export default function App() {
+  console.log("Sealion Key Loaded:", import.meta.env.VITE_SEALION_API_KEY);
+
+
   return (
     <Routes>
       {/* Dev home (team testing menu) */}
@@ -68,6 +72,7 @@ export default function App() {
       <Route path="/group-wait-for-friends" element={<GroupWaitForFriends />} />
       <Route path="/group-itinerary-summary" element={<GroupItinerarySummary />} />
       <Route path="/itinerary-recommendation" element={<ItineraryRecommendation />} />
+      <Route path="/ai-trip-generator-group" element={<AiTripGeneratorGroup />} />
 
       {/* Su */}
       <Route path="/notes-and-checklists" element={<NotesAndChecklistPage />} />
