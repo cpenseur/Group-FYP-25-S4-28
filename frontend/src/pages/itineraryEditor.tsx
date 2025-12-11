@@ -245,6 +245,26 @@ function getItemsForDay(
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 }
 
+// -------------------- Day colour palette -------------------- //
+
+const dayColorPalette = [
+  "#746ee5ff", // indigo
+  "#b13171ff", // pink
+  "#2fa57eff", // emerald
+  "#eb904eff", // orange
+  "#56acd4ff", // sky
+  "#bc78fbff", // purple
+];
+
+function getDayColor(dayIndex: number | null | undefined): string {
+  if (!dayIndex || dayIndex <= 0) return "#6b7280"; // default gray
+  const idx =
+    ((dayIndex - 1) % dayColorPalette.length + dayColorPalette.length) %
+    dayColorPalette.length;
+  return dayColorPalette[idx];
+}
+
+
 /* -------------------- Sortable item component -------------------- */
 
 function SortableItineraryCard({
@@ -323,11 +343,6 @@ export default function ItineraryEditor() {
   const [isOptimising, setIsOptimising] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Day header refs for scrolling from sidebar
-  const dayHeaderRefs = useRef<Map<number, HTMLDivElement | null>>(
-    new Map()
-  );
-
   /* DnD sensors */
 
   const mouseSensor = useSensor(MouseSensor, {
@@ -362,8 +377,58 @@ export default function ItineraryEditor() {
   // Hovered day for sidebar
   const [hoveredDayId, setHoveredDayId] = useState<number | null>(null);
 
+  // Which day is "selected" in the mini calendar (for highlight + summary)
+  const [selectedDayId, setSelectedDayId] = useState<number | null>(null);
+
   // remember items before drag started
   const dragOriginRef = useRef<ItineraryItem[] | null>(null);
+
+  // Day header refs for scrolling from sidebar
+  const dayHeaderRefs = useRef<Map<number, HTMLDivElement | null>>(
+    new Map()
+  );
+
+  // Scroll container for the itinerary list (middle column)
+  const itineraryScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const DAY_STICKY_OFFSET = 63; // pixels under the main header inside the card
+
+  // --- Global numbering + map items ---
+  // Day index lookup: TripDay.id -> day_index (1,2,3...)
+  const dayIndexMap = new Map(days.map((d) => [d.id, d.day_index]));
+
+  // Items in trip order: by day_index, then sort_order inside the day
+  const itemsInTripOrder = [...items].sort((a, b) => {
+    const da = dayIndexMap.get(a.day ?? 0) ?? 0;
+    const db = dayIndexMap.get(b.day ?? 0) ?? 0;
+    if (da !== db) return da - db;
+    return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+  });
+
+  // Global sequence number: 1,2,3 across the whole trip
+  const sequenceMap = new Map<number, number>();
+  itemsInTripOrder.forEach((it, idx) => {
+    sequenceMap.set(it.id, idx + 1);
+  });
+
+  // Map items: include global seq, day_index, and stop_index-within-day
+  const mapItems = itemsInTripOrder.map((it, idx) => {
+    const dayIdx = dayIndexMap.get(it.day ?? 0) ?? null;
+    const dayItems = getItemsForDay(items, it.day);
+    const stopIndex =
+      dayItems.findIndex((dItem) => dItem.id === it.id) + 1 || null;
+
+    return {
+      id: it.id,
+      title: it.title,
+      address: it.address,
+      lat: it.lat,
+      lon: it.lon,
+      sort_order: idx + 1,          // global sequence for map labels
+      day_index: dayIdx,            // for color-coding
+      stop_index: stopIndex,        // "stop 2 in Day 3" etc
+    };
+  });
 
   // Collapsed days (if you ever want collapsing)
   const [collapsedDayIds, setCollapsedDayIds] = useState<number[]>([]);
@@ -448,6 +513,13 @@ export default function ItineraryEditor() {
     loadTrip();
   }, [tripId]);
 
+  // When days first load, default-select the first day
+  useEffect(() => {
+    if (days.length > 0 && selectedDayId == null) {
+      setSelectedDayId(days[0].id);
+    }
+  }, [days, selectedDayId]);
+
   /* ------------- Optimise route ------------- */
 
   const optimiseRoute = async () => {
@@ -522,14 +594,64 @@ export default function ItineraryEditor() {
   const findLegForPair = (fromId: number, toId: number): LegInfo | undefined =>
     legs.find((leg) => leg.from_id === fromId && leg.to_id === toId);
 
-  /* ------------- Scroll to day ------------- */
+  /* ------------- Day summary (stops · km · duration) ------------- */
+
+  const formatDurationShort = (minutes: number | undefined): string => {
+    if (!minutes || minutes <= 0) return "—";
+    const h = Math.floor(minutes / 60);
+    const m = Math.round(minutes % 60);
+    if (h && m) return `${h}h ${m}m`;
+    if (h) return `${h}h`;
+    return `${m}m`;
+  };
+
+  const getDaySummary = (dayId: number) => {
+    const dayItems = getItemsForDay(items, dayId);
+    const stops = dayItems.length;
+
+    let totalKm = 0;
+    let totalMin = 0;
+
+    for (let i = 0; i < dayItems.length - 1; i++) {
+      const from = dayItems[i];
+      const to = dayItems[i + 1];
+      const leg = findLegForPair(from.id, to.id);
+      if (leg) {
+        totalKm += leg.distance_km || 0;
+        totalMin += leg.duration_min || 0;
+      }
+    }
+
+    return {
+      stops,
+      distanceKmLabel: totalKm > 0 ? `${totalKm.toFixed(1)} km` : "— km",
+      durationLabel: formatDurationShort(totalMin),
+    };
+  };
+
+  /* ------------- Scroll to day inside itinerary pane ------------- */
 
   const scrollToDay = (dayId: number) => {
     const el = dayHeaderRefs.current.get(dayId);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
+    const container = itineraryScrollRef.current;
+    if (!el || !container) return;
+
+    const containerTop = container.getBoundingClientRect().top;
+    const elTop = el.getBoundingClientRect().top;
+
+    const offset =
+      elTop -
+      containerTop +
+      container.scrollTop -
+      DAY_STICKY_OFFSET -
+      8; // small extra padding
+
+    container.scrollTo({
+      top: offset,
+      behavior: "smooth",
+    });
   };
+
 
   /* ------------- Compute reordered items (for preview during drag) ------------- */
 
@@ -742,138 +864,136 @@ export default function ItineraryEditor() {
 
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1.3fr) minmax(0, 1fr)",
-          gap: "0.75rem",
-          padding: "0.75rem 2rem 2rem",
+          padding: "0rem 0rem 2rem",
           backgroundColor: "#f9fafb",
-          minHeight: "calc(100vh - 120px)",
+          minHeight: "calc(90vh - 90px)",
           fontFamily:
             'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
         }}
       >
-        {/* Left: map only (reusable component) */}
         <div
           style={{
-            position: "relative",
-            backgroundColor: "#e5e7eb",
-            borderRadius: "16px",
-            overflow: "hidden",
-            boxShadow: "0 10px 25px rgba(15,23,42,0.16)",
+            display: "grid",
+            gridTemplateColumns:
+              "minmax(0, 2fr) minmax(0, 2fr) minmax(0, 0.45fr)",
+            columnGap: "0rem",
+            rowGap: "1rem",
+            alignItems: "flex-start",
+            width: "100%",
+            margin: 0,
+            padding: 0,
           }}
         >
-          <ItineraryMap items={items} />
-        </div>
-
-        {/* Right: Planbot + optimise + itinerary + day sidebar */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          {errorMsg && (
-            <div
-              style={{
-                backgroundColor: "#fee2e2",
-                color: "#b91c1c",
-                borderRadius: "12px",
-                padding: "0.6rem 0.9rem",
-                fontSize: "0.85rem",
-              }}
-            >
-              {errorMsg}
-            </div>
-          )}
-
-          {/* Top controls: Planbot + Optimise */}
+          {/* LEFT: Sticky Map */}
           <div
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
+              position: "sticky",
+              top: 90, // adjust if your header height is different
+              height: "calc(90vh - 90px)",
+              background: "#e5e7eb",
+              borderRadius: 0,
+              overflow: "hidden",
+              boxShadow: "none",
             }}
           >
-            <button
-              type="button"
-              onClick={() => navigate(`/trip/${tripId}/chatbot`)}
-              style={{
-                borderRadius: "999px",
-                border: "none",
-                backgroundColor: "#f97316",
-                color: "white",
-                padding: "0.45rem 1.3rem",
-                fontSize: "0.85rem",
-                fontWeight: 600,
-                cursor: "pointer",
-                boxShadow: "0 6px 15px rgba(249,115,22,0.35)",
-              }}
-            >
-              Planbot
-            </button>
-
-            <button
-              onClick={handleOptimiseRouteClick}
-              disabled={isOptimising || items.length < 2}
-              style={{
-                borderRadius: "999px",
-                border: "none",
-                backgroundColor: "#6366f1",
-                color: "white",
-                padding: "0.45rem 1.3rem",
-                fontSize: "0.85rem",
-                fontWeight: 600,
-                cursor:
-                  isOptimising || items.length < 2 ? "not-allowed" : "pointer",
-                opacity: items.length < 2 ? 0.6 : 1,
-              }}
-            >
-              {isOptimising ? "Optimising..." : "Optimise route"}
-            </button>
+            <ItineraryMap items={mapItems} />
           </div>
 
-          {/* Main itinerary card + day-sidebar */}
+          {/* MIDDLE: Optimise + Itinerary Planner (this scrolls) */}
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(0, 2.1fr) minmax(0, 0.75fr)",
-              gap: "1rem",
-              alignItems: "flex-start",
-              flex: 1,
-              maxHeight: "520px",
+              height: "calc(90vh - 90px)",
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.75rem",
             }}
           >
-            {/* Itinerary Planner with DnD */}
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragStart={handleDragStart}
-              onDragOver={handleDragOver}
-              onDragEnd={handleDragEnd}
-              onDragCancel={handleDragCancel}
-            >
+            {errorMsg && (
               <div
                 style={{
-                  backgroundColor: "white",
-                  borderRadius: "16px",
+                  backgroundColor: "#fee2e2",
+                  color: "#b91c1c",
+                  borderRadius: "12px",
+                  padding: "0.6rem 0.9rem",
+                  fontSize: "0.85rem",
+                }}
+              >
+                {errorMsg}
+              </div>
+            )}
+
+            {/* Scrollable itinerary pane */}
+            <div
+              ref={itineraryScrollRef}
+              style={{
+                backgroundColor: "white",
+                padding: "0 1.25rem 1rem",
+                boxShadow: "0 8px 20px rgba(15,23,42,0.08)",
+                overflowY: "auto",
+                height: "100%",
+              }}
+            >
+              {/* FULL-WIDTH sticky header background */}
+              <div
+                style={{
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 30,
+                  background: "white",
+                  // remove the card padding effect
+                  margin: "-1rem -1.25rem 0 -1.25rem",
                   padding: "1rem 1.25rem",
-                  boxShadow: "0 8px 20px rgba(15,23,42,0.08)",
-                  overflowY: "auto",
+                  borderBottom: "1px solid #e5e7eb",
                 }}
               >
                 <div
                   style={{
-                    fontSize: "0.95rem",
-                    fontWeight: 600,
-                    marginBottom: "0.75rem",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
                   }}
                 >
-                  Itinerary Planner
-                </div>
+                  <div style={{ fontSize: "0.95rem", fontWeight: 600 }}>
+                    Itinerary Planner
+                  </div>
 
+                  <button
+                    onClick={handleOptimiseRouteClick}
+                    disabled={isOptimising || items.length < 2}
+                    style={{
+                      borderRadius: "999px",
+                      border: "none",
+                      backgroundColor: "#6366f1",
+                      color: "white",
+                      padding: "0.45rem 1.3rem",
+                      fontSize: "0.85rem",
+                      fontWeight: 600,
+                      cursor: isOptimising || items.length < 2 ? "not-allowed" : "pointer",
+                      opacity: items.length < 2 ? 0.6 : 1,
+                      boxShadow: "0 6px 15px rgba(99,102,241,0.35)",
+                    }}
+                  >
+                    {isOptimising ? "Optimising..." : "Optimise route"}
+                  </button>
+                </div>
+              </div>
+
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDragEnd={handleDragEnd}
+                onDragCancel={handleDragCancel}
+              >
                 {isLoading ? (
                   <div style={{ fontSize: "0.9rem", color: "#6b7280" }}>
                     Loading itinerary...
                   </div>
                 ) : items.length === 0 ? (
                   <div style={{ fontSize: "0.9rem", color: "#6b7280" }}>
-                    No stops yet. Use the “+ Add Stop” button under any day to
-                    add your first destination.
+                    No stops yet. Use “Add stop” under each day to get started.
                   </div>
                 ) : (
                   days.map((day) => {
@@ -881,43 +1001,63 @@ export default function ItineraryEditor() {
 
                     return (
                       <DayDroppable key={day.id} dayId={day.id}>
-                        {/* Day header */}
+                        {/* Sticky colored full-width day header pill */}
                         <div
-                          ref={(el) => {
-                            dayHeaderRefs.current.set(day.id, el);
-                          }}
+                          ref={(el) => {dayHeaderRefs.current.set(day.id, el);}}
                           style={{
-                            backgroundColor: "#f3f4ff",
+                            position: "sticky",
+                            top: DAY_STICKY_OFFSET,
+                            zIndex: 20,
+                            marginBottom: "0.75rem",
                             borderRadius: "999px",
-                            padding: "0.3rem 0.85rem",
-                            fontSize: "0.8rem",
-                            fontWeight: 600,
-                            color: "#111827",
-                            marginBottom: "0.55rem",
-                            display: "inline-block",
+                            boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
                           }}
                         >
-                          {formatDayHeader(day)}
-                        </div>
+                          <div
+                            style={{
+                              backgroundColor: "#f3f4ff",       // the pill color
+                              borderRadius: "999px",
+                              padding: "0.45rem 0.9rem",
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              width: "100%",
+                              boxSizing: "border-box",
+                              gap: "0.75rem",
+                            }}
+                          >
+                            {/* Day TEXT */}
+                            <div
+                              style={{
+                                fontSize: "0.8rem",
+                                fontWeight: 600,
+                                color: "#111827",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {formatDayHeader(day)}
+                            </div>
 
-                        {/* + Add Stop button */}
-                        <button
-                          type="button"
-                          onClick={() => openAddStopModal(day.id)}
-                          style={{
-                            margin: "4px 0 10px",
-                            borderRadius: "8px",
-                            border: "1px solid #d1d5db",
-                            backgroundColor: "#f9fafb",
-                            color: "#4f46e5",
-                            padding: "4px 10px",
-                            fontSize: "0.75rem",
-                            fontWeight: 600,
-                            cursor: "pointer",
-                          }}
-                        >
-                          + Add Stop
-                        </button>
+                            {/* + Add Stop button */}
+                            <button
+                              type="button"
+                              onClick={() => openAddStopModal(day.id)}
+                              style={{
+                                borderRadius: "8px",
+                                border: "1px solid #d1d5db",
+                                backgroundColor: "white",
+                                color: "#4f46e5",
+                                padding: "4px 10px",
+                                fontSize: "0.75rem",
+                                fontWeight: 600,
+                                cursor: "pointer",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              + Add Stop
+                            </button>
+                          </div>
+                        </div>
 
                         <SortableContext
                           items={dayItems.map((i) => i.id)}
@@ -964,6 +1104,15 @@ export default function ItineraryEditor() {
                                 const thumbUrl = getItemThumbnail(item);
                                 const timeLabel = formatTimeRange(item);
 
+                                const dayIndexNum = dayIndexMap.get(item.day ?? 0) ?? null;
+                                const baseColor = getDayColor(dayIndexNum);
+
+                                // create a soft/muted bubble using alpha on the hex (last 2 chars)
+                                const hex7 = baseColor.slice(0, 7); // strip the "ff" if present
+                                const bubbleBg = hex7 + "22";      // ~13% opacity
+                                const bubbleBorder = hex7 + "55";  // ~33% opacity;
+                                const bubbleText = hex7;           // full colour text
+
                                 return (
                                   <SortableItineraryCard
                                     key={item.id}
@@ -979,6 +1128,7 @@ export default function ItineraryEditor() {
                                           "auto 110px minmax(0, 1fr) auto",
                                         columnGap: "0.75rem",
                                         alignItems: "center",
+                                        backgroundColor: "transparent",
                                       }}
                                     >
                                       {/* Sequence number */}
@@ -987,8 +1137,9 @@ export default function ItineraryEditor() {
                                           width: 26,
                                           height: 26,
                                           borderRadius: "999px",
-                                          backgroundColor: "#4f46e5",
-                                          color: "white",
+                                          backgroundColor: bubbleBg,
+                                          color: bubbleText,
+                                          border: `1px solid ${bubbleBorder}`,
                                           display: "flex",
                                           alignItems: "center",
                                           justifyContent: "center",
@@ -996,7 +1147,7 @@ export default function ItineraryEditor() {
                                           fontWeight: 600,
                                         }}
                                       >
-                                        {item.sort_order}
+                                        {sequenceMap.get(item.id) ?? item.sort_order}
                                       </div>
 
                                       {/* Thumbnail */}
@@ -1118,105 +1269,87 @@ export default function ItineraryEditor() {
                     );
                   })
                 )}
-              </div>
-            </DndContext>
+              </DndContext>
+            </div>
+          </div>
 
-            {/* Day sidebar */}
-            <div
+          {/* RIGHT: Sticky mini calendar sidebar with Planbot + per-day summary */}
+          <div
+            style={{
+              position: "sticky",
+              top: 90,
+              height: "calc(87vh - 90px)",
+              borderRadius: 0,
+              padding: "0.75rem 0.85rem",
+              background:
+                "linear-gradient(180deg,#f5f3ff 0%,#eef2ff 45%,#e0f2fe 100%)",
+              boxShadow: "none",
+              marginRight: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              overflow: "hidden",
+            }}
+          >
+            {/* Planbot pill at top */}
+            <button
+              type="button"
+              onClick={() => navigate(`/trip/${tripId}/chatbot`)}
               style={{
-                borderRadius: "16px",
-                padding: "0.75rem 0.85rem",
-                backgroundColor: "white",
-                boxShadow: "0 8px 20px rgba(15,23,42,0.06)",
-                maxHeight: "520px",
-                overflowY: "auto",
+                alignSelf: "stretch",
+                borderRadius: "999px",
+                border: "none",
+                background:
+                  "linear-gradient(135deg,#fb923c 0%,#f97316 40%,#facc15 100%)",
+                color: "white",
+                padding: "0.5rem 0.9rem",
+                fontSize: "0.85rem",
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: "0 8px 18px rgba(248,113,22,0.35)",
+                marginBottom: 4,
               }}
             >
-              <div
-                style={{
-                  fontSize: "0.85rem",
-                  fontWeight: 600,
-                  marginBottom: 8,
-                }}
-              >
-                Itinerary
-              </div>
+              ✨ Planbot
+            </button>
 
-              {/* + Add Day button */}
-              <button
-                type="button"
-                onClick={handleAddDay}
-                style={{
-                  width: "100%",
-                  padding: "0.4rem 0.5rem",
-                  borderRadius: 10,
-                  border: "none",
-                  backgroundColor: "#4f46e5",
-                  color: "white",
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                  marginBottom: 8,
-                  cursor: "pointer",
-                }}
-              >
-                + Add Day
-              </button>
+            <div
+              style={{
+                fontSize: "0.85rem",
+                fontWeight: 600,
+                color: "#1f2933",
+                marginBottom: 4,
+                paddingLeft: 2,
+              }}
+            >
+              Itinerary
+            </div>
 
+            {/* Scrollable mini calendar list */}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+                overflowY: "auto",
+                paddingRight: 0,
+                flex: 1,
+                minHeight: 0,
+              }}
+            >
               {days.map((day) => {
-                if (!day.date) {
-                  return (
-                    <div
-                      key={day.id}
-                      onMouseEnter={() => setHoveredDayId(day.id)}
-                      onMouseLeave={() => setHoveredDayId(null)}
-                      onClick={() => scrollToDay(day.id)}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        padding: "0.35rem 0.45rem",
-                        borderRadius: 10,
-                        cursor: "pointer",
-                        fontSize: "0.8rem",
-                        marginBottom: 4,
-                      }}
-                    >
-                      <span>DAY {day.day_index}</span>
+                const d = day.date ? new Date(day.date) : null;
+                const shortDow = d
+                  ? d.toLocaleDateString(undefined, { weekday: "short" })
+                  : "DAY";
+                const dayMonth = d
+                  ? d.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" })
+                  : `${day.day_index}`;
 
-                      {hoveredDayId === day.id && days.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteDay(day.id);
-                          }}
-                          style={{
-                            border: "none",
-                            background: "transparent",
-                            color: "#9ca3af",
-                            fontSize: "0.8rem",
-                            cursor: "pointer",
-                            padding: 0,
-                          }}
-                          title="Delete day"
-                        >
-                          ×
-                        </button>
-                      )}
-                    </div>
-                  );
-                }
-
-                const d = new Date(day.date);
-                const shortDow = d.toLocaleDateString(undefined, {
-                  weekday: "short",
-                });
-                const dayNum = d.toLocaleDateString(undefined, {
-                  day: "2-digit",
-                });
-                const monthShort = d.toLocaleDateString(undefined, {
-                  month: "short",
-                });
+                const { stops, distanceKmLabel, durationLabel } = getDaySummary(day.id);
 
                 return (
                   <div
@@ -1225,67 +1358,110 @@ export default function ItineraryEditor() {
                     onMouseLeave={() => setHoveredDayId(null)}
                     onClick={() => scrollToDay(day.id)}
                     style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      padding: "0.35rem 0.45rem",
+                      padding: "0.35rem 0.35rem",
                       borderRadius: 10,
                       cursor: "pointer",
-                      fontSize: "0.8rem",
-                      marginBottom: 4,
-                      backgroundColor: "#f9fafb",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
                     }}
                   >
-                    <div>
-                      <div style={{ fontSize: "0.7rem", color: "#6b7280" }}>
-                        {shortDow}
-                      </div>
-                      <div style={{ fontWeight: 600 }}>
-                        {dayNum} {monthShort}
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
-                    >
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      {/* Top line: date + Day # */}
                       <div
                         style={{
-                          fontSize: "0.7rem",
-                          color: "#6b7280",
-                          textAlign: "right",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 6,
+                          alignItems: "center",
                         }}
                       >
-                        Day {day.day_index}
+                        <span
+                          style={{
+                            fontSize: "0.82rem",
+                            fontWeight: 600,
+                            color: "#111827",      // darker & bolder for date
+                          }}
+                        >
+                          {shortDow} <span style={{ fontWeight: 500 }}>{dayMonth}</span>
+                        </span>
+
+                        <span
+                          style={{
+                            fontSize: "0.72rem",
+                            fontWeight: 600,
+                            padding: "0.05rem 0.45rem",
+                            borderRadius: 999,
+                            backgroundColor: "rgba(148,163,184,0.18)", // soft pill
+                            color: "#374151",
+                            whiteSpace: "nowrap",
+                            alignItems: "right",
+                          }}
+                        >
+                          Day {day.day_index}
+                        </span>
                       </div>
 
-                      {hoveredDayId === day.id && days.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteDay(day.id);
-                          }}
-                          style={{
-                            border: "none",
-                            background: "transparent",
-                            color: "#9ca3af",
-                            fontSize: "0.8rem",
-                            cursor: "pointer",
-                            padding: 0,
-                          }}
-                          title="Delete day"
-                        >
-                          ×
-                        </button>
-                      )}
+                      {/* Second line: soft summary */}
+                      <span
+                        style={{
+                          marginTop: 2,
+                          fontSize: "0.7rem",
+                          color: "#9ca3af",        // lighter & softer
+                          fontWeight: 400,
+                        }}
+                      >
+                        {stops} stop{stops !== 1 ? "s" : ""} · {distanceKmLabel} ·{" "}
+                        {durationLabel === "—" ? "time n/a" : `${durationLabel} est`}
+                      </span>
                     </div>
+
+                    {hoveredDayId === day.id && days.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteDay(day.id);
+                        }}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          color: "#9ca3af",
+                          fontSize: "0.85rem",
+                          cursor: "pointer",
+                          padding: 0,
+                        }}
+                        title="Delete day"
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
                 );
               })}
+
             </div>
+
+            {/* Add day at bottom */}
+            <button
+              type="button"
+              onClick={handleAddDay}
+              style={{
+                marginTop: 6,
+                width: "100%",
+                padding: "0.4rem 0.5rem",
+                borderRadius: 999,
+                border: "none",
+                backgroundColor: "#4f46e5",
+                color: "white",
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                boxShadow: "0 4px 10px rgba(79,70,229,0.25)",
+              }}
+            >
+              + Add Day
+            </button>
           </div>
         </div>
       </div>

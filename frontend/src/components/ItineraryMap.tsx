@@ -8,12 +8,32 @@ export type MapItineraryItem = {
   address?: string | null;
   lat: number | null;
   lon: number | null;
-  sort_order?: number | null;
+  sort_order?: number | null;   // global sequence 1..N
+  day_index?: number | null;    // which day (for color)
+  stop_index?: number | null;   // stop number within that day
 };
 
 type ItineraryMapProps = {
   items: MapItineraryItem[];
 };
+
+const mapDayColorPalette = [
+  "#746ee5ff", // indigo
+  "#b13171ff", // pink
+  "#2fa57eff", // emerald
+  "#eb904eff", // orange
+  "#56acd4ff", // sky
+  "#bc78fbff", // purple
+];
+
+function getMapDayColor(dayIndex: number | null | undefined): string {
+  if (!dayIndex || dayIndex <= 0) return "#4f46e5";
+  const idx =
+    ((dayIndex - 1) % mapDayColorPalette.length +
+      mapDayColorPalette.length) %
+    mapDayColorPalette.length;
+  return mapDayColorPalette[idx];
+}
 
 const ItineraryMap: React.FC<ItineraryMapProps> = ({ items }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -62,16 +82,39 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items }) => {
       return a.id - b.id;
     });
 
-    sorted.forEach((item, idx) => {
+    sorted.forEach((item) => {
       if (item.lat == null || item.lon == null) return;
 
-      const marker = new maplibregl.Marker({ color: "#4f46e5" })
+      const seq = item.sort_order ?? 0; // global sequence
+      const dayIdx = item.day_index ?? 1;
+      const stopIdx = item.stop_index ?? null;
+
+      const color = getMapDayColor(dayIdx);
+
+      const el = document.createElement("div");
+      el.style.width = "26px";
+      el.style.height = "26px";
+      el.style.borderRadius = "999px";
+      el.style.background = color;
+      el.style.color = "white";
+      el.style.display = "flex";
+      el.style.alignItems = "center";
+      el.style.justifyContent = "center";
+      el.style.fontSize = "11px";
+      el.style.fontWeight = "600";
+      el.style.boxShadow = "0 2px 6px rgba(15,23,42,0.35)";
+      el.textContent = seq ? String(seq) : "";
+
+      const dayLabel = item.day_index ? `Day ${item.day_index}` : "";
+      const stopLabel = stopIdx ? ` · Stop ${stopIdx}` : "";
+
+      const marker = new maplibregl.Marker({ element: el })
         .setLngLat([item.lon, item.lat])
         .setPopup(
           new maplibregl.Popup({ offset: 16 }).setHTML(
-            `<strong>${idx + 1}. ${item.title}</strong><br/>${
-              item.address || ""
-            }`
+            `<strong>${seq ? seq + ". " : ""}${item.title}</strong><br/>
+            ${dayLabel}${stopLabel}<br/>
+            ${item.address || ""}`
           )
         )
         .addTo(map);

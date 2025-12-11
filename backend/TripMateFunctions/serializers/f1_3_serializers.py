@@ -1,3 +1,4 @@
+# backend/TripMateFunctions/serializers/f1_3_serializers.py
 from rest_framework import serializers
 from ..models import Trip
 

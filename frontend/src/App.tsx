@@ -65,7 +65,7 @@ export default function App() {
         <Route path="/create-trip" element={<CreateTrip />} />
         {/* Old standalone route (without subheader) can stay */}
         <Route path="/itinerary-editor" element={<ItineraryEditor />} />
-        <Route path="/chatbot" element={<ChatbotPage />} />
+        <Route path="/trip/:tripId/chatbot" element={<ChatbotPage />} />
         
         {/* PohYee */}
         <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
