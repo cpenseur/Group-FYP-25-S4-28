@@ -13,6 +13,7 @@ import {
   useSensor,
   useSensors,
   useDroppable,
+  useDndContext,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -252,18 +253,6 @@ function getItemsForDay(
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 }
 
-function DayDroppable({
-  dayId,
-  children,
-}: {
-  dayId: number;
-  children: ReactNode;
-}) {
-  const { setNodeRef } = useDroppable({ id: `day-${dayId}` });
-
-  return <div ref={setNodeRef}>{children}</div>;
-}
-
 /* -------------------- Sortable item component -------------------- */
 
 function SortableItineraryCard({
@@ -295,6 +284,76 @@ function SortableItineraryCard({
     </div>
   );
 }
+
+/* -------------------- Day Droppable with highlight + placeholder index -------------------- */
+
+function DayDroppable({
+  day,
+  allItems,
+  children,
+}: {
+  day: TripDayResponse;
+  allItems: ItineraryItem[];
+  children: (opts: { isOver: boolean; placeholderIndex: number | null }) => ReactNode;
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `day-${day.id}`, // distinguish day droppables from item ids
+  });
+
+  const { active, over } = useDndContext();
+
+  let placeholderIndex: number | null = null;
+
+  if (active && over) {
+    const activeId = Number(active.id);
+    const overId = over.id;
+
+    if (activeId) {
+      let targetDayId: number | null = null;
+      let indexInDay = 0;
+
+      if (typeof overId === "string" && overId.startsWith("day-")) {
+        // hovering the "empty" area / bottom of a day
+        targetDayId = Number(overId.slice(4));
+        const destList = getItemsForDay(allItems, targetDayId);
+        indexInDay = destList.length;
+      } else {
+        const destItemId =
+          typeof overId === "number" ? overId : Number(overId);
+        const destItem = allItems.find((i) => i.id === destItemId);
+
+        if (destItem && destItem.day != null) {
+          targetDayId = destItem.day;
+          const destList = getItemsForDay(allItems, targetDayId);
+          const idx = destList.findIndex((i) => i.id === destItemId);
+          indexInDay = idx === -1 ? destList.length : idx;
+        }
+      }
+
+      if (targetDayId === day.id) {
+        placeholderIndex = indexInDay;
+      }
+    }
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        marginBottom: "1.1rem",
+        borderRadius: 12,
+        paddingBottom: 4,
+        backgroundColor: isOver
+          ? "rgba(129,140,248,0.08)" // soft highlight when dragging over this day
+          : "transparent",
+        transition: "background-color 120ms ease-out",
+      }}
+    >
+      {children({ isOver, placeholderIndex })}
+    </div>
+  );
+}
+
 
 /* -------------------- Component -------------------- */
 
@@ -349,6 +408,11 @@ export default function ItineraryEditor() {
   const [timeModalItem, setTimeModalItem] = useState<ItineraryItem | null>(null);
   const [editStart, setEditStart] = useState("");
   const [editEnd, setEditEnd] = useState("");
+
+  // Add stop modal
+  const [addStopModalOpen, setAddStopModalOpen] = useState(false);
+  const [addStopDayId, setAddStopDayId] = useState<number | null>(null);
+  const [modalPlace, setModalPlace] = useState<SelectedPlace | null>(null);
 
   // Hovered day for sidebar
   const [hoveredDayId, setHoveredDayId] = useState<number | null>(null);
@@ -661,6 +725,13 @@ export default function ItineraryEditor() {
     }
   };
 
+  /* ------------- Open add stop modal ------------- */
+  function openAddStopModal(dayId: number) {
+    setAddStopDayId(dayId);
+    setModalPlace(null); // reset previous selection
+    setAddStopModalOpen(true);
+  }
+
   /* ------------- Add stop to specific day ------------- */
   async function handleAddStopToDay(dayId: number) {
     if (!selectedPlace) {
@@ -726,6 +797,115 @@ export default function ItineraryEditor() {
     }
   };
 
+  /* ------------- Compute reordered items (for preview during drag) ------------- */
+
+  const computeReorderedItems = (
+    prevItems: ItineraryItem[],
+    activeId: number,
+    overIdRaw: unknown
+  ): ItineraryItem[] => {
+    const itemsCopy = prevItems.map((i) => ({ ...i }));
+    const activeItem = itemsCopy.find((i) => i.id === activeId);
+    if (!activeItem) return prevItems;
+
+    // ---- 1) figure out target day + index ----
+    let targetDayId: number | null = null;
+    let targetIndex = 0;
+
+    if (typeof overIdRaw === "string" && overIdRaw.startsWith("day-")) {
+      // Dropped into empty/bottom area of that day
+      targetDayId = Number(overIdRaw.slice(4));
+      const destList = getItemsForDay(itemsCopy, targetDayId);
+      targetIndex = destList.length;
+    } else {
+      const destItemId =
+        typeof overIdRaw === "number" ? overIdRaw : Number(overIdRaw);
+      if (!destItemId || Number.isNaN(destItemId)) return prevItems;
+
+      const destItem = itemsCopy.find((i) => i.id === destItemId);
+      if (!destItem) return prevItems;
+
+      targetDayId = destItem.day ?? null;
+      if (!targetDayId) return prevItems;
+
+      const destList = getItemsForDay(itemsCopy, targetDayId);
+      const idx = destList.findIndex((i) => i.id === destItemId);
+      targetIndex = idx === -1 ? destList.length : idx;
+    }
+
+    const sourceDayId = activeItem.day;
+    if (!sourceDayId || !targetDayId) return prevItems;
+
+    // ---- 2) build per-day buckets ----
+    const byDay: Record<number, ItineraryItem[]> = {};
+    days.forEach((d) => {
+      byDay[d.id] = getItemsForDay(itemsCopy, d.id).map((it) => ({ ...it }));
+    });
+
+    const sourceList = byDay[sourceDayId] ?? [];
+    const destList =
+      sourceDayId === targetDayId ? sourceList : byDay[targetDayId] ?? [];
+
+    const sourceIndex = sourceList.findIndex((i) => i.id === activeId);
+    if (sourceIndex === -1) return prevItems;
+
+    // ✅ If it would land in the same slot → no change
+    if (sourceDayId === targetDayId && sourceIndex === targetIndex) {
+      return prevItems;
+    }
+
+    // ---- 3) mutate the per-day lists in memory ----
+    if (sourceDayId === targetDayId) {
+      // reorder within same day
+      const reordered = arrayMove(sourceList, sourceIndex, targetIndex);
+      byDay[sourceDayId] = reordered;
+    } else {
+      // move between days
+      const [moved] = sourceList.splice(sourceIndex, 1);
+      const movedWithNewDay: ItineraryItem = { ...moved, day: targetDayId };
+      destList.splice(targetIndex, 0, movedWithNewDay);
+
+      byDay[sourceDayId] = sourceList;
+      byDay[targetDayId] = destList;
+    }
+
+    // ---- 4) reconstruct full flat list with new sort_order ----
+    const updated: ItineraryItem[] = [];
+
+    Object.entries(byDay).forEach(([dayIdStr, list]) => {
+      const dayIdNum = Number(dayIdStr);
+      list.forEach((it, idx) => {
+        updated.push({
+          ...it,
+          day: dayIdNum,
+          sort_order: idx + 1,
+        });
+      });
+    });
+
+    // keep any items whose day is null / not present (edge case)
+    prevItems.forEach((it) => {
+      if (
+        (it.day == null || !byDay[it.day]) &&
+        !updated.find((u) => u.id === it.id)
+      ) {
+        updated.push(it);
+      }
+    });
+
+    // ---- 5) stable global sort: by day_index then sort_order ----
+    const dayIndexMap = new Map(days.map((d) => [d.id, d.day_index]));
+    updated.sort((a, b) => {
+      const da = dayIndexMap.get(a.day ?? 0) ?? 0;
+      const db = dayIndexMap.get(b.day ?? 0) ?? 0;
+      if (da !== db) return da - db;
+      return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+    });
+
+    return updated;
+  };
+
+
   /* ------------- Drag & Drop handler (dnd-kit) ------------- */
 
   const handleDragEnd = async (event: DragEndEvent) => {
@@ -733,104 +913,36 @@ export default function ItineraryEditor() {
     if (!over) return;
 
     const activeId = Number(active.id);
-    const overId = Number(over.id);
-    if (!activeId || !overId || activeId === overId) return;
+    if (!activeId) return;
 
-    const prevItems = items;
-    const activeItem = prevItems.find((i) => i.id === activeId);
-    const overItem = prevItems.find((i) => i.id === overId);
-    if (!activeItem || !overItem) return;
+    const prev = items;
+    const overId = over.id;
 
-    const sourceDayId = activeItem.day;
-    const destDayId = overItem.day;
-    if (!sourceDayId || !destDayId) return;
+    const newItems = computeReorderedItems(prev, activeId, overId);
+    if (newItems === prev) return; // no actual change
 
-    // Split items by day
-    const byDay: Record<number, ItineraryItem[]> = {};
-    prevItems.forEach((i) => {
-      if (!i.day) return;
-      if (!byDay[i.day]) byDay[i.day] = [];
-      byDay[i.day].push(i);
+    // Update UI once
+    setItems(newItems);
+    setLegs([]); // clear until next optimise
+
+    // Persist only changed records
+    const prevById = new Map(prev.map((i) => [i.id, i]));
+    const changed = newItems.filter((it) => {
+      const p = prevById.get(it.id);
+      if (!p) return true;
+      return p.day !== it.day || p.sort_order !== it.sort_order;
     });
 
-    // Sort each day's items by sort_order
-    Object.keys(byDay).forEach((key) => {
-      const k = Number(key);
-      byDay[k].sort(
-        (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
-      );
-    });
-
-    const sourceList = byDay[sourceDayId] || [];
-    const destList =
-      sourceDayId === destDayId
-        ? sourceList
-        : byDay[destDayId] || [];
-
-    const sourceIndex = sourceList.findIndex((i) => i.id === activeId);
-    const destIndex = destList.findIndex((i) => i.id === overId);
-    if (sourceIndex === -1 || destIndex === -1) return;
-
-    if (sourceDayId === destDayId) {
-      // Reorder within same day
-      const reordered = arrayMove(sourceList, sourceIndex, destIndex);
-      reordered.forEach((item, idx) => {
-        item.sort_order = idx + 1;
-      });
-      byDay[sourceDayId] = reordered;
-    } else {
-      // Move between days
-      const newSource = [...sourceList];
-      const newDest = [...destList];
-
-      const [moved] = newSource.splice(sourceIndex, 1);
-      moved.day = destDayId;
-      newDest.splice(destIndex, 0, moved);
-
-      newSource.forEach((item, idx) => {
-        item.sort_order = idx + 1;
-      });
-      newDest.forEach((item, idx) => {
-        item.sort_order = idx + 1;
-      });
-
-      byDay[sourceDayId] = newSource;
-      byDay[destDayId] = newDest;
-    }
-
-    // Flatten back into a single array
-    const updatedItems: ItineraryItem[] = [];
-    days.forEach((d) => {
-      const list = byDay[d.id] || [];
-      updatedItems.push(...list);
-    });
-
-    // Add any items with no day (if any)
-    prevItems.forEach((i) => {
-      if (!i.day) updatedItems.push(i);
-    });
-
-    setItems(updatedItems);
-    setLegs([]); // clear route legs until next optimise
-
-    // Persist changes (only items whose day or sort_order changed)
-    const prevMap = new Map(prevItems.map((i) => [i.id, i]));
-    const changed = updatedItems.filter((item) => {
-      const prev = prevMap.get(item.id);
-      if (!prev) return false;
-      return (
-        prev.day !== item.day || prev.sort_order !== item.sort_order
-      );
-    });
+    if (!changed.length) return;
 
     try {
       await Promise.all(
-        changed.map((item) =>
-          apiFetch(`/f1/itinerary-items/${item.id}/`, {
+        changed.map((it) =>
+          apiFetch(`/f1/itinerary-items/${it.id}/`, {
             method: "PATCH",
             body: JSON.stringify({
-              day: item.day,
-              sort_order: item.sort_order,
+              day: it.day,
+              sort_order: it.sort_order,
             }),
           })
         )
@@ -840,6 +952,7 @@ export default function ItineraryEditor() {
       setErrorMsg("Could not save new order; refreshing the page may help.");
     }
   };
+
 
   // ------------- Add Day Handler ------------- //
 
@@ -1081,7 +1194,11 @@ export default function ItineraryEditor() {
             }}
           >
             {/* Itinerary Planner with DnD */}
-            <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
               <div
                 style={{
                   backgroundColor: "white",
@@ -1115,58 +1232,15 @@ export default function ItineraryEditor() {
                     const dayItems = getItemsForDay(items, day.id);
 
                     return (
-                      <div key={day.id} style={{ marginBottom: "1.1rem" }}>
-                        {/* Day header */}
-                        <div
-                          ref={(el) => {
-                            dayHeaderRefs.current.set(day.id, el);
-                          }}
-                          style={{
-                            backgroundColor: "#f3f4ff",
-                            borderRadius: "999px",
-                            padding: "0.3rem 0.85rem",
-                            fontSize: "0.8rem",
-                            fontWeight: 600,
-                            color: "#111827",
-                            marginBottom: "0.55rem",
-                            display: "inline-block",
-                          }}
-                        >
-                          {formatDayHeader(day)}
-                        </div>
+                      <DayDroppable key={day.id} day={day} allItems={items}>
+                        {({ placeholderIndex }) => {
+                          // build list with optional placeholder
+                          const rendered: ReactNode[] = [];
 
-                        {/* + Add Stop button */}
-                        <button
-                          type="button"
-                          onClick={() => handleAddStopToDay(day.id)}
-                          style={{
-                            margin: "4px 0 10px",
-                            borderRadius: "8px",
-                            border: "1px solid #d1d5db",
-                            backgroundColor: "#f9fafb",
-                            color: "#4f46e5",
-                            padding: "4px 10px",
-                            fontSize: "0.75rem",
-                            fontWeight: 600,
-                            cursor: "pointer",
-                          }}
-                        >
-                          + Add Stop
-                        </button>
-
-                        <SortableContext
-                          items={dayItems.map((i) => i.id)}
-                          strategy={verticalListSortingStrategy}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: 8,
-                            }}
-                          >
-                            {dayItems.length === 0 ? (
+                          if (dayItems.length === 0 && placeholderIndex === null) {
+                            rendered.push(
                               <div
+                                key={`empty-${day.id}`}
                                 style={{
                                   fontSize: "0.8rem",
                                   color: "#9ca3af",
@@ -1175,185 +1249,265 @@ export default function ItineraryEditor() {
                               >
                                 No stops scheduled for this day yet.
                               </div>
-                            ) : (
-                              dayItems.map((item) => {
-                                const allItemsSorted = [...items].sort(
-                                  (a, b) =>
-                                    (a.sort_order ?? 0) -
-                                    (b.sort_order ?? 0)
+                            );
+                          } else {
+                            dayItems.forEach((item, idx) => {
+                              // ghost slot BEFORE this item
+                              if (placeholderIndex === idx) {
+                                rendered.push(
+                                  <div
+                                    key={`ph-${day.id}-${idx}`}
+                                    style={{
+                                      height: 64,
+                                      borderRadius: 12,
+                                      border: "1px dashed #9ca3af",
+                                      backgroundColor: "#eef2ff",
+                                    }}
+                                  />
                                 );
-                                const globalIdx = allItemsSorted.findIndex(
-                                  (i) => i.id === item.id
-                                );
-                                const next =
-                                  globalIdx >= 0 &&
-                                  globalIdx < allItemsSorted.length - 1
-                                    ? allItemsSorted[globalIdx + 1]
-                                    : null;
+                              }
 
-                                const leg =
-                                  next && findLegForPair(item.id, next.id)
-                                    ? findLegForPair(item.id, next.id)
-                                    : undefined;
+                              const allItemsSorted = [...items].sort(
+                                (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+                              );
+                              const globalIdx = allItemsSorted.findIndex((i) => i.id === item.id);
+                              const next =
+                                globalIdx >= 0 && globalIdx < allItemsSorted.length - 1
+                                  ? allItemsSorted[globalIdx + 1]
+                                  : null;
 
-                                const thumbUrl = getItemThumbnail(item);
-                                const timeLabel = formatTimeRange(item);
+                              const leg =
+                                next && findLegForPair(item.id, next.id)
+                                  ? findLegForPair(item.id, next.id)
+                                  : undefined;
 
-                                return (
-                                  <SortableItineraryCard
-                                    key={item.id}
-                                    item={item}
+                              const thumbUrl = getItemThumbnail(item);
+                              const timeLabel = formatTimeRange(item);
+
+                              rendered.push(
+                                <SortableItineraryCard key={item.id} item={item}>
+                                  <div
+                                    style={{
+                                      borderRadius: "12px",
+                                      padding: "0.6rem 0.8rem",
+                                      border: "1px solid #e5e7eb",
+                                      display: "grid",
+                                      gridTemplateColumns: "auto 110px minmax(0, 1fr) auto",
+                                      columnGap: "0.75rem",
+                                      alignItems: "center",
+                                      backgroundColor: "transparent",
+                                    }}
                                   >
+                                    {/* Sequence number */}
                                     <div
                                       style={{
-                                        borderRadius: "12px",
-                                        padding: "0.6rem 0.8rem",
-                                        border: "1px solid #e5e7eb",
-                                        display: "grid",
-                                        gridTemplateColumns:
-                                          "auto 110px minmax(0, 1fr) auto",
-                                        columnGap: "0.75rem",
+                                        width: 26,
+                                        height: 26,
+                                        borderRadius: "999px",
+                                        backgroundColor: "#4f46e5",
+                                        color: "white",
+                                        display: "flex",
                                         alignItems: "center",
-                                        backgroundColor: "transparent",
+                                        justifyContent: "center",
+                                        fontSize: "0.75rem",
+                                        fontWeight: 600,
                                       }}
                                     >
-                                      {/* Sequence number */}
+                                      {item.sort_order}
+                                    </div>
+
+                                    {/* Thumbnail */}
+                                    <div
+                                      style={{
+                                        width: 100,
+                                        height: 64,
+                                        borderRadius: 12,
+                                        background: thumbUrl
+                                          ? `url(${thumbUrl}) center/cover no-repeat`
+                                          : "linear-gradient(135deg,#bfdbfe,#a5b4fc)",
+                                      }}
+                                    />
+
+                                    {/* Text block */}
+                                    <div>
                                       <div
                                         style={{
-                                          width: 26,
-                                          height: 26,
-                                          borderRadius: "999px",
-                                          backgroundColor: "#4f46e5",
-                                          color: "white",
                                           display: "flex",
                                           alignItems: "center",
-                                          justifyContent: "center",
-                                          fontSize: "0.75rem",
-                                          fontWeight: 600,
+                                          justifyContent: "space-between",
+                                          marginBottom: 2,
+                                          gap: 8,
                                         }}
                                       >
-                                        {item.sort_order}
-                                      </div>
-
-                                      {/* Thumbnail */}
-                                      <div
-                                        style={{
-                                          width: 100,
-                                          height: 64,
-                                          borderRadius: 12,
-                                          background: thumbUrl
-                                            ? `url(${thumbUrl}) center/cover no-repeat`
-                                            : "linear-gradient(135deg,#bfdbfe,#a5b4fc)",
-                                        }}
-                                      />
-
-                                      {/* Text block */}
-                                      <div>
                                         <div
                                           style={{
-                                            display: "flex",
-                                            alignItems: "center",
-                                            justifyContent: "space-between",
-                                            marginBottom: 2,
-                                            gap: 8,
+                                            fontSize: "0.9rem",
+                                            fontWeight: 600,
                                           }}
                                         >
-                                          <div
-                                            style={{
-                                              fontSize: "0.9rem",
-                                              fontWeight: 600,
-                                            }}
-                                          >
-                                            {item.title}
-                                          </div>
-
-                                          {timeLabel && (
-                                            <div
-                                              style={{
-                                                fontSize: "0.75rem",
-                                                color: "#6b7280",
-                                                whiteSpace: "nowrap",
-                                              }}
-                                            >
-                                              {timeLabel}
-                                            </div>
-                                          )}
+                                          {item.title}
                                         </div>
 
-                                        {item.address && (
+                                        {timeLabel && (
                                           <div
                                             style={{
-                                              fontSize: "0.8rem",
+                                              fontSize: "0.75rem",
                                               color: "#6b7280",
+                                              whiteSpace: "nowrap",
                                             }}
                                           >
-                                            {item.address}
+                                            {timeLabel}
                                           </div>
                                         )}
-
-                                        {leg && (
-                                          <div
-                                            style={{
-                                              fontSize: "0.78rem",
-                                              color: "#4b5563",
-                                              marginTop: 4,
-                                            }}
-                                          >
-                                            {`→ ${leg.distance_km} km, ~${leg.duration_min} min to next stop`}
-                                          </div>
-                                        )}
-
-                                        {/* Time editor trigger */}
-                                        <div
-                                          style={{
-                                            fontSize: "0.75rem",
-                                            color: "#6b7280",
-                                            cursor: "pointer",
-                                            marginTop: 6,
-                                          }}
-                                          onClick={() => openTimeEditor(item)}
-                                        >
-                                          {timeLabel || "Add time"}
-                                        </div>
                                       </div>
 
-                                      {/* Delete button */}
-                                      <div
-                                        style={{
-                                          display: "flex",
-                                          flexDirection: "column",
-                                          alignItems: "flex-end",
-                                        }}
-                                      >
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            handleDeleteItem(item.id)
-                                          }
+                                      {item.address && (
+                                        <div
                                           style={{
-                                            borderRadius: "999px",
-                                            border: "none",
-                                            padding: "0.15rem 0.7rem",
-                                            fontSize: "0.7rem",
-                                            backgroundColor: "#fee2e2",
-                                            color: "#b91c1c",
-                                            cursor: "pointer",
+                                            fontSize: "0.8rem",
+                                            color: "#6b7280",
                                           }}
                                         >
-                                          Delete
-                                        </button>
+                                          {item.address}
+                                        </div>
+                                      )}
+
+                                      {leg && (
+                                        <div
+                                          style={{
+                                            fontSize: "0.78rem",
+                                            color: "#4b5563",
+                                            marginTop: 4,
+                                          }}
+                                        >
+                                          {`→ ${leg.distance_km} km, ~${leg.duration_min} min to next stop`}
+                                        </div>
+                                      )}
+
+                                      {/* Time editor trigger */}
+                                      <div
+                                        style={{
+                                          fontSize: "0.75rem",
+                                          color: "#6b7280",
+                                          cursor: "pointer",
+                                          marginTop: 6,
+                                        }}
+                                        onClick={() => openTimeEditor(item)}
+                                      >
+                                        {timeLabel || "Add time"}
                                       </div>
                                     </div>
-                                  </SortableItineraryCard>
-                                );
-                              })
-                            )}
-                          </div>
-                        </SortableContext>
-                      </div>
+
+                                    {/* Delete button */}
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        alignItems: "flex-end",
+                                      }}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteItem(item.id)}
+                                        style={{
+                                          borderRadius: "999px",
+                                          border: "none",
+                                          padding: "0.15rem 0.7rem",
+                                          fontSize: "0.7rem",
+                                          backgroundColor: "#fee2e2",
+                                          color: "#b91c1c",
+                                          cursor: "pointer",
+                                        }}
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  </div>
+                                </SortableItineraryCard>
+                              );
+                            });
+
+                            // ghost slot at the very end
+                            if (
+                              placeholderIndex !== null &&
+                              placeholderIndex === dayItems.length
+                            ) {
+                              rendered.push(
+                                <div
+                                  key={`ph-${day.id}-end`}
+                                  style={{
+                                    height: 64,
+                                    borderRadius: 12,
+                                    border: "1px dashed #9ca3af",
+                                    backgroundColor: "#eef2ff",
+                                  }}
+                                />
+                              );
+                            }
+                          }
+
+                          return (
+                            <>
+                              {/* Day header */}
+                              <div
+                                ref={(el) => {
+                                  dayHeaderRefs.current.set(day.id, el);
+                                }}
+                                style={{
+                                  backgroundColor: "#f3f4ff",
+                                  borderRadius: "999px",
+                                  padding: "0.3rem 0.85rem",
+                                  fontSize: "0.8rem",
+                                  fontWeight: 600,
+                                  color: "#111827",
+                                  marginBottom: "0.55rem",
+                                  display: "inline-block",
+                                }}
+                              >
+                                {formatDayHeader(day)}
+                              </div>
+
+                              {/* + Add Stop button */}
+                              <button
+                                type="button"
+                                onClick={() => openAddStopModal(day.id)}
+                                style={{
+                                  margin: "4px 0 10px",
+                                  borderRadius: "8px",
+                                  border: "1px solid #d1d5db",
+                                  backgroundColor: "#f9fafb",
+                                  color: "#4f46e5",
+                                  padding: "4px 10px",
+                                  fontSize: "0.75rem",
+                                  fontWeight: 600,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                + Add Stop
+                              </button>
+
+                              <SortableContext
+                                items={dayItems.map((i) => i.id)}
+                                strategy={verticalListSortingStrategy}
+                              >
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: 8,
+                                  }}
+                                >
+                                  {rendered}
+                                </div>
+                              </SortableContext>
+                            </>
+                          );
+                        }}
+                      </DayDroppable>
                     );
                   })
                 )}
+
               </div>
             </DndContext>
 
@@ -1542,6 +1696,161 @@ export default function ItineraryEditor() {
         }}
         onSave={saveTimeModal}
       />
+
+      {addStopModalOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15,23,42,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            fontFamily:
+              'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+          }}
+        >
+          <div
+            style={{
+              width: "min(720px, 94%)",       // 🔥 WIDER MODAL
+              background: "white",
+              borderRadius: "28px",
+              padding: "2rem 2.4rem 1.8rem", // 🔥 Thicker, modern modal padding
+              boxShadow: "0 22px 55px rgba(15,23,42,0.38)",
+              boxSizing: "border-box",
+            }}
+          >
+            {/* Header */}
+            <h2
+              style={{
+                fontSize: "1.25rem",
+                fontWeight: 700,
+                color: "#111827",
+                margin: 0,
+                marginBottom: "1.4rem",
+              }}
+            >
+              Add Stop to{" "}
+              <span style={{ color: "#4f46e5" }}>
+                Day {days.find((d) => d.id === addStopDayId)?.day_index}
+              </span>
+            </h2>
+
+            {/* Search bar */}
+            <div style={{ width: "94%", marginBottom: "1.3rem" }}>
+              <PlaceSearchBar
+                onSelect={(f) =>
+                  setModalPlace({
+                    name: f.text || "Selected place",
+                    fullName: f.place_name || "",
+                    address: f.place_name || "",
+                    lat: f.center?.[1],
+                    lon: f.center?.[0],
+                  })
+                }
+              />
+            </div>
+
+            {/* Selected place preview */}      
+            {modalPlace && (
+              <div
+                style={{
+                  marginTop: "0.3rem",
+                  padding: "0.8rem 0.9rem",
+                  background: "#f9fafb",
+                  borderRadius: "12px",
+                  border: "1px solid #e5e7eb",
+                }}
+              >
+                <div style={{ fontSize: "0.9rem", fontWeight: 600, marginBottom: 2 }}>
+                  {modalPlace.name}
+                </div>
+                <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                  {modalPlace.fullName}
+                </div>
+              </div>
+            )}
+
+            {/* Buttons */}
+            <div
+              style={{
+                marginTop: "1.4rem",
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "0.75rem",
+              }}
+            >
+              <button
+                onClick={() => {
+                  setAddStopModalOpen(false);
+                  setModalPlace(null);
+                }}
+                style={{
+                  padding: "0.45rem 1.1rem",
+                  borderRadius: "999px",
+                  border: "1px solid #d1d5db",
+                  background: "white",
+                  fontSize: "0.85rem",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={async () => {
+                  if (!modalPlace || !addStopDayId) {
+                    setErrorMsg("Please select a place before adding.");
+                    return;
+                  }
+
+                  try {
+                    const payload = {
+                      trip: numericTripId,
+                      day: addStopDayId,
+                      title: modalPlace.name,
+                      address: modalPlace.address,
+                      lat: modalPlace.lat,
+                      lon: modalPlace.lon,
+                      item_type: "place",
+                      is_all_day: false,
+                      sort_order: getItemsForDay(items, addStopDayId).length + 1,
+                    };
+
+                    const created = await apiFetch("/f1/itinerary-items/", {
+                      method: "POST",
+                      body: JSON.stringify(payload),
+                    });
+
+                    setItems((prev) => [...prev, created]);
+                    setAddStopModalOpen(false);
+                    setModalPlace(null);
+                  } catch (err) {
+                    console.error("Failed to add stop:", err);
+                    setErrorMsg("Could not add stop.");
+                  }
+                }}
+                style={{
+                  padding: "0.45rem 1.35rem",
+                  borderRadius: "999px",
+                  border: "none",
+                  background:
+                    "linear-gradient(135deg, #4f46e5 0%, #6366f1 40%, #ec4899 100%)",
+                  color: "white",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  boxShadow: "0 8px 20px rgba(79,70,229,0.35)",
+                }}
+              >
+                Add Stop
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
