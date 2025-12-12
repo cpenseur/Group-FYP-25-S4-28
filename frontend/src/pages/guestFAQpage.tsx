@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import styled from "styled-components";
 import LandingNavbar from "../components/landingNavbar";
@@ -17,6 +17,9 @@ import {
 
 export default function GuestFAQPage() {
   const navigate = useNavigate();
+  useEffect(() => {
+  window.scrollTo(0, 0);
+  }, []);  
   const [openIndex, setOpenIndex] = useState<number | null>(0);
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchText, setSearchText] = useState("");
@@ -24,7 +27,7 @@ export default function GuestFAQPage() {
   const navLinks = [
     { name: 'Home', path: '/landing-page#hero' },
     { name: 'About Us', path: '/landing-page#about' },
-    { name: 'Travel Guides', path: '/travel-guides-tutorial' },
+    { name: 'Travel Guides', path: '/Demo' },
     { name: 'FAQ', path: '/guest-faq' },
   ];
 

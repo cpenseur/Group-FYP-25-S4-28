@@ -14,6 +14,7 @@ import ChatbotPage from "./pages/chatbot";
 // PohYee
 import ExportPDF from "./pages/exportPDF";
 import LandingPage from "./pages/landingPage";
+import Demo from "./pages/Demo";
 import TravelGuidesTutorial from "./pages/travelGuidesTutorial";
 import GuestFAQPage from "./pages/guestFAQpage";
 import AdminDashboard from "./pages/adminDashboard";
@@ -65,7 +66,8 @@ export default function App() {
       {/* PohYee */}
       <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
       <Route path="/export-pdf" element={<ExportPDF />} />
-      <Route path="/travel-guides-tutorial" element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />} />
+      <Route path="/demo" element={<Demo onLoginClick={openLogin} onSignupClick={openSignup} />} />
+      <Route path="/travel-guides/:guideId" element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />} />
       <Route path="/guest-faq" element={<GuestFAQPage />} />
       <Route path="/admin-dashboard" element={<AdminDashboard />} />
       <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />

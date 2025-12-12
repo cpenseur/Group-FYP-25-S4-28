@@ -42,7 +42,7 @@ export default function TravelGuidesTutorial({ onLoginClick, onSignupClick, }: T
   const navLinks = [
     { name: 'Home', path: '/landing-page#hero' },
     { name: 'About Us', path: '/landing-page#about' },
-    { name: 'Travel Guides', path: '/travel-guides-tutorial' },
+    { name: 'Travel Guides', path: '/Demo' },
     { name: 'FAQ', path: '/guest-faq' },
   ];
 
