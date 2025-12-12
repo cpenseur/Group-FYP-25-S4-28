@@ -1,7 +1,15 @@
 import React from "react";
-import logo from "../assets/logo.png"; 
+import logo from "../assets/logo.png";
 
-export default function AdminNavbar() {
+type AdminNavbarProps = {
+  onProfileClick: () => void;
+  onLogoutClick: () => void;
+};
+
+export default function AdminNavbar({
+  onProfileClick,
+  onLogoutClick,
+}: AdminNavbarProps) {
   return (
     <>
       <header className="tm-nav">
@@ -10,8 +18,12 @@ export default function AdminNavbar() {
         </div>
 
         <div className="tm-nav-right">
-          <button className="tm-nav-link">Profile</button>
-          <button className="tm-nav-primary">Log Out</button>
+          <button className="tm-nav-link" onClick={onProfileClick}>
+            Profile
+          </button>
+          <button className="tm-nav-primary" onClick={onLogoutClick}>
+            Log Out
+          </button>
         </div>
       </header>
 
@@ -42,12 +54,6 @@ export default function AdminNavbar() {
           height: 40px;
           width: auto;
           display: block;
-        }
-
-        .tm-nav-brand {
-          font-size: 1rem;
-          font-weight: 700;
-          color: #111827;
         }
 
         .tm-nav-right {

@@ -18,6 +18,7 @@ import Demo from "./pages/Demo";
 import TravelGuidesTutorial from "./pages/travelGuidesTutorial";
 import GuestFAQPage from "./pages/guestFAQpage";
 import AdminDashboard from "./pages/adminDashboard";
+import Profile from "./pages/profile";
 import Login from "./components/login";
 
 // KK
@@ -70,6 +71,7 @@ export default function App() {
       <Route path="/travel-guides/:guideId" element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />} />
       <Route path="/guest-faq" element={<GuestFAQPage />} />
       <Route path="/admin-dashboard" element={<AdminDashboard />} />
+      <Route path="/profile" element={<Profile />} />
       <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />
 
       {/* KK */}

@@ -3,6 +3,7 @@ import React, { useState, FormEvent, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import styled from "styled-components";
+import { isAdminEmail } from "../api/adminList"; 
 
 type Mode = "login" | "signup";
 
@@ -77,8 +78,26 @@ export default function Login({
           return;
         }
 
-        setStatus("Login successful. Redirecting to dashboard…");
-        navigate("/dashboard");
+        const { data, error: userErr } = await supabase.auth.getUser();
+        if (userErr) {
+          setStatus(
+            `Login successful, but failed to read user: ${userErr.message}`
+          );
+          navigate("/dashboard",  { replace: true });
+          onClose();
+          return;
+        }
+
+        const userEmail = (data.user?.email ?? "").toLowerCase();
+
+        if (isAdminEmail(userEmail)) {
+          setStatus("Login successful. Redirecting to admin dashboard…");
+          navigate("/admin-dashboard",  { replace: true });
+        } else {
+          setStatus("Login successful. Redirecting to dashboard…");
+          navigate("/dashboard",  { replace: true });
+        }
+
         onClose();
       } else {
         const { error } = await supabase.auth.signUp({
