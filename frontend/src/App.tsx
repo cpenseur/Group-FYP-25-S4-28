@@ -20,6 +20,7 @@ import GuestFAQPage from "./pages/guestFAQpage";
 import AdminDashboard from "./pages/adminDashboard";
 import Profile from "./pages/profile";
 import Login from "./components/login";
+import ResetPassword from "./pages/resetPassword";
 
 // KK
 import DiscoveryLocal from "./pages/discoveryLocal";
@@ -73,7 +74,8 @@ export default function App() {
       <Route path="/admin-dashboard" element={<AdminDashboard />} />
       <Route path="/profile" element={<Profile />} />
       <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />
-
+      <Route path="/reset-password" element={<ResetPassword />} />
+      
       {/* KK */}
       <Route path="/discovery-local" element={<DiscoveryLocal />} />
       <Route path="/discovery-international" element={<DiscoveryInternational />} />

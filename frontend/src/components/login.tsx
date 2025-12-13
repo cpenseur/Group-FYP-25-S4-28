@@ -61,6 +61,19 @@ export default function Login({
 
   if (!isOpen) return null;
 
+  const handleForgotPassword = async () => {
+    if (!email) {
+      setStatus("Enter your email first.");
+      return;
+    }
+
+    const redirectTo = `${window.location.origin}/reset-password`;
+
+    await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+
+    setStatus("Check your email for the reset link.");
+  };
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
@@ -200,6 +213,7 @@ export default function Login({
               <span>Password</span>
               <button
                 type="button"
+                onClick={handleForgotPassword}
                 style={{
                   border: "none",
                   background: "none",
