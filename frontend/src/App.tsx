@@ -62,6 +62,16 @@ export default function App() {
         {/* Dev home (team testing menu) */}
         <Route path="/" element={<Home />} />
 
+        {/* Vania */}
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/trips" element={<Trips />} />
+        <Route path="/ai-trip-generator-step1" element={<AiTripGeneratorStep1 />} />
+        <Route path="/ai-trip-generator-step2" element={<AiTripGeneratorStep2 />} />
+        <Route path="/create-trip" element={<CreateTrip />} />
+        {/* Old standalone route (without subheader) can stay */}
+        <Route path="/itinerary-editor" element={<ItineraryEditor />} />
+        <Route path="/trip/:tripId/chatbot" element={<PlanbotPage />} />
+        
       {/* PohYee */}
       <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
       <Route path="/export-pdf" element={<ExportPDF />} />
@@ -73,45 +83,30 @@ export default function App() {
       <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />
       <Route path="/reset-password" element={<ResetPassword />} />
       
-      {/* KK */}
-      <Route path="/discovery-local" element={<DiscoveryLocal />} />
-      <Route path="/discovery-international" element={<DiscoveryInternational />} />
-      <Route path="/discovery-faq" element={<DiscoveryFAQ />} />
+        {/* Trip-based routes (with TripSubHeader inside each page) */}
+        <Route path="/trip/:tripId/itinerary" element={<ItineraryEditor />} />
+        <Route path="/trip/:tripId/notes" element={<NotesAndChecklistPage />} />
+        <Route path="/trip/:tripId/budget" element={<BudgetPage />} />
+        <Route path="/trip/:tripId/media" element={<MediaHighlights />} />
+        <Route path="/trip/:tripId/recommendations" element={<ItineraryRecommendation />} />
 
-      {/* Vania */}
-      <Route path="/dashboard" element={<Dashboard />} />
-      <Route path="/trips" element={<Trips />} />
-      <Route path="/ai-trip-generator-step1" element={<AiTripGeneratorStep1 />} />
-      <Route path="/ai-trip-generator-step2" element={<AiTripGeneratorStep2 />} />
-      <Route path="/create-trip" element={<CreateTrip />} />
-      {/* Old standalone route (without subheader) can stay */}
-      <Route path="/itinerary-editor" element={<ItineraryEditor />} />
-      <Route path="/trip/:tripId/chatbot" element={<PlanbotPage />} />
-        
-      {/* Trip-based routes (with TripSubHeader inside each page) */}
-      <Route path="/trip/:tripId/itinerary" element={<ItineraryEditor />} />
-      <Route path="/trip/:tripId/notes" element={<NotesAndChecklistPage />} />
-      <Route path="/trip/:tripId/budget" element={<BudgetPage />} />
-      <Route path="/trip/:tripId/media" element={<MediaHighlights />} />
-      <Route path="/trip/:tripId/recommendations" element={<ItineraryRecommendation />} />
+        {/* KK */}
+        <Route path="/discovery-local" element={<DiscoveryLocal />} />
+        <Route path="/discovery-international" element={<DiscoveryInternational />} />
+        <Route path="/discovery-faq" element={<DiscoveryFAQ />} />
 
-      {/* KK */}
-      <Route path="/discovery-local" element={<DiscoveryLocal />} />
-      <Route path="/discovery-international" element={<DiscoveryInternational />} />
-      <Route path="/discovery-faq" element={<DiscoveryFAQ />} />
+        {/* Mingyu */}
+        <Route path="/destination-faq-panel" element={<DestinationFaqPanel />} />
+        <Route path="/local-info-panel" element={<LocalInformationPanel />} />
+        <Route path="/group-wait-for-friends" element={<GroupWaitForFriends />} />
+        <Route path="/group-itinerary-summary" element={<GroupItinerarySummary />} />
+        <Route path="/itinerary-recommendation" element={<ItineraryRecommendation />} />
+        <Route path="/media-highlights" element={<MediaHighlights />} />
 
-      {/* Mingyu */}
-      <Route path="/destination-faq-panel" element={<DestinationFaqPanel />} />
-      <Route path="/local-info-panel" element={<LocalInformationPanel />} />
-      <Route path="/group-wait-for-friends" element={<GroupWaitForFriends />} />
-      <Route path="/group-itinerary-summary" element={<GroupItinerarySummary />} />
-      <Route path="/itinerary-recommendation" element={<ItineraryRecommendation />} />
-      <Route path="/media-highlights" element={<MediaHighlights />} />
-
-      {/* Su */}
-      <Route path="/notes-and-checklists" element={<NotesAndChecklistPage />} />
-      <Route path="/budget" element={<BudgetPage />} />
-    </Routes>
+        {/* Su */}
+        <Route path="/notes-and-checklists" element={<NotesAndChecklistPage />} />
+        <Route path="/budget" element={<BudgetPage />} />
+      </Routes>
     <Login
       isOpen={showLogin}
       onClose={closeLogin}
