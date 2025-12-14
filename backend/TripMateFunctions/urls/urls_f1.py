@@ -1,4 +1,3 @@
-# backend/TripMateFunctions/urls/urls_f1.py
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
@@ -58,5 +57,5 @@ urlpatterns = [
     ),
 ]
 
-# Include router-generated URLs (includes /trips/, /trips/<id>/overview/, etc.)
+# Include router-generated URLs
 urlpatterns += router.urls
