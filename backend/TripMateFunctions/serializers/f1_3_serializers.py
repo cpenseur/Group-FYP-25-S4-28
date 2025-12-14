@@ -1,5 +1,6 @@
-# backend/TripMateFunctions/serializers/f1_3_serializers.py
 from rest_framework import serializers
+from ..models import Trip
+
 
 class F13AITripPromptSerializer(serializers.Serializer):
     """
@@ -34,13 +35,8 @@ class F13GeneratedItinerarySerializer(serializers.Serializer):
 
 
 class F13AIChatMessageSerializer(serializers.Serializer):
+    """
+    Chat message inside the AI chatbot, with optional trip context.
+    """
     trip_id = serializers.IntegerField(required=False)
     message = serializers.CharField()
-    history = serializers.ListField(
-        child=serializers.DictField(),
-        required=False,
-        allow_empty=True,
-    )
-
-    # Optional trip context from the frontend (avoids backend DB lookups)
-    trip_context = serializers.DictField(required=False)

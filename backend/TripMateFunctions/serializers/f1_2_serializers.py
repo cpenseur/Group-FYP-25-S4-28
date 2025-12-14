@@ -1,19 +1,17 @@
-# backend/TripMateFunctions/serializers/f1_2_serializers.py
 from rest_framework import serializers
 
 
 class F12RouteOptimizationRequestSerializer(serializers.Serializer):
     """
-    Request payload for F1.2 Route Optimization.
-
-    For our current flow we mainly use:
-      - trip_id  (required)
-      - profile  (optional: driving-car / foot-walking / cycling-regular)
-
-    If you want to support fully generic optimisation later, you can
-    still add coordinates in addition to trip_id.
+    Request payload for F1.2 Route Optimization
     """
-    trip_id = serializers.IntegerField(required=True, help_text="Trip ID to optimise")
+    trip_id = serializers.IntegerField(required=False, help_text="Optional Trip ID")
+    coordinates = serializers.ListField(
+        child=serializers.DictField(
+            child=serializers.FloatField(),
+        ),
+        help_text='List of {"lat": float, "lon": float}',
+    )
     profile = serializers.ChoiceField(
         choices=["driving-car", "foot-walking", "cycling-regular"],
         default="driving-car",
@@ -21,20 +19,17 @@ class F12RouteOptimizationRequestSerializer(serializers.Serializer):
 
 
 class F12RouteLegSerializer(serializers.Serializer):
-    from_id = serializers.IntegerField()
-    to_id = serializers.IntegerField()
-    distance_km = serializers.FloatField()
-    duration_min = serializers.FloatField()
+    index = serializers.IntegerField()
+    lat = serializers.FloatField()
+    lon = serializers.FloatField()
+    distance_m = serializers.FloatField()
+    duration_s = serializers.FloatField()
 
 
 class F12RouteOptimizationResponseSerializer(serializers.Serializer):
     """
-    Response payload summarising optimised route in terms of itinerary items.
+    Response payload summarising optimized route.
     """
-    optimized_order = serializers.ListField(
-        child=serializers.IntegerField(),
-        help_text="ItineraryItem IDs in optimised order",
-    )
+    total_distance_m = serializers.FloatField()
+    total_duration_s = serializers.FloatField()
     legs = F12RouteLegSerializer(many=True)
-    total_distance_km = serializers.FloatField()
-    total_duration_min = serializers.FloatField()
