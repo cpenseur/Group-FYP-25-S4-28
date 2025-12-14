@@ -1,0 +1,457 @@
+{
+  "itineraries": [
+    {
+      "id": 1,
+      "title": "Tokyo City Highlights",
+      "location": "Tokyo, Japan",
+      "currency": "JPY ¥120,000",
+      "duration": "4 days - 3 nights",
+      "mapImage": "tokyoMap.png",
+      "days": [
+        {
+          "date": "Monday, 10 November 2025",
+          "label": "DAY 1",
+          "activities": [
+            {
+              "time": "10:00",
+              "name": "Shibuya Crossing & Hachiko",
+              "image": "shibuya.jpeg",
+              "mapPoint": { "top": 70, "left": 40 }
+            },
+            {
+              "time": "13:00",
+              "name": "Shinjuku Gyoen National Garden",
+              "image": "shinjuku.jpg",
+              "mapPoint": { "top": 55, "left": 60 }
+            },
+            {
+              "time": "18:00",
+              "name": "Omoide Yokocho Izakayas",
+              "image": "omoide.jpg",
+              "mapPoint": { "top": 35, "left": 52 }
+            }
+          ]
+        },
+        {
+          "date": "Tuesday, 11 November 2025",
+          "label": "DAY 2",
+          "activities": [
+            {
+              "time": "09:00",
+              "name": "Senso-ji Temple, Asakusa",
+              "image": "sensoji.jpeg"
+            },
+            {
+              "time": "14:00",
+              "name": "Tokyo Skytree View",
+              "image": "skytree.jpg"
+            },
+            {
+              "time": "19:00",
+              "name": "Akihabara Night Walk",
+              "image": "akihabara.jpg"
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 2,
+      "title": "Kyoto Temples & Tea Houses",
+      "location": "Kyoto, Japan",
+      "currency": "JPY ¥90,000",
+      "mapImage": "kyotoMap.png",
+      "duration": "3 days - 2 nights",
+      "days": [
+        {
+          "date": "Wednesday, 12 November 2025",
+          "label": "DAY 1",
+          "activities": [
+            {
+              "time": "09:00",
+              "name": "Fushimi Inari Shrine",
+              "image": "fushimi.jpg",
+              "mapPoint": { "top": 82, "left": 72 }
+            },
+            {
+              "time": "13:00",
+              "name": "Nishiki Market Lunch",
+              "image": "nishiki.jpg",
+              "mapPoint": { "top": 56, "left": 47 }
+            },
+            {
+              "time": "18:00",
+              "name": "Gion Evening Walk",
+              "image": "gion.jpg",
+              "mapPoint": { "top": 63, "left": 58 }
+            }
+          ]
+        },
+        {
+          "date": "Thursday, 13 November 2025",
+          "label": "DAY 2",
+          "activities": [
+            {
+              "time": "09:00",
+              "name": "Arashiyama Bamboo Grove",
+              "image": "arashiyama.jpg"
+            },
+            {
+              "time": "14:00",
+              "name": "Kinkaku-ji (Golden Pavilion)",
+              "image": "kinkakuji.jpg"
+            },
+            {
+              "time": "18:00",
+              "name": "Philosopher’s Path Sunset",
+              "image": "philosopher.jpg"
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 3,
+      "title": "Osaka Food & Nightlife",
+      "location": "Osaka, Japan",
+      "currency": "JPY ¥85,000",
+      "mapImage": "osakaMap.png",
+      "duration": "3 days - 2 nights",
+      "days": [
+        {
+          "date": "Friday, 14 November 2025",
+          "label": "DAY 1",
+          "activities": [
+            {
+              "time": "11:00",
+              "name": "Osaka Castle & Park",
+              "image": "osakaCastle.jpeg",
+              "mapPoint": { "top": 32, "left": 63 }
+            },
+            {
+              "time": "15:00",
+              "name": "Kuromon Ichiba Market (Street Food)",
+              "image": "kuromon.jpg",
+              "mapPoint": { "top": 56, "left": 46 }
+            },
+            {
+              "time": "19:00",
+              "name": "Dotonbori Neon & Takoyaki",
+              "image": "dotonbori.jpg",
+              "mapPoint": { "top": 58, "left": 39 }
+            }
+          ]
+        },
+        {
+          "date": "Saturday, 15 November 2025",
+          "label": "DAY 2",
+          "activities": [
+            {
+              "time": "10:00",
+              "name": "Shinsaibashi Shopping Arcade",
+              "image": "shinsaibashi.jpg"
+            },
+            {
+              "time": "16:00",
+              "name": "Umeda Sky Building View",
+              "image": "umeda.jpg"
+            },
+            {
+              "time": "20:00",
+              "name": "Namba Nightlife",
+              "image": "namba.jpg"
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 4,
+      "title": "Beijing History & Hutongs",
+      "location": "Beijing, China",
+      "currency": "CNY ¥2,500",
+      "mapImage": "beijingMap.png",
+      "duration": "4 days - 3 nights",
+      "days": [
+        {
+          "date": "Monday, 17 November 2025",
+          "label": "DAY 1",
+          "activities": [
+            {
+              "time": "09:00",
+              "name": "Tiananmen Square & Forbidden City",
+              "image": "tiananmen.jpg",
+              "mapPoint": { "top": 63, "left": 50 }
+            },
+            {
+              "time": "14:00",
+              "name": "Jingshan Park Viewpoint",
+              "image": "jingshan.jpg",
+              "mapPoint": { "top": 42, "left": 50 }
+            },
+            {
+              "time": "18:00",
+              "name": "Wangfujing Snack Street",
+              "image": "wangfujing.jpg",
+              "mapPoint": { "top": 63, "left": 63 }
+            }
+          ]
+        },
+        {
+          "date": "Tuesday, 18 November 2025",
+          "label": "DAY 2",
+          "activities": [
+            {
+              "time": "08:00",
+              "name": "Great Wall at Mutianyu",
+              "image": "greatwall.jpg"
+            },
+            {
+              "time": "15:00",
+              "name": "Hutong Rickshaw Ride",
+              "image": "hutong.jpg"
+            },
+            {
+              "time": "19:00",
+              "name": "Peking Duck Dinner",
+              "image": "peking.png"
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 5,
+      "title": "Shanghai Skyline Getaway",
+      "location": "Shanghai, China",
+      "currency": "CNY ¥2,800",
+      "mapImage": "shanghaiMap.png",
+      "duration": "3 days - 2 nights",
+      "days": [
+        {
+          "date": "Wednesday, 19 November 2025",
+          "label": "DAY 1",
+          "activities": [
+            {
+              "time": "10:00",
+              "name": "The Bund Riverside Walk",
+              "image": "bund.jpeg",
+              "mapPoint": { "top": 38, "left": 60 }
+            },
+            {
+              "time": "14:00",
+              "name": "Nanjing Road Shopping",
+              "image": "nanjing.jpg",
+              "mapPoint": { "top": 43, "left": 50 }
+            },
+            {
+              "time": "19:00",
+              "name": "Pudong Skyline Night View",
+              "image": "pudong.jpg",
+              "mapPoint": { "top": 37, "left": 66 }
+            }
+          ]
+        },
+        {
+          "date": "Thursday, 20 November 2025",
+          "label": "DAY 2",
+          "activities": [
+            {
+              "time": "10:00",
+              "name": "Yuyuan Garden & Old Town",
+              "image": "yuyuan.jpeg"
+            },
+            {
+              "time": "15:00",
+              "name": "Former French Concession Cafés",
+              "image": "formerFrench.jpg"
+            },
+            {
+              "time": "20:00",
+              "name": "Huangpu River Cruise",
+              "image": "huangpu.jpeg"
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 6,
+      "title": "Guilin & Yangshuo Karst Views",
+      "location": "Guilin, China",
+      "currency": "CNY ¥2,200",
+      "mapImage": "guilinMap.png",
+      "duration": "4 days - 3 nights",
+      "days": [
+        {
+          "date": "Friday, 21 November 2025",
+          "label": "DAY 1",
+          "activities": [
+            {
+              "time": "09:00",
+              "name": "Li River Cruise to Yangshuo",
+              "image": "liRiver.jpg",
+              "mapPoint": { "top": 75, "left": 62 }
+            },
+            {
+              "time": "15:00",
+              "name": "Yangshuo West Street",
+              "image": "yangshuo.jpg",
+              "mapPoint": { "top": 98, "left": 50 }
+            }
+          ]
+        },
+        {
+          "date": "Saturday, 22 November 2025",
+          "label": "DAY 2",
+          "activities": [
+            {
+              "time": "09:00",
+              "name": "Cycling Through Karst Countryside",
+              "image": "karst.jpg"
+            },
+            {
+              "time": "16:00",
+              "name": "Xianggong Mountain Sunset View",
+              "image": "xianggong.jpg"
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 7,
+      "title": "Marina Bay Sands Weekend Escape",
+      "location": "Singapore",
+      "currency": "SGD$ 800",
+      "duration": "2 days - 1 night",
+      "days": [
+        {
+          "date": "Thursday, 20 October 2025",
+          "label": "DAY 1",
+          "activities": [
+            {
+              "time": "10:00",
+              "name": "Hong Lim Food Centre",
+              "image": "honglim.jpg",
+              "mapPoint": { "top": 25, "left": 30 }
+            },
+            {
+              "time": "13:00",
+              "name": "Marina Bay Sands",
+              "image": "mbs.jpg",
+              "mapPoint": { "top": 40, "left": 70 }
+            },
+            {
+              "time": "15:00",
+              "name": "Gardens by the Bay",
+              "image": "gbtb.jpg",
+              "mapPoint": { "top": 60, "left": 80 }
+            },
+            {
+              "time": "18:00",
+              "name": "Maxwell Food Centre",
+              "image": "maxwell.jpg",
+              "mapPoint": { "top": 75, "left": 35 }
+            }
+          ]
+        },
+        {
+          "date": "Friday, 21 October 2025",
+          "label": "DAY 2",
+          "activities": [
+            {
+              "time": "10:00",
+              "name": "Floral Fantasy",
+              "image": "floral.jpg"
+            },
+            {
+              "time": "18:00",
+              "name": "Sentosa",
+              "image": "sentosa.jpg"
+            },
+            {
+              "time": "20:00",
+              "name": "Hiking Trail",
+              "image": "hill.jpg"
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 8,
+      "title": "Gardens by the Bay Nature Walk",
+      "location": "Downtown, Singapore",
+      "currency": "SGD$ 150",
+      "duration": "1 day",
+      "days": [
+        {
+          "date": "Saturday, 22 October 2025",
+          "label": "DAY 1",
+          "activities": [
+            {
+              "time": "10:00",
+              "name": "Supertree Grove Stroll",
+              "image": "supertree.jpg",
+              "mapPoint": { "top": 55, "left": 65 }
+            },
+            {
+              "time": "14:00",
+              "name": "Cloud Forest & Skyway",
+              "image": "cloudForest.jpg",
+              "mapPoint": { "top": 60, "left": 70 }
+            },
+            {
+              "time": "19:30",
+              "name": "Garden Rhapsody Light Show",
+              "image": "garden.jpg",
+              "mapPoint": { "top": 63, "left": 72 }
+            }
+          ]
+        }
+      ]
+    },
+
+    {
+      "id": 9,
+      "title": "Sentosa Beach & Adventure Day",
+      "location": "Sentosa, Singapore",
+      "currency": "SGD$ 200",
+      "duration": "1 day",
+      "days": [
+        {
+          "date": "Sunday, 23 October 2025",
+          "label": "DAY 1",
+          "activities": [
+            {
+              "time": "10:00",
+              "name": "Siloso / Palawan Beach Chill",
+              "image": "siloso.jpg",
+              "mapPoint": { "top": 80, "left": 40 }
+            },
+            {
+              "time": "14:00",
+              "name": "Skyline Luge & Adventure",
+              "image": "luge.jpg",
+              "mapPoint": { "top": 78, "left": 45 }
+            },
+            {
+              "time": "19:30",
+              "name": "Wings of Time Night Show",
+              "image": "WOT.jpeg",
+              "mapPoint": { "top": 82, "left": 48 }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

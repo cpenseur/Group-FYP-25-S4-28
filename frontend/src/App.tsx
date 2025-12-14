@@ -16,10 +16,13 @@ import Trips from "./pages/trips";
 // PohYee
 import ExportPDF from "./pages/exportPDF";
 import LandingPage from "./pages/landingPage";
+import Demo from "./pages/Demo";
 import TravelGuidesTutorial from "./pages/travelGuidesTutorial";
 import GuestFAQPage from "./pages/guestFAQpage";
 import AdminDashboard from "./pages/adminDashboard";
+import Profile from "./pages/profile";
 import Login from "./components/login";
+import ResetPassword from "./pages/resetPassword";
 
 // KK
 import DiscoveryLocal from "./pages/discoveryLocal";
@@ -59,29 +62,21 @@ export default function App() {
         {/* Dev home (team testing menu) */}
         <Route path="/" element={<Home />} />
 
-        {/* Vania */}
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/trips" element={<Trips />} />
-        <Route path="/ai-trip-generator-step1" element={<AiTripGeneratorStep1 />} />
-        <Route path="/ai-trip-generator-step2" element={<AiTripGeneratorStep2 />} />
-        <Route path="/create-trip" element={<CreateTrip />} />
-        {/* Old standalone route (without subheader) can stay */}
-        <Route path="/itinerary-editor" element={<ItineraryEditor />} />
-        <Route path="/trip/:tripId/chatbot" element={<PlanbotPage />} />
-        
-        {/* PohYee */}
-        <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
-        <Route path="/travel-guides-tutorial" element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />} />
-        <Route path="/guest-faq" element={<GuestFAQPage />} />
-        <Route path="/admin-dashboard" element={<AdminDashboard />} />
-        <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />
-
-        {/* Trip-based routes (with TripSubHeader inside each page) */}
-        <Route path="/trip/:tripId/itinerary" element={<ItineraryEditor />} />
-        <Route path="/trip/:tripId/notes" element={<NotesAndChecklistPage />} />
-        <Route path="/trip/:tripId/budget" element={<BudgetPage />} />
-        <Route path="/trip/:tripId/media" element={<MediaHighlights />} />
-        <Route path="/trip/:tripId/recommendations" element={<ItineraryRecommendation />} />
+      {/* PohYee */}
+      <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
+      <Route path="/export-pdf" element={<ExportPDF />} />
+      <Route path="/demo" element={<Demo onLoginClick={openLogin} onSignupClick={openSignup} />} />
+      <Route path="/travel-guides/:guideId" element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />} />
+      <Route path="/guest-faq" element={<GuestFAQPage />} />
+      <Route path="/admin-dashboard" element={<AdminDashboard />} />
+      <Route path="/profile" element={<Profile />} />
+      <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      
+      {/* KK */}
+      <Route path="/discovery-local" element={<DiscoveryLocal />} />
+      <Route path="/discovery-international" element={<DiscoveryInternational />} />
+      <Route path="/discovery-faq" element={<DiscoveryFAQ />} />
 
         {/* KK */}
         <Route path="/discovery-local" element={<DiscoveryLocal />} />

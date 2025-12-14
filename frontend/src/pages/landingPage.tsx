@@ -151,7 +151,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
   const navLinks = [
     { name: 'Home', path: '/landing-page#hero' },
     { name: 'About Us', path: '/landing-page#about' },
-    { name: 'Travel Guides', path: '/travel-guides-tutorial' },
+    { name: 'Travel Guides', path: '/Demo' },
     { name: 'FAQ', path: '/guest-faq' },
   ];
 
@@ -178,7 +178,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
               Get Started
             </PrimaryButton>
 
-            <SecondaryButton onClick={() => navigate('/travel-guides-tutorial')}>
+            <SecondaryButton onClick={() => navigate('/Demo')}>
               Try Demo
             </SecondaryButton>
           </CTAGroup>
@@ -210,10 +210,6 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
               <CardTitle>{feature.title}</CardTitle>
 
               <CardText>{feature.description}</CardText>
-
-              <DiscoverMore>
-                Discover More <ChevronRight size={14} />
-              </DiscoverMore>
 
               {/* Blue highlight bar */}
               <HighlightBar />
