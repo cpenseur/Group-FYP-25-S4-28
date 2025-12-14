@@ -137,20 +137,37 @@ class TripOverviewSerializer(serializers.ModelSerializer):
 
         out = []
         for c in collabs_qs:
-            u: AppUser = c.user
-            initials = _initials_from_name(u.full_name, u.email)
-            is_current = bool(current_user and getattr(current_user, "id", None) == u.id)
+            u = c.user
+            if u is not None:
+                initials = _initials_from_name(u.full_name, u.email)
+                is_current = bool(current_user and getattr(current_user, "id", None) == u.id)
 
-            out.append(
-                {
-                    "id": u.id,
-                    "full_name": u.full_name or "",
-                    "email": u.email or "",
-                    "initials": initials,
-                    "is_owner": (c.role == c.Role.OWNER),
-                    "is_current_user": is_current,
-                }
-            )
+                out.append(
+                    {
+                        "id": u.id,
+                        "full_name": u.full_name or "",
+                        "email": u.email or "",
+                        "initials": initials,
+                        "is_owner": (c.role == c.Role.OWNER),
+                        "is_current_user": is_current,
+                    }
+                )
+                continue
+
+        # pending invite (not AppUser yet)
+        invited_email = (c.invited_email or "").strip()
+        initials = _initials_from_name(None, invited_email)
+
+        out.append(
+            {
+                "id": 0,  
+                "full_name": "",
+                "email": invited_email,
+                "initials": initials,
+                "is_owner": False,
+                "is_current_user": False,
+            }
+        )
 
         # 🔹 Fallback: no TripCollaborator rows – still show the owner
         if not out and obj.owner:
