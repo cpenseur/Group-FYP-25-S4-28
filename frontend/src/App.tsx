@@ -1,6 +1,6 @@
 // frontend/src/App.tsx
 import { useState } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 import Home from "./pages/Home";
 import TopBar from "./components/TopBar";
 
@@ -42,6 +42,7 @@ import NotesAndChecklistPage from "./pages/notesAndChecklistPage";
 import BudgetPage from "./pages/budget";
 
 export default function App() {
+  const location = useLocation();  
   const [showLogin, setShowLogin] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");  const openLogin = () => {
     setShowLogin(true);
@@ -54,9 +55,22 @@ export default function App() {
   };
 
   const closeLogin = () => setShowLogin(false);  
+
+  // Hide TopBar 
+  const HIDE_TOPBAR_PREFIXES = ["/landing-page", "/demo", "/travel-guides", "/guest-faq", "/signin", "/reset-password"];
+  const HIDE_TOPBAR_EXACT = new Set<string>([
+  ]);
+
+  const pathname = location.pathname;
+
+  const hideTopBar =
+    HIDE_TOPBAR_EXACT.has(pathname) ||
+    HIDE_TOPBAR_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
   return (
     <>
-      <TopBar />
+
+      {/* Only show TopBar when allowed */}
+      {!hideTopBar && <TopBar />}
 
       <Routes>
         {/* Dev home (team testing menu) */}
@@ -72,17 +86,6 @@ export default function App() {
         <Route path="/itinerary-editor" element={<ItineraryEditor />} />
         <Route path="/trip/:tripId/chatbot" element={<PlanbotPage />} />
         
-      {/* PohYee */}
-      <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
-      <Route path="/export-pdf" element={<ExportPDF />} />
-      <Route path="/demo" element={<Demo onLoginClick={openLogin} onSignupClick={openSignup} />} />
-      <Route path="/travel-guides/:guideId" element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />} />
-      <Route path="/guest-faq" element={<GuestFAQPage />} />
-      <Route path="/admin-dashboard" element={<AdminDashboard />} />
-      <Route path="/profile" element={<Profile />} />
-      <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />
-      <Route path="/reset-password" element={<ResetPassword />} />
-      
         {/* Trip-based routes (with TripSubHeader inside each page) */}
         <Route path="/trip/:tripId/itinerary" element={<ItineraryEditor />} />
         <Route path="/trip/:tripId/notes" element={<NotesAndChecklistPage />} />
@@ -106,6 +109,18 @@ export default function App() {
         {/* Su */}
         <Route path="/notes-and-checklists" element={<NotesAndChecklistPage />} />
         <Route path="/budget" element={<BudgetPage />} />
+      
+      {/* PohYee */}
+      <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
+      <Route path="/export-pdf" element={<ExportPDF />} />
+      <Route path="/demo" element={<Demo onLoginClick={openLogin} onSignupClick={openSignup} />} />
+      <Route path="/travel-guides/:guideId" element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />} />
+      <Route path="/guest-faq" element={<GuestFAQPage />} />
+      <Route path="/admin-dashboard" element={<AdminDashboard />} />
+      <Route path="/profile" element={<Profile />} />
+      <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      
       </Routes>
     <Login
       isOpen={showLogin}
