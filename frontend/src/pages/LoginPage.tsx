@@ -1,4 +1,3 @@
-// frontend/src/pages/LoginPage.tsx
 import { useState, FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
@@ -6,9 +5,10 @@ import { supabase } from "../lib/supabaseClient";
 type Mode = "login" | "signup";
 
 export default function LoginPage() {
-  const [mode, setMode] = useState<Mode>("login");
-  const [email, setEmail] = useState<string>("");
+  const [mode, setMode] = useState<Mode>("signup");
+  const [email, setEmail] = useState<string>("");      // ✅ now empty by default
   const [password, setPassword] = useState<string>("");
+  const [showPassword, setShowPassword] = useState<boolean>(false); // ✅ NEW
   const [status, setStatus] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -27,7 +27,6 @@ export default function LoginPage() {
         });
 
         if (error) {
-          console.error(error);
           setStatus(`Login error: ${error.message}`);
           return;
         }
@@ -41,15 +40,11 @@ export default function LoginPage() {
         });
 
         if (error) {
-          console.error(error);
           setStatus(`Sign-up error: ${error.message}`);
           return;
         }
 
-        setStatus(
-          "Sign-up successful! Check your email for verification (if enabled), then log in."
-        );
-        // After successful sign-up, flip back to login mode
+        setStatus("Sign-up successful! Check your email for verification.");
         setMode("login");
       }
     } finally {
@@ -57,47 +52,46 @@ export default function LoginPage() {
     }
   };
 
+  const title = mode === "signup" ? "Create an account" : "Log in to your account";
+  const primaryButtonText = mode === "signup" ? "Create account" : "Log in";
+
   return (
     <div
       style={{
-        minHeight: "100vh",
-        background: "#020617",
-        color: "#e5e7eb",
+        position: "fixed",
+        inset: 0,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         padding: "1.5rem",
+        backgroundColor: "rgba(0, 0, 0, 0.5)", // Darker backdrop like in image
+        zIndex: 50,
+        backdropFilter: "blur(4px)",
       }}
     >
       <div
         style={{
           width: "100%",
-          maxWidth: "420px",
-          padding: "2rem",
-          background: "#020617",
-          borderRadius: "0.75rem",
-          boxShadow: "0 0 0 1px #1f2937",
+          maxWidth: "380px",
+          padding: "2rem 2.25rem",
+          background: "#ffffff",
+          borderRadius: "1.25rem",
+          boxShadow: "0 15px 40px rgba(0,0,0,0.15)",
+          fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+          color: "#111827",
         }}
       >
-        <h1 style={{ fontSize: "1.75rem", fontWeight: 700, marginBottom: "0.25rem" }}>
-          {mode === "login" ? "Log in to TripMate" : "Create a TripMate account"}
+        <h1 style={{ fontSize: "1.6rem", fontWeight: 700, marginBottom: "1.5rem" }}>
+          {title}
         </h1>
-        <p style={{ fontSize: "0.9rem", color: "#9ca3af", marginBottom: "1.5rem" }}>
-          Using Supabase email + password authentication.
-        </p>
 
         <form
           onSubmit={handleSubmit}
-          style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}
+          style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
         >
+          {/* ✅ Email */}
           <div>
-            <label
-              style={{
-                display: "block",
-                fontSize: "0.85rem",
-                marginBottom: "0.25rem",
-              }}
-            >
+            <label style={{ display: "block", fontSize: "0.9rem", marginBottom: "0.35rem" }}>
               Email
             </label>
             <input
@@ -105,119 +99,161 @@ export default function LoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"   // ✅ no prefilled email anymore
               style={{
                 width: "100%",
-                padding: "0.6rem 0.75rem",
+                padding: "0.65rem 0.85rem",
                 borderRadius: "0.5rem",
-                border: "1px solid #374151",
-                background: "#020617",
-                color: "#e5e7eb",
+                border: "1px solid #e5e7eb",
+                fontSize: "0.9rem",
+                boxSizing: "border-box",
               }}
-              placeholder="you@example.com"
             />
           </div>
 
+          {/* ✅ Password with visibility toggle */}
           <div>
-            <label
+            <div
               style={{
-                display: "block",
-                fontSize: "0.85rem",
-                marginBottom: "0.25rem",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "0.35rem",
+                fontSize: "0.9rem",
               }}
             >
-              Password
-            </label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "0.6rem 0.75rem",
-                borderRadius: "0.5rem",
-                border: "1px solid #374151",
-                background: "#020617",
-                color: "#e5e7eb",
-              }}
-              placeholder="••••••••"
-            />
+              <span>Password</span>
+              <button
+                type="button"
+                style={{
+                  border: "none",
+                  background: "none",
+                  fontSize: "0.8rem",
+                  color: "#3b82f6",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                Forgot ?
+              </button>
+            </div>
+
+            <div style={{ position: "relative" }}>
+              <input
+                type={showPassword ? "text" : "password"} // ✅ toggle here
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                style={{
+                  width: "100%",
+                  padding: "0.65rem 2.4rem 0.65rem 0.85rem",
+                  borderRadius: "0.5rem",
+                  border: "1px solid #e5e7eb",
+                  fontSize: "0.9rem",
+                  boxSizing: "border-box",
+                }}
+              />
+
+              {/* ✅ Clickable eye toggle */}
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                style={{
+                  position: "absolute",
+                  right: "0.6rem",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: "1rem",
+                  opacity: 0.7,
+                }}
+                aria-label="Toggle password visibility"
+              >
+                {showPassword ? "🙈" : "👁"}
+              </button>
+            </div>
           </div>
 
+          {/* ✅ Primary button */}
           <button
             type="submit"
             disabled={loading}
             style={{
-              marginTop: "0.5rem",
+              marginTop: "0.75rem",
               width: "100%",
-              padding: "0.65rem",
+              padding: "0.7rem",
               borderRadius: "999px",
               border: "none",
-              background: "linear-gradient(135deg, #4ade80, #22c55e)",
-              color: "#020617",
+              background: "#2563eb",
+              color: "#ffffff",
+              fontSize: "0.95rem",
               fontWeight: 600,
               cursor: loading ? "default" : "pointer",
               opacity: loading ? 0.8 : 1,
             }}
           >
-            {mode === "login" ? "Log In" : "Sign Up"}
+            {primaryButtonText}
           </button>
         </form>
 
-        {/* Toggle between Login / Sign Up */}
+        {/* ✅ Bottom toggle */}
         <div
           style={{
-            marginTop: "1rem",
+            marginTop: "1.25rem",
+            textAlign: "center",
             fontSize: "0.85rem",
             color: "#9ca3af",
           }}
         >
-          {mode === "login" ? (
+          {mode === "signup" ? (
             <>
-              Don&apos;t have an account?{" "}
-              <button
-                type="button"
-                onClick={() => setMode("signup")}
-                style={{
-                  border: "none",
-                  background: "none",
-                  color: "#60a5fa",
-                  cursor: "pointer",
-                  padding: 0,
-                }}
-              >
-                Sign up
-              </button>
-              .
-            </>
-          ) : (
-            <>
-              Already have an account?{" "}
+              Already Have An Account ?{" "}
               <button
                 type="button"
                 onClick={() => setMode("login")}
                 style={{
                   border: "none",
                   background: "none",
-                  color: "#60a5fa",
+                  color: "#2563eb",
                   cursor: "pointer",
                   padding: 0,
+                  fontWeight: 500,
                 }}
               >
-                Log in
+                Log In
               </button>
-              .
+            </>
+          ) : (
+            <>
+              Don&apos;t Have An Account ?{" "}
+              <button
+                type="button"
+                onClick={() => setMode("signup")}
+                style={{
+                  border: "none",
+                  background: "none",
+                  color: "#2563eb",
+                  cursor: "pointer",
+                  padding: 0,
+                  fontWeight: 500,
+                }}
+              >
+                Sign Up
+              </button>
             </>
           )}
         </div>
 
-        {/* Status / errors */}
+        {/* ✅ Status */}
         <div
           style={{
-            minHeight: "2rem",
+            minHeight: "1.5rem",
             marginTop: "0.75rem",
             fontSize: "0.8rem",
-            color: "#93c5fd",
+            color: "#1d4ed8",
           }}
         >
           {status}
