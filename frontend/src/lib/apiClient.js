@@ -35,25 +35,25 @@ export async function apiFetch(path, options = {}) {
 
   // ---------- handle non-OK responses ----------
   if (!res.ok) {
-    let message;
+    let message = `API error ${res.status}`;
+
+    const contentType = res.headers.get("content-type") || "";
 
     try {
-      // try JSON first
-      const data = await res.json();
-      if (typeof data === "string") {
-        message = data;
-      } else if (data && data.detail) {
-        message = data.detail;
+      if (contentType.includes("application/json")) {
+        const data = await res.json();
+        message =
+          typeof data === "string"
+            ? data
+            : data?.detail || JSON.stringify(data);
       } else {
-        message = JSON.stringify(data);
+        message = await res.text();
       }
-    } catch {
-      // fall back to plain text
-      const text = await res.text();
-      message = text || `API error ${res.status}`;
+    } catch (e) {
+      // do nothing, keep default message
     }
 
-    throw new Error(`API error ${res.status}: ${message}`);
+    throw new Error(message);
   }
 
   // ---------- handle successful responses ----------

@@ -482,11 +482,8 @@ export default function ItineraryEditor() {
   };
 
   /* ------------------ Load Trip ------------------ */
-
-  useEffect(() => {
-    if (!tripId) return;
-
-    const loadTrip = async () => {
+  
+  const loadTrip = async () => {
       setIsLoading(true);
       setErrorMsg(null);
       try {
@@ -510,8 +507,20 @@ export default function ItineraryEditor() {
       }
     };
 
+  useEffect(() => {
+    if (!tripId) return;
     loadTrip();
   }, [tripId]);
+
+  // Listen for "trip-updated" events to reload trip data
+  useEffect(() => {
+    const handler = (e: any) => {
+      if (Number(e?.detail?.tripId) === Number(tripId)) loadTrip();
+    };
+    window.addEventListener("trip-updated", handler);
+    return () => window.removeEventListener("trip-updated", handler);
+  }, [tripId]);
+
 
   // When days first load, default-select the first day
   useEffect(() => {
@@ -805,6 +814,23 @@ export default function ItineraryEditor() {
     }
   };
 
+  /* ------------- Add Day helpers ------------- */
+  function addDays(dateStr: string, daysToAdd: number) {
+    const d = new Date(dateStr);
+    d.setDate(d.getDate() + daysToAdd);
+    return d.toISOString().slice(0, 10); // YYYY-MM-DD
+  }
+
+  async function patchTripEndDate(tripIdNum: number, endDate: string | null) {
+    await apiFetch(`/f1/trips/${tripIdNum}/`, {
+      method: "PATCH",
+      body: JSON.stringify({ end_date: endDate }),
+    });
+
+    window.dispatchEvent(new CustomEvent("trip-updated", { detail: { tripId: tripIdNum } }));
+  }
+
+
   // ------------- Add Day Handler ------------- //
 
   async function handleAddDay() {
@@ -828,6 +854,16 @@ export default function ItineraryEditor() {
       setDays((prev) =>
         [...prev, created].sort((a, b) => a.day_index - b.day_index)
       );
+
+      // after created day is added to state
+      if (trip?.start_date) {
+        const newCount = (days.length + 1); // because you're adding one
+        const newEnd = addDays(trip.start_date, newCount - 1);
+        await patchTripEndDate(numericTripId, newEnd);
+
+        // also update local trip state so UI stays in sync
+        setTrip((prev) => (prev ? { ...prev, end_date: newEnd } : prev));
+      }
     } catch (err) {
       console.error("Failed to add day:", err);
       setErrorMsg("Could not add a new day right now.");
@@ -837,24 +873,41 @@ export default function ItineraryEditor() {
   // ------------- Delete Day Handler ------------- //
 
   async function handleDeleteDay(dayId: number) {
-    try {
-      await apiFetch(`/f1/trip-days/${dayId}/`, {
-        method: "DELETE",
-      });
+    if (!numericTripId) return;
 
+    // compute remainingCount from the CURRENT render snapshot
+    // (safe because we're not depending on setState timing)
+    const remainingCount = Math.max(days.filter((d) => d.id !== dayId).length, 1);
+
+    try {
+      await apiFetch(`/f1/trip-days/${dayId}/`, { method: "DELETE" });
+
+      // keep UI responsive immediately
       setDays((prev) => {
         const remaining = prev.filter((d) => d.id !== dayId);
+        // You can keep this normalization OR remove it and just reload.
         return remaining
           .sort((a, b) => a.day_index - b.day_index)
           .map((d, idx) => ({ ...d, day_index: idx + 1 }));
       });
 
       setItems((prev) => prev.filter((item) => item.day !== dayId));
+
+      // now patch end_date based on remainingCount (NOT days.length)
+      if (trip?.start_date) {
+        const newEnd = addDays(trip.start_date, remainingCount - 1);
+        await patchTripEndDate(numericTripId, newEnd);
+        setTrip((prev) => (prev ? { ...prev, end_date: newEnd } : prev));
+      }
+
+      await loadTrip();
+
     } catch (err) {
       console.error("Failed to delete day:", err);
       setErrorMsg("Could not delete this day. Please try again.");
     }
   }
+
 
   /* -------------------- Render -------------------- */
 
@@ -942,7 +995,7 @@ export default function ItineraryEditor() {
                   zIndex: 30,
                   background: "white",
                   // remove the card padding effect
-                  margin: "-1rem -1.25rem 0 -1.25rem",
+                  margin: "0 -1.25rem 0 -1.25rem",
                   padding: "1rem 1.25rem",
                   borderBottom: "1px solid #e5e7eb",
                 }}
@@ -978,6 +1031,7 @@ export default function ItineraryEditor() {
                   </button>
                 </div>
               </div>
+              <div style={{ height: "0.75rem" }} />
 
               <DndContext
                 sensors={sensors}
@@ -991,9 +1045,9 @@ export default function ItineraryEditor() {
                   <div style={{ fontSize: "0.9rem", color: "#6b7280" }}>
                     Loading itinerary...
                   </div>
-                ) : items.length === 0 ? (
+                ) : days.length === 0 ? (
                   <div style={{ fontSize: "0.9rem", color: "#6b7280" }}>
-                    No stops yet. Use “Add stop” under each day to get started.
+                    No days yet.
                   </div>
                 ) : (
                   days.map((day) => {

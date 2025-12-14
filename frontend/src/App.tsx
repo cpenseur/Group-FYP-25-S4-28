@@ -10,7 +10,8 @@ import AiTripGeneratorStep1 from "./pages/aiTripGeneratorStep1";
 import AiTripGeneratorStep2 from "./pages/aiTripGeneratorStep2";
 import CreateTrip from "./pages/createTrip";
 import ItineraryEditor from "./pages/itineraryEditor";
-import ChatbotPage from "./pages/chatbot";
+import PlanbotPage from "./pages/chatbot";
+import Trips from "./pages/trips";
 
 // PohYee
 import ExportPDF from "./pages/exportPDF";
@@ -60,12 +61,13 @@ export default function App() {
 
         {/* Vania */}
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/trips" element={<Trips />} />
         <Route path="/ai-trip-generator-step1" element={<AiTripGeneratorStep1 />} />
         <Route path="/ai-trip-generator-step2" element={<AiTripGeneratorStep2 />} />
         <Route path="/create-trip" element={<CreateTrip />} />
         {/* Old standalone route (without subheader) can stay */}
         <Route path="/itinerary-editor" element={<ItineraryEditor />} />
-        <Route path="/trip/:tripId/chatbot" element={<ChatbotPage />} />
+        <Route path="/trip/:tripId/chatbot" element={<PlanbotPage />} />
         
         {/* PohYee */}
         <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />

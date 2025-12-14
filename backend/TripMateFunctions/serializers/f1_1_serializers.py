@@ -244,3 +244,12 @@ def _currency_symbol(code: str | None) -> str:
         "INR": "₹",
     }
     return mapping.get(code, code)
+
+
+class TripCollaboratorInviteSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    role = serializers.ChoiceField(
+        choices=TripCollaborator.Role.choices,
+        required=False,
+        default=TripCollaborator.Role.EDITOR,
+    )

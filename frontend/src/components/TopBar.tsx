@@ -126,7 +126,7 @@ function UserHeader({ onLogout }: { onLogout: () => void }) {
             <NavItem to="/dashboard" $active={isActive("/dashboard")}>
               Dashboard
             </NavItem>
-            <NavItem to="/create-trip" $active={isActive("/create-trip")}>
+            <NavItem to="/trips" $active={isActive("/trips")}>
               Trips
             </NavItem>
             <NavItem to="/discovery-local" $active={isActive("/discovery-local")}>
