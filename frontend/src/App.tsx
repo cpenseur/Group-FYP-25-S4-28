@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
 import Home from "./pages/Home";
+import TopBar from "./components/TopBar";
 
 // Vania
 import Dashboard from "./pages/DashboardPage";
@@ -9,7 +10,8 @@ import AiTripGeneratorStep1 from "./pages/aiTripGeneratorStep1";
 import AiTripGeneratorStep2 from "./pages/aiTripGeneratorStep2";
 import CreateTrip from "./pages/createTrip";
 import ItineraryEditor from "./pages/itineraryEditor";
-import ChatbotPage from "./pages/chatbot";
+import PlanbotPage from "./pages/chatbot";
+import Trips from "./pages/trips";
 
 // PohYee
 import ExportPDF from "./pages/exportPDF";
@@ -33,6 +35,7 @@ import LocalInformationPanel from "./pages/localInformationPanel";
 import GroupWaitForFriends from "./pages/groupWaitForFriends";
 import GroupItinerarySummary from "./pages/groupItinerarySummary";
 import ItineraryRecommendation from "./pages/itineraryRecommendation";
+import MediaHighlights from "./pages/mediaHighlights";
 
 // Su
 import NotesAndChecklistPage from "./pages/notesAndChecklistPage";
@@ -69,13 +72,9 @@ export default function App() {
       {/* Only show TopBar when allowed */}
       {!hideTopBar && <TopBar />}
 
-      {/* Vania */}
-      <Route path="/dashboard" element={<Dashboard />} />
-      <Route path="/ai-trip-generator-step1" element={<AiTripGeneratorStep1 />} />
-      <Route path="/ai-trip-generator-step2" element={<AiTripGeneratorStep2 />} />
-      <Route path="/create-trip" element={<CreateTrip />} />
-      <Route path="/itinerary-editor" element={<ItineraryEditor />} />
-      <Route path="/chatbot" element={<ChatbotPage />} />
+      <Routes>
+        {/* Dev home (team testing menu) */}
+        <Route path="/" element={<Home />} />
 
         {/* Vania */}
         <Route path="/dashboard" element={<Dashboard />} />
