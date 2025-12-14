@@ -1,0 +1,121 @@
+[
+  {
+    "id": 1,
+    "title": "Tokyo City Highlights",
+    "image": "tokyo.jpg",
+    "region": "Japan",
+    "location": "Tokyo, Japan",
+    "tripType": "City, Food",
+    "days": "4 days",
+    "desc": "Shibuya crossings, rooftop views and hidden izakayas. Perfect first-timer intro to Japan’s busiest city.",
+    "author": "Grace Mary",
+    "views": "18.9K",
+    "saves": "40K"
+  },
+  {
+    "id": 2,
+    "title": "Kyoto Temples & Tea Houses",
+    "image": "kyoto.jpg",
+    "region": "Japan",
+    "location": "Kyoto, Japan",
+    "tripType": "Culture, Scenic",
+    "days": "3 days",
+    "desc": "Wander through torii gates at Fushimi Inari, bamboo forests in Arashiyama and quiet streets of Gion.",
+    "author": "John Peter",
+    "views": "11.9K",
+    "saves": "30K"
+  },
+  {
+    "id": 3,
+    "title": "Osaka Food & Nightlife",
+    "image": "osaka.png",
+    "region": "Japan",
+    "location": "Osaka, Japan",
+    "tripType": "Food, Nightlife",
+    "days": "3 days",
+    "desc": "Takoyaki, okonomiyaki and neon along Dotonbori. A fun-packed itinerary for foodies and night owls.",
+    "author": "Vernice Kong",
+    "views": "12.8K",
+    "saves": "25K"
+  },
+
+  {
+    "id": 7,
+    "title": "Marina Bay Sands Weekend Escape",
+    "image": "mbs.jpg",
+    "region": "Singapore",
+    "location": "Marina Bay, Singapore",
+    "tripType": "Luxury, City",
+    "days": "2 days",
+    "desc": "Infinity pool views, glamorous city lights and waterfront dining. A perfect short getaway in the heart of Singapore.",
+    "author": "Grace Mary",
+    "views": "15.2K",
+    "saves": "31K"
+  },
+  {
+    "id": 8,
+    "title": "Gardens by the Bay Nature Walk",
+    "image": "gbtb.jpg",
+    "region": "Singapore",
+    "location": "Downtown, Singapore",
+    "tripType": "Nature, Family",
+    "days": "1 day",
+    "desc": "Experience Supertree Grove, Cloud Forest and magical night lights in Singapore’s iconic green sanctuary.",
+    "author": "John Peter",
+    "views": "9.4K",
+    "saves": "19K"
+  },
+  {
+    "id": 9,
+    "title": "Sentosa Beach & Adventure Day",
+    "image": "sentosa.jpg",
+    "region": "Singapore",
+    "location": "Sentosa, Singapore",
+    "tripType": "Beach, Fun",
+    "days": "1 day",
+    "desc": "Relax on sunny beaches, enjoy theme parks and explore one of Singapore’s favourite island escapes.",
+    "author": "Vernice Kong",
+    "views": "10.1K",
+    "saves": "22K"
+  },
+
+  {
+    "id": 4,
+    "title": "Beijing History & Hutongs",
+    "image": "beijing.jpg",
+    "region": "China",
+    "location": "Beijing, China",
+    "tripType": "Culture, History",
+    "days": "4 days",
+    "desc": "Explore the Forbidden City, climb the Great Wall and wander through atmospheric hutong alleys.",
+    "author": "Jackson Wang",
+    "views": "16.3K",
+    "saves": "34K"
+  },
+  {
+    "id": 5,
+    "title": "Shanghai Skyline Getaway",
+    "image": "shanghai.jpg",
+    "region": "China",
+    "location": "Shanghai, China",
+    "tripType": "City, Nightlife",
+    "days": "3 days",
+    "desc": "Bund river walks, futuristic Pudong skyline and trendy cafés. A modern side of China in one trip.",
+    "author": "Wang Li Hong",
+    "views": "13.2K",
+    "saves": "28K"
+  },
+  {
+    "id": 6,
+    "title": "Guilin & Yangshuo Karst Views",
+    "image": "guilin.jpg",
+    "region": "China",
+    "location": "Guilin, China",
+    "tripType": "Nature, Scenic",
+    "days": "4 days",
+    "desc": "Cruise past limestone peaks, cycle through rice fields and enjoy misty river mornings.",
+    "author": "Jay Chou",
+    "views": "10.5K",
+    "saves": "21K"
+  }
+]

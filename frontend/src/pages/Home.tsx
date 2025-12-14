@@ -70,6 +70,7 @@ export default function Home() {
           <Link to="/travel-guides-tutorial" style={btn}>Travel Guides Tutorial (F7.2)</Link>
           <Link to="/guest-faq" style={btn}>TripMate FAQ (F7.3)</Link>
           <Link to="/admin-dashboard" style={btn}>Admin Dashboard (F8)</Link>
+          <Link to="/profile" style={btn}>Edit Profile</Link>
         </div>
 
         {/* KK */}
