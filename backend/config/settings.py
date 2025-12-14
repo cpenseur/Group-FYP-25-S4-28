@@ -34,7 +34,7 @@ SECRET_KEY = 'django-insecure-em9@_iz%@m=%@rx6pnk6ll6qe5ix^&tp8fefl@7@cr18q8^ha$
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+ALLOWED_HOSTS = []
 
 
 # Application definition
@@ -87,16 +87,10 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# Supabase Postgres connection (frontend handles Supabase; backend uses local fallback for infra)
+# Supabase Postgres connection
 DATABASES = {
-    "default": env.db(
-        "DATABASE_URL",
-        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-    )
+    'default': env.db('DATABASE_URL')
 }
-# Supabase requires SSL; enforce if not already in the URL
-DATABASES["default"].setdefault("OPTIONS", {})
-DATABASES["default"]["OPTIONS"].setdefault("sslmode", "require")
 
 
 # Password validation
@@ -140,18 +134,7 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
-
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
-
-CORS_ALLOW_ALL_ORIGINS = False
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = True
 
 
 # 🔐 Django REST Framework configuration
@@ -161,8 +144,8 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.AllowAny",
     ],
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "TripMateFunctions.authentication.SupabaseJWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
+        "rest_framework.authentication.BasicAuthentication",
         # later you can add your custom Supabase authentication class here
     ],
 }
@@ -181,7 +164,3 @@ SUPABASE_ANON_KEY = env("SUPABASE_ANON_KEY")
 
 # NEW: Supabase JWT secret for verifying access tokens from frontend
 SUPABASE_JWT_SECRET = env("SUPABASE_JWT_SECRET", default="")
-
-# Sea-Lion settings
-SEA_LION_API_KEY = env("SEA_LION_API_KEY", default=os.environ.get("SEALION_API_KEY", ""))
-SEA_LION_MODEL = env("SEA_LION_MODEL", default="aisingapore/Llama-SEA-LION-v3-70B-IT")
