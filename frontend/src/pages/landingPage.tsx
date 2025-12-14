@@ -211,10 +211,6 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
 
               <CardText>{feature.description}</CardText>
 
-              <DiscoverMore>
-                Discover More <ChevronRight size={14} />
-              </DiscoverMore>
-
               {/* Blue highlight bar */}
               <HighlightBar />
             </AboutCard>

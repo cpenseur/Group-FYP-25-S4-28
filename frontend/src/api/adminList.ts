@@ -1,8 +1,7 @@
 // src/auth/admin.ts
 export const ADMIN_EMAILS = new Set([
   "pyhbwong001@mymail.sim.edu.sg",
-  "pohyee1232003@gmail.com",
-  "vgkwee003@mymail.sim.edu.sg",
+  "kwee003@mymail.sim.edu.sg",
   // add your admin emails here
 ]);
 
