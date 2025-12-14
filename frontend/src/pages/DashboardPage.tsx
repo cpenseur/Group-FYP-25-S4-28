@@ -69,7 +69,7 @@ export default function DashboardPage() {
   };
 
   const goToLogin = () => {
-    navigate("/login-page");
+    navigate("/signin");
   };
 
   return (
