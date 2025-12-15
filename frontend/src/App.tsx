@@ -54,6 +54,9 @@ export default function App() {
   };
 
   const closeLogin = () => setShowLogin(false);  
+  console.log("Sealion Key Loaded:", import.meta.env.VITE_SEALION_API_KEY);
+
+
   return (
     <>
       <TopBar />

@@ -1,12 +1,3 @@
-//export default function GroupWaitForFriends() {
-//  return (
-//    <div style={{ padding: "2rem" }}>
-//      <h1>Group Trip - Waiting for Friends (F2.2)</h1>
-//      <p>Summary of merged group preferences.</p>
-//    </div>
-//  );
-//}
-
 // frontend/src/pages/groupWaitForFriends.tsx
 
 import React, { useState } from "react";
@@ -161,7 +152,7 @@ export default function GroupWaitForFriends() {
           window.location.href = "/group-itinerary-summary";
         }}
       >
-        <span style={{ fontSize: "18px" }}></span>
+        <span style={{ fontSize: "18px" }}> </span>
         Start the search
       </button>
     </div>

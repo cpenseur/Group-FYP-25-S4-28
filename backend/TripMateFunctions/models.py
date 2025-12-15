@@ -810,3 +810,25 @@ class LegalDocument(models.Model):
 
     def __str__(self):
         return f"{self.doc_type} v{self.version or '1.0'}"
+    
+class GroupPreference(models.Model):
+    trip = models.ForeignKey(
+        "Trip",
+        on_delete=models.CASCADE,
+        related_name="group_preferences"
+    )
+    user = models.ForeignKey(
+        "AppUser",
+        on_delete=models.CASCADE,
+        related_name="group_preferences"
+    )
+    preferences = models.JSONField(default=list)
+
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "group_preference"
+        unique_together = ("trip", "user")
+
+    def __str__(self):
+        return f"Preference: Trip {self.trip_id}, User {self.user_id}"

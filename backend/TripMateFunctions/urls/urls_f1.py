@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter
 
 from ..views.f1_1_views import TripViewSet, TripDayViewSet, ItineraryItemViewSet
 from ..views.f1_2_views import F12RouteOptimizationView
-from ..views.f1_3_views import F13AITripGeneratorView, F13AIChatbotView
+from ..views.f1_3_views import F13AITripGeneratorView, F13AIChatbotView, F13SaveTripPreferenceView
 from ..views.f1_4_views import F14AdaptivePlanningView
 from ..views.f1_5_views import F15AIRecommendationsSidebarView
 from ..views.f1_6_views import F16DestinationFAQView
@@ -34,6 +34,11 @@ urlpatterns = [
         "ai-chatbot/",
         F13AIChatbotView.as_view(),
         name="f1-ai-chatbot",
+    ),
+    path(
+        "trips/<int:trip_id>/preferences/",
+        F13SaveTripPreferenceView.as_view(),
+        name="f13-save-trip-preferences",
     ),
 
     # F1.4 - Adaptive AI Planning

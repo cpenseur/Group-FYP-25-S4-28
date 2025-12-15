@@ -95,6 +95,7 @@ export default function Home() {
           <Link to={`/trip/${demoTripId}/media`} style={btn}>
             Media Highlights
           </Link>
+          <Link to="/ai-trip-generator-group" style={btn}>AI Trip Generator - Group (F2.2)</Link>
         </div>
 
         {/* Su */}
