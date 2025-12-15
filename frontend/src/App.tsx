@@ -35,6 +35,7 @@ import LocalInformationPanel from "./pages/localInformationPanel";
 import GroupWaitForFriends from "./pages/groupWaitForFriends";
 import GroupItinerarySummary from "./pages/groupItinerarySummary";
 import ItineraryRecommendation from "./pages/itineraryRecommendation";
+import AiTripGeneratorGroup from "./pages/GroupTripGeneratorPage";
 import MediaHighlights from "./pages/mediaHighlights";
 
 // Su
@@ -96,6 +97,7 @@ export default function App() {
         <Route path="/group-wait-for-friends" element={<GroupWaitForFriends />} />
         <Route path="/group-itinerary-summary" element={<GroupItinerarySummary />} />
         <Route path="/itinerary-recommendation" element={<ItineraryRecommendation />} />
+        <Route path="/ai-trip-generator-group" element={<AiTripGeneratorGroup />} />
         <Route path="/media-highlights" element={<MediaHighlights />} />
 
         {/* Su */}
