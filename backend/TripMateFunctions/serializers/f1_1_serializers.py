@@ -1,6 +1,7 @@
 # backend/TripMateFunctions/serializers/f1_1_serializers.py
 from decimal import Decimal
 from rest_framework import serializers
+import uuid
 
 from ..models import (
     Trip,
@@ -75,7 +76,7 @@ class TripSerializer(serializers.ModelSerializer):
 
 
 class TripCollaboratorSummarySerializer(serializers.Serializer):
-    id = serializers.IntegerField()
+    id = serializers.CharField()
     full_name = serializers.CharField(allow_blank=True, required=False)
     email = serializers.EmailField(allow_blank=True, required=False)
     initials = serializers.CharField()
@@ -137,37 +138,48 @@ class TripOverviewSerializer(serializers.ModelSerializer):
 
         out = []
         for c in collabs_qs:
-            u = c.user
-            if u is not None:
+            # If invited_email exists, always allow showing it
+            invited_email = (getattr(c, "invited_email", "") or "").strip()
+
+            u = None
+            raw_user_id = getattr(c, "user_id", None)
+
+            if raw_user_id:
+                try:
+                    user_uuid = uuid.UUID(str(raw_user_id))
+                    u = AppUser.objects.filter(id=user_uuid).first()
+                except (ValueError, TypeError):
+                    u = None
+
+            if u:        
                 initials = _initials_from_name(u.full_name, u.email)
                 is_current = bool(current_user and getattr(current_user, "id", None) == u.id)
 
                 out.append(
                     {
-                        "id": u.id,
+                        "id": str(u.id),
                         "full_name": u.full_name or "",
                         "email": u.email or "",
                         "initials": initials,
-                        "is_owner": (c.role == c.Role.OWNER),
+                        "is_owner": (c.role == TripCollaborator.Role.OWNER),
                         "is_current_user": is_current,
                     }
                 )
                 continue
 
-        # pending invite (not AppUser yet)
-        invited_email = (c.invited_email or "").strip()
-        initials = _initials_from_name(None, invited_email)
-
-        out.append(
-            {
-                "id": 0,  
-                "full_name": "",
-                "email": invited_email,
-                "initials": initials,
-                "is_owner": False,
-                "is_current_user": False,
-            }
-        )
+            # pending invite (not AppUser yet)
+            elif invited_email:
+                initials = _initials_from_name(None, invited_email)
+                out.append(
+                    {
+                        "id": "0",  
+                        "full_name": "",
+                        "email": invited_email,
+                        "initials": initials,
+                        "is_owner": False,
+                        "is_current_user": False,
+                    }
+                )
 
         # 🔹 Fallback: no TripCollaborator rows – still show the owner
         if not out and obj.owner:
@@ -177,7 +189,7 @@ class TripOverviewSerializer(serializers.ModelSerializer):
 
             out.append(
                 {
-                    "id": u.id,
+                    "id": str(u.id),
                     "full_name": u.full_name or "",
                     "email": u.email or "",
                     "initials": initials,
@@ -188,7 +200,7 @@ class TripOverviewSerializer(serializers.ModelSerializer):
 
         return out
 
-    def get_location_label(self, obj: Trip) -> str:
+    def get_location_label(self, obj: Trip) :
         qs = (
             ItineraryItem.objects.filter(trip=obj, destination__city__isnull=False)
             .values_list("destination__city", flat=True)
