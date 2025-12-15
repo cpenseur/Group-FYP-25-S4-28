@@ -1,7 +1,9 @@
 import React, { useState } from "react";
-import tripmateLogo from "../assets/tripmate_logo.png"; // ✅ your imported logo
+import { useNavigate } from "react-router-dom";
+import tripmateLogo from "../assets/tripmate_logo.png"; 
 
 const AiTripGeneratorStep1: React.FC = () => {
+  const navigate = useNavigate();
   const [groupMembers, setGroupMembers] = useState(["plum_soda"]);
   const [inputValue, setInputValue] = useState("");
 
@@ -28,7 +30,7 @@ const AiTripGeneratorStep1: React.FC = () => {
     window.location.href = "/ai-trip-generator-group";
   };
 
-  // -------- INLINE CSS STYLES (your original sizing kept exactly) --------
+  // -------- INLINE CSS STYLES  --------
   const styles: Record<string, React.CSSProperties> = {
     page: {
       minHeight: "100vh",
@@ -221,7 +223,7 @@ const AiTripGeneratorStep1: React.FC = () => {
       <div style={styles.navOuter}>
         <div style={styles.navInner}>
 
-          {/* LOGO (your required final version) */}
+          {/* LOGO */}
           <img
             src={tripmateLogo}
             alt="TripMate"
@@ -229,7 +231,7 @@ const AiTripGeneratorStep1: React.FC = () => {
           />
 
           <div style={styles.navRight}>
-            <span>Dashboard</span>
+            <span style={{ cursor: "pointer" }}onClick={() => navigate("/dashboard")}>Dashboard</span>
             <span>Trips</span>
             <span>Explore</span>
             <span>Profile</span>

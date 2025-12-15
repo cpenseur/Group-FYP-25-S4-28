@@ -87,9 +87,12 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# Supabase Postgres connection
+# Database (LOCAL DEV - SQLite)
 DATABASES = {
-    'default': env.db('DATABASE_URL')
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
+    }
 }
 
 
@@ -136,10 +139,16 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CORS_ALLOW_ALL_ORIGINS = True
 
+# Allow Vite frontend (localhost:5173) to POST (CSRF Origin check)
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
-# 🔐 Django REST Framework configuration
+
+# Django REST Framework configuration
 REST_FRAMEWORK = {
-    # ✅ Default: everything is public unless a view overrides it
+    # Default: everything is public unless a view overrides it
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
     ],

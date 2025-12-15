@@ -64,6 +64,7 @@ export default function Home() {
           <Link to="/group-wait-for-friends" style={btn}>Waiting For Friends (F2.2)</Link>
           <Link to="/group-itinerary-summary" style={btn}>Group Itinerary Summary (F2.2)</Link>
           <Link to="/itinerary-recommendation" style={btn}>Itinerary Recommendation</Link>
+          <Link to="/ai-trip-generator-group" style={btn}>AI Trip Generator - Group (F2.2)</Link>
         </div>
 
         {/* Su */}
