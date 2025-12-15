@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import tripmateLogo from "../assets/tripmate_logo.png";
 
 type ChipValue = string;
 
@@ -577,25 +576,6 @@ export default function GroupTripGeneratorPage() {
 
   return (
     <div style={styles.page}>
-      {/* NAVBAR */}
-      <div style={styles.navOuter}>
-        <div style={styles.navInner}>
-          <img
-            src={tripmateLogo}
-            alt="TripMate"
-            style={{ height: "150px", objectFit: "contain" }}
-          />
-
-          <div style={styles.navRight}>
-            <span style={{ cursor: "pointer" }}onClick={() => navigate("/dashboard")}>Dashboard</span>
-            <span>Trips</span>
-            <span>Explore</span>
-            <span>Profile</span>
-            <button style={styles.logoutBtn}>Log Out</button>
-          </div>
-        </div>
-      </div>
-
       {/* MAIN CONTENT */}
       <div style={styles.container}>
         <div style={styles.pageSub}>Share your preferences</div>

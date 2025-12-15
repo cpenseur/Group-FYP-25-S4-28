@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import tripmateLogo from "../assets/tripmate_logo.png";
+import { apiFetch } from "../lib/apiClient";
 
 /* ================= TYPES ================= */
 
@@ -88,7 +88,6 @@ function parseSealionToDays(
 
 export default function GroupItinerarySummary() {
   const navigate = useNavigate();
-  const SEALION_API_KEY = import.meta.env.VITE_SEALION_API_KEY as string | undefined;
 
   // change these if you want
   const TRIP_DAYS = 3; // can be dynamic later
@@ -137,10 +136,6 @@ export default function GroupItinerarySummary() {
     setErrorMsg("");
 
     try {
-      if (!SEALION_API_KEY) {
-        throw new Error("Missing VITE_SEALION_API_KEY in .env");
-      }
-
       const prompt = `
 You are an AI travel planner.
 
@@ -170,23 +165,14 @@ DAY 3:
 19:00 - Place | Area
 `.trim();
 
-      const response = await fetch("http://127.0.0.1:8000/api/ai/test/", {
+      // Use the shared API client; keep this path distinct from chatbot (/api/ai/chat)
+      const data = await apiFetch("/ai/test/", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          prompt: prompt,
-        }),
+        body: JSON.stringify({ prompt }),
       });
 
-      if (!response.ok) {
-        const errText = await response.text().catch(() => "");
-        throw new Error(`Sealion HTTP ${response.status}. ${errText}`);
-      }
-
-      const data = await response.json();
-      const text: string | undefined = data?.choices?.[0]?.message?.content;
+      const text: string | undefined =
+        data?.choices?.[0]?.message?.content ?? data?.reply;
 
       if (!text) {
         throw new Error("Sealion returned empty response.");
@@ -212,32 +198,26 @@ DAY 3:
 
   // generate once on first load (optional; if you don’t want, remove this useEffect)
   useEffect(() => {
-  const fetchGroupPreferences = async () => {
-    try {
-      const res = await fetch(
-        "http://127.0.0.1:8000/api/f2/trips/1/preferences/"
-      );
+    const fetchGroupPreferences = async () => {
+      try {
+        const data = await apiFetch("/f2/trips/1/preferences/", { method: "GET" });
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+        if (Array.isArray(data) && data.length) {
+          setGroupPreferences(
+            data.map((u: any) => ({
+              username: u.username,
+              preferences: u.preferences,
+              isOwner: u.is_owner,
+            }))
+          );
+        }
+        // if empty or not array, keep existing defaults
+      } catch (err) {
+        console.error("Failed to load group preferences", err);
+        // keep existing defaults on error
       }
+    };
 
-      const data = await res.json();
-
-      // data format from backend：
-      // [{ username, preferences, is_owner }]
-
-      setGroupPreferences(
-        data.map((u: any) => ({
-          username: u.username,
-          preferences: u.preferences,
-          isOwner: u.is_owner,
-        }))
-      );
-    } catch (err) {
-      console.error("Failed to load group preferences", err);
-    }
-  };
 
   fetchGroupPreferences();
 }, []);
@@ -461,23 +441,6 @@ DAY 3:
 
   return (
     <div style={styles.page}>
-      {/* NAVBAR */}
-      <div style={styles.navOuter}>
-        <div style={styles.navInner}>
-          <img src={tripmateLogo} alt="TripMate" style={{ height: "150px" }} />
-
-          <div style={styles.navRight}>
-            <span style={{ cursor: "pointer" }} onClick={() => navigate("/dashboard")}>
-              Dashboard
-            </span>
-            <span>Trips</span>
-            <span>Explore</span>
-            <span>Profile</span>
-            <button style={styles.logoutBtn}>Log Out</button>
-          </div>
-        </div>
-      </div>
-
       {/* MAIN */}
       <div style={styles.container}>
         <div style={styles.title}>Your Group Itinerary is Ready!</div>
@@ -579,7 +542,7 @@ DAY 3:
         <div style={styles.actionRow}>
           <button
             style={styles.btnSecondary}
-            onClick={() => navigate("/itinerary-editor")}
+            onClick={() => navigate("/trip/:tripId/itinerary")}
           >
             Edit Itinerary
           </button>

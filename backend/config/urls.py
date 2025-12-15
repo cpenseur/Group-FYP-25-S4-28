@@ -29,8 +29,9 @@ urlpatterns = [
         name="api-index",
     ),
 
-    #sealion endpoint
+    # SeaLion endpoint (legacy path kept) and AI alias
     path("api/sealion/", include("TripMateFunctions.urls.urls_ai")),
+    path("api/ai/", include("TripMateFunctions.urls.urls_ai")),
 
 ]
 

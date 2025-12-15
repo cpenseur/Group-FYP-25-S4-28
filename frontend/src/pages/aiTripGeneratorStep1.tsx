@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import tripmateLogo from "../assets/tripmate_logo.png"; 
 
 const AiTripGeneratorStep1: React.FC = () => {
   const navigate = useNavigate();
@@ -218,29 +217,6 @@ const AiTripGeneratorStep1: React.FC = () => {
 
   return (
     <div style={styles.page}>
-
-      {/* NAVIGATION BAR */}
-      <div style={styles.navOuter}>
-        <div style={styles.navInner}>
-
-          {/* LOGO */}
-          <img
-            src={tripmateLogo}
-            alt="TripMate"
-            style={{ height: "150px", objectFit: "contain" }}
-          />
-
-          <div style={styles.navRight}>
-            <span style={{ cursor: "pointer" }}onClick={() => navigate("/dashboard")}>Dashboard</span>
-            <span>Trips</span>
-            <span>Explore</span>
-            <span>Profile</span>
-            <button style={styles.logoutBtn}>Log Out</button>
-          </div>
-
-        </div>
-      </div>
-
       {/* PAGE CONTENT */}
       <div style={styles.container}>
 
