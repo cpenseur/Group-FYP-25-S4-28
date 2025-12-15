@@ -159,10 +159,12 @@ REST_FRAMEWORK = {
     # ✅ Default: everything is public unless a view overrides it
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
+        "rest_framework.permissions.IsAuthenticated",
     ],
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "TripMateFunctions.authentication.SupabaseJWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
+        "rest_framework.authentication.TokenAuthentication",
         # later you can add your custom Supabase authentication class here
     ],
 }
@@ -185,3 +187,12 @@ SUPABASE_JWT_SECRET = env("SUPABASE_JWT_SECRET", default="")
 # Sea-Lion settings
 SEA_LION_API_KEY = env("SEA_LION_API_KEY", default=os.environ.get("SEALION_API_KEY", ""))
 SEA_LION_MODEL = env("SEA_LION_MODEL", default="aisingapore/Llama-SEA-LION-v3-70B-IT")
+
+# Email setting
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = "tripmatebyfyp25s428@gmail.com"
+EMAIL_HOST_PASSWORD = "woha tkax mbzc vqof"
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER

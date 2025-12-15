@@ -2,7 +2,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone as django_timezone
-
+import secrets
 
 # --------------------------------------------------
 # USERS & PROFILES
@@ -207,28 +207,59 @@ class TripCollaborator(models.Model):
         EDITOR = "editor", "Editor"
         VIEWER = "viewer", "Viewer"
 
+    class Status(models.TextChoices):
+        INVITED = "invited", "Invited"
+        ACTIVE = "active", "Active"
+
     trip = models.ForeignKey(
         Trip,
         on_delete=models.CASCADE,
         related_name="collaborators",
     )
+
     user = models.ForeignKey(
         AppUser,
         on_delete=models.CASCADE,
         related_name="trip_collaborations",
+        null=True,
+        blank=True,
     )
-    role = models.CharField(
-        max_length=16,
-        choices=Role.choices,
-        default=Role.EDITOR,
-    )
+
+    invited_email = models.EmailField(null=True, blank=True)   
+    invite_token = models.CharField(max_length=64, unique=True, null=True, blank=True)
+
+    role = models.CharField(max_length=16, choices=Role.choices, default=Role.EDITOR)
+
+    status = models.CharField(max_length=16, choices=Status.choices,default=Status.INVITED,)
 
     invited_at = models.DateTimeField(default=django_timezone.now)
     accepted_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         db_table = "trip_collaborator"
-        unique_together = ("trip", "user")
+        constraints = [
+            # Only one collaborator row per (trip, user) when user is set
+            models.UniqueConstraint(
+                fields=["trip", "user"],
+                name="uniq_trip_user",
+                condition=models.Q(user__isnull=False),
+            ),
+            # Only one pending invite per (trip, invited_email) when email is set
+            models.UniqueConstraint(
+                fields=["trip", "invited_email"],
+                name="uniq_trip_invited_email",
+                condition=models.Q(invited_email__isnull=False),
+            ),
+            # Ensure at least one of user or invited_email exists
+            models.CheckConstraint(
+                check=models.Q(user__isnull=False) | models.Q(invited_email__isnull=False),
+                name="chk_user_or_email_present",
+            ),
+        ]
+
+    def ensure_token(self):
+        if not self.invite_token:
+            self.invite_token = secrets.token_urlsafe(32)
 
     def __str__(self):
         return f"{self.user_id} in Trip {self.trip_id}"

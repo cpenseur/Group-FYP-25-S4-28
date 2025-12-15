@@ -25,6 +25,7 @@ import PlaceSearchBar from "../components/PlaceSearchBar";
 import TripSubHeader from "../components/TripSubHeader";
 import { apiFetch } from "../lib/apiClient";
 import ItineraryMap from "../components/ItineraryMap";
+import planbotSmall from "../assets/planbotSmall.png";
 
 /* -------------------- Time Edit Modal -------------------- */
 
@@ -1359,6 +1360,7 @@ export default function ItineraryEditor() {
                 padding: "0.5rem 0.9rem",
                 fontSize: "0.85rem",
                 fontWeight: 700,
+                gap: 8,
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
@@ -1367,7 +1369,18 @@ export default function ItineraryEditor() {
                 marginBottom: 4,
               }}
             >
-              ✨ Planbot
+              <img
+                src={planbotSmall}
+                alt="Planbot"
+                style={{
+                width: 20,
+                height: 20,
+                objectFit: "contain",
+                alignItems: "center",
+                justifyContent: "center",
+                }}
+              /> 
+              Planbot
             </button>
 
             <div
