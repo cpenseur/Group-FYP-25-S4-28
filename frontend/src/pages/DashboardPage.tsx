@@ -397,7 +397,7 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() => {
-                // unknown route for now (clickable but leads nowhere)
+                navigate("/ai-trip-generator-step-1")
               }}
               style={aiCardBtn}
             >
