@@ -45,10 +45,10 @@ export default function Home() {
           {/* Original / standalone */}
           <span style={smallLabel}>Standalone pages</span>
           <Link to="/dashboard" style={btn}>Dashboard</Link>
-          <Link to="/ai-trip-generator-step1" style={btn}>
+          <Link to="/ai-trip-generator-step-1" style={btn}>
             AI Trip Generator - Step 1 (F1.3 &amp; F2.2)
           </Link>
-          <Link to="/ai-trip-generator-step2" style={btn}>
+          <Link to="/ai-trip-generator-step-2" style={btn}>
             AI Trip Generator - Step 2 (F1.3)
           </Link>
           <Link to="/create-trip" style={btn}>
