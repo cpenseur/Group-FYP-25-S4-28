@@ -32,30 +32,24 @@ export default function CreateTrip() {
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
   const [pendingTripId, setPendingTripId] = useState<number | null>(null);
 
-  async function inviteCollaborators(tripId: number, inviteList: string[]): Promise<InviteLink[]> {
-    if (!inviteList.length) return [];
+  async function inviteCollaborators(tripId: number): Promise<InviteLink[]> {
+    if (!invites.length) return [];
     const results = await Promise.all(
-      inviteList.map(async (raw) => {
-      try{  
+      invites.map(async (raw) => {
         const res = await apiFetch(`/f1/trips/${tripId}/collaborators/`, {
           method: "POST",
           body: JSON.stringify(toInvitePayload(raw)),
         });
-
       if (res?.invite_token) {
         const inviteUrl = `${window.location.origin}/accept-invite?token=${res.invite_token}`;
         return { email: res.email ?? raw, inviteUrl };
       }
+
       return null;
-    } catch (err) {
-        console.error("Invite failed:", raw, err);
-        return null;      
-    }
-  })
-);  
+    })
+  );
   return results.filter(Boolean) as InviteLink[];
 }
-
   const closeInviteModalAndMaybeNavigate = () => {
     setInviteModalOpen(false);
     // after closing, go to itinerary if trip was created
@@ -98,9 +92,8 @@ export default function CreateTrip() {
       const tripId = data?.id;
 
       if (!tripId) throw new Error("Trip ID missing in response");
-
-      const links = await inviteCollaborators(tripId, inviteList);
-      if (inviteList.length) {
+      const links = await inviteCollaborators(tripId);
+      if (links.length) {
         // show popup, delay navigation until user closes it
         setInviteLinks(links);
         setInviteModalOpen(true);
@@ -181,26 +174,19 @@ export default function CreateTrip() {
             </div>
 
             <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-              {inviteLinks.length === 0 ? (
-                <div style={{ color: "#6b7280", fontSize: "0.92rem" }}>
-                  No invite links were returned by the API. (Emails may still be
-                  sent.) If you want links here, ensure your backend returns
-                  <code>invite_token</code> in the response.
-                </div>
-              ) : (
-                inviteLinks.map((x) => (
-                  <div
-                    key={x.email}
-                    style={{
-                      border: "1px solid #e5e7eb",
-                      borderRadius: 12,
-                      padding: "0.75rem",
-                      display: "grid",
-                      gridTemplateColumns: "1fr auto",
-                      gap: 10,
-                      alignItems: "center",
-                    }}
-                  >
+              {inviteLinks.map((x) => (
+                <div
+                  key={x.email}
+                  style={{
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 12,
+                    padding: "0.75rem",
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto",
+                    gap: 10,
+                    alignItems: "center",
+                  }}
+                >
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 650, color: "#111827" }}>{x.email}</div>
                     <div
@@ -242,8 +228,7 @@ export default function CreateTrip() {
                     Copy link
                   </button>
                 </div>
-              ))
-            )}
+              ))}
             </div>
 
             <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end", gap: 10 }}>

@@ -10,8 +10,6 @@ from rest_framework.permissions import IsAuthenticated
 from datetime import timedelta
 from django.utils import timezone
 from django.db import transaction
-from django.utils.dateparse import parse_date
-from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.core.mail import send_mail
@@ -33,27 +31,27 @@ class TripViewSet(BaseViewSet):
     serializer_class = TripSerializer
 
     def get_permissions(self):
-        if self.action in ["create"]:
+        if self.action in ["create", "list", "retrieve", "overview"]:
             return [IsAuthenticated()]
         return super().get_permissions()
-    
-    # def get_queryset(self):
-    #     qs = super().get_queryset()
-    #     user = getattr(self.request, "user", None)
-    #     if not isinstance(user, AppUser):
-    #         return Trip.objects.none()
 
-    #     # owner OR collaborator
-    #     return (
-    #         qs.filter(models.Q(owner=user) | models.Q(collaborators__user=user))
-    #         .distinct()
-    #         .select_related("owner")
-    #     )
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = getattr(self.request, "user", None)
+        if not isinstance(user, AppUser):
+            return Trip.objects.none()
+
+        return (
+            qs.filter(Q(owner=user) | Q(collaborators__user=user))
+            .distinct()
+            .select_related("owner")
+        )
     
-    # def get_serializer_class(self):
-    #     if self.action in ["list"]:
-    #         return TripOverviewSerializer
-    #     return TripSerializer
+    def get_serializer_class(self):
+        # Optional but recommended
+        if self.action == "list":
+            return TripOverviewSerializer
+        return TripSerializer
 
     def perform_create(self, serializer):
         user = getattr(self.request, "user", None)
@@ -68,8 +66,13 @@ class TripViewSet(BaseViewSet):
         TripCollaborator.objects.get_or_create(
             trip=trip,
             user=user,
-            defaults={"role": TripCollaborator.Role.OWNER},
+            defaults={
+                "role": TripCollaborator.Role.OWNER,
+                "status": TripCollaborator.Status.ACTIVE,
+                "accepted_at": timezone.now(),
+            },
         )
+
 
         # Auto-create TripDay rows so itinerary shows empty days immediately
         if trip.start_date and trip.end_date and trip.end_date >= trip.start_date:

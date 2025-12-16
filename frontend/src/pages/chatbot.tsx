@@ -218,7 +218,15 @@ const PlanbotPage: React.FC = () => {
     // Muted avatar colors like wireframe
     const avatarBg = isUser ? "#6B8F9A" : "#F7B26A";
     const name = isUser ? "You" : "Planbot";
-    const avatarText = isUser ? userInitials : "✨";
+    const avatarText = isUser ? userInitials : <img
+                      src={planbotSmall}
+                      alt="Planbot"
+                      style={{
+                        width: 18,
+                        height: 18,
+                        objectFit: "contain",
+                      }}
+                    />;
 
     return (
       <div
@@ -355,7 +363,17 @@ const PlanbotPage: React.FC = () => {
               flexShrink: 0,
             }}
           >
-            ✨
+            <img
+                src={planbotBig}
+                alt="Planbot"
+                style={{
+                width: 20,
+                height: 20,
+                objectFit: "contain",
+                alignItems: "center",
+                justifyContent: "center",
+                }}
+            />
           </div>
 
           <div style={{ minWidth: 0 }}>
