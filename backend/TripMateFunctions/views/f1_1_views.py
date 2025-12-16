@@ -8,10 +8,14 @@ from rest_framework.response import Response
 from rest_framework import exceptions
 from rest_framework.permissions import IsAuthenticated
 from datetime import timedelta
+from django.utils import timezone
 from django.db import transaction
 from django.utils.dateparse import parse_date
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
+from django.core.mail import send_mail
+from django.conf import settings
 
 from ..models import AppUser, Trip, TripDay, ItineraryItem, TripCollaborator
 from ..serializers.f1_1_serializers import (
@@ -22,7 +26,6 @@ from ..serializers.f1_1_serializers import (
     TripCollaboratorInviteSerializer,
 )
 from .base_views import BaseViewSet
-
 
 class TripViewSet(BaseViewSet):
     queryset = Trip.objects.all().select_related("owner")
@@ -119,37 +122,21 @@ class TripViewSet(BaseViewSet):
                 user=invitee,
                 defaults={
                     "role": role,
-                    "status": TripCollaborator.Status.ACTIVE,
-                    "accepted_at": timezone.now(),
+                    "status": TripCollaborator.Status.INVITED,
                 },
             )
-
-            collab.ensure_token()
-            collab.save(update_fields=["invite_token"])
-            return Response(
-                {
-                    "kind": "linked",
-                    "id": invitee.id,
-                    "email": invitee.email,
-                    "full_name": invitee.full_name or "",
-                    "role": collab.role,
-                    "invite_token": collab.invite_token, 
+        else:
+            collab, created = TripCollaborator.objects.get_or_create(
+                trip=trip,
+                invited_email=email,
+                defaults={
+                    "role": role,
+                    "status": TripCollaborator.Status.INVITED,
                 },
-                status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
-            )
-
-        # not AppUser yet → create pending invite
-        collab, created = TripCollaborator.objects.get_or_create(
-            trip=trip,
-            invited_email=email,
-            defaults={
-                "role": role,
-                "status": TripCollaborator.Status.INVITED,
-            },
-        )
-
+            )            
+        collab.ensure_token()
+        collab.save(update_fields=["invite_token"])
         invite_url = f"http://localhost:5173/accept-invite?token={collab.invite_token}"
-
         send_mail(
             subject="You're invited to a Trip on TripMate ✈️",
             message=(
@@ -165,13 +152,12 @@ class TripViewSet(BaseViewSet):
 
         return Response(
             {
-                "kind": "invited",
+                "kind": "linked" if invitee else "invited",
                 "email": email,
-                "invite_token": collab.invite_token,  # keep for testing; remove later if you want
+                "invite_token": collab.invite_token,  
             },
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
-
 
 
     @transaction.atomic

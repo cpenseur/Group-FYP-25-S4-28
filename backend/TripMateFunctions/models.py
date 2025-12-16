@@ -1,8 +1,8 @@
 # models.py
 from django.db import models
-from django.contrib.auth.models import User
 from django.utils import timezone as django_timezone
 import secrets
+import uuid
 
 # --------------------------------------------------
 # USERS & PROFILES
@@ -10,6 +10,11 @@ import secrets
 
 
 class AppUser(models.Model):
+    id = models.UUIDField(
+        primary_key=True,
+        editable=False
+    )    
+
     class Role(models.TextChoices):
         NORMAL = "normal", "Normal"
         ADMIN = "admin", "Admin"
@@ -21,7 +26,6 @@ class AppUser(models.Model):
         DELETED = "deleted", "Deleted"
 
     email = models.EmailField(unique=True)
-    password_hash = models.TextField()  # if using Supabase auth, you can ignore
     full_name = models.CharField(max_length=255, blank=True, null=True)
 
     role = models.CharField(
@@ -35,7 +39,7 @@ class AppUser(models.Model):
         default=Status.PENDING,
     )
 
-    created_at = models.DateTimeField(default=django_timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

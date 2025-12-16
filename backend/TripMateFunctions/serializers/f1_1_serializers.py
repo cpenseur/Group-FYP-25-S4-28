@@ -1,6 +1,7 @@
 # backend/TripMateFunctions/serializers/f1_1_serializers.py
 from decimal import Decimal
 from rest_framework import serializers
+import uuid
 
 from ..models import (
     Trip,
@@ -75,7 +76,7 @@ class TripSerializer(serializers.ModelSerializer):
 
 
 class TripCollaboratorSummarySerializer(serializers.Serializer):
-    id = serializers.IntegerField()
+    id = serializers.CharField()
     full_name = serializers.CharField(allow_blank=True, required=False)
     email = serializers.EmailField(allow_blank=True, required=False)
     initials = serializers.CharField()
@@ -116,66 +117,91 @@ class TripOverviewSerializer(serializers.ModelSerializer):
             "planned_total",
         ]
         
-    def get_collaborators(self, obj):
+    def get_collaborators(self, obj: Trip):
+        """
+        Return all TripCollaborator users for this trip.
+        If none exist, at least show the Trip.owner as a collaborator.
+        Also mark which collaborator is the current logged-in user.
+        """
+        # figure out current logged-in AppUser (if any)
         request = self.context.get("request")
-        current_user = getattr(request, "user", None)
+        current_user = None
+        if request is not None:
+            current_user = getattr(request, "app_user", None) or getattr(
+                request, "user", None
+            )
 
-        collabs_qs = obj.collaborators.select_related("user").all()
-
-        def as_payload(user: AppUser, role: str, status: str):
-            full_name = (user.full_name or "").strip()
-            email = (user.email or "").strip()
-            return {
-                "id": user.id,
-                "full_name": full_name,
-                "email": email,
-                "role": role,
-                "status": status,
-                "is_owner": (role == TripCollaborator.Role.OWNER),
-                "is_current_user": bool(current_user and user.id == getattr(current_user, "id", None)),
-                "initials": _initials_from_name(full_name, email),
-            }
+        collabs_qs = (
+            obj.collaborators.select_related("user")
+            .order_by("-role", "invited_at")  # owner first, then others
+        )
 
         out = []
-
-        # If there are no collaborator rows, still show owner pill
-        if not collabs_qs.exists():
-            owner = obj.owner
-            if owner:
-                return [as_payload(owner, TripCollaborator.Role.OWNER, TripCollaborator.Status.ACTIVE)]
-            return []
-
-        # Otherwise serialize collaborators (including initials)
         for c in collabs_qs:
-            if c.user_id:
-                out.append(as_payload(c.user, c.role, c.status))
-            else:
-                invited_email = (c.invited_email or "").strip()
+            # If invited_email exists, always allow showing it
+            invited_email = (getattr(c, "invited_email", "") or "").strip()
+
+            u = None
+            raw_user_id = getattr(c, "user_id", None)
+
+            if raw_user_id:
+                try:
+                    user_uuid = uuid.UUID(str(raw_user_id))
+                    u = AppUser.objects.filter(id=user_uuid).first()
+                except (ValueError, TypeError):
+                    u = None
+
+            if u:        
+                initials = _initials_from_name(u.full_name, u.email)
+                is_current = bool(current_user and getattr(current_user, "id", None) == u.id)
+
                 out.append(
                     {
-                        "id": 0,
+                        "id": str(u.id),
+                        "full_name": u.full_name or "",
+                        "email": u.email or "",
+                        "initials": initials,
+                        "is_owner": (c.role == TripCollaborator.Role.OWNER),
+                        "is_current_user": is_current,
+                    }
+                )
+                continue
+
+            # pending invite (not AppUser yet)
+            elif invited_email:
+                initials = _initials_from_name(None, invited_email)
+                out.append(
+                    {
+                        "id": "0",  
                         "full_name": "",
                         "email": invited_email,
-                        "role": c.role,
-                        "status": c.status if hasattr(c, "status") else "",
-                        "is_owner": (c.role == c.Role.OWNER),
+                        "initials": initials,
+                        "is_owner": False,
                         "is_current_user": False,
-                        "initials": _initials_from_name(None, invited_email),
                     }
                 )
 
-        # Safety net: ensure owner is present in pills
-        owner_id = getattr(obj.owner, "id", None)
-        if owner_id and not any(x.get("id") == owner_id for x in out):
-            out.insert(
-                0,
-                as_payload(obj.owner, TripCollaborator.Role.OWNER, TripCollaborator.Status.ACTIVE),
+        # 🔹 Fallback: no TripCollaborator rows – still show the owner
+        if not out and obj.owner:
+            u: AppUser = obj.owner
+            initials = _initials_from_name(u.full_name, u.email)
+            is_current = bool(current_user and getattr(current_user, "id", None) == u.id)
+
+            out.append(
+                {
+                    "id": str(u.id),
+                    "full_name": u.full_name or "",
+                    "email": u.email or "",
+                    "initials": initials,
+                    "is_owner": True,
+                    "is_current_user": is_current,
+                }
             )
 
         return out
 
 
-    def get_location_label(self, obj: Trip) -> str:
+    def get_location_label(self, obj: Trip) :
         qs = (
             ItineraryItem.objects.filter(trip=obj, destination__city__isnull=False)
             .values_list("destination__city", flat=True)

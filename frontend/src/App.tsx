@@ -96,13 +96,13 @@ export default function App() {
         <Route path="/local-info-panel" element={<LocalInformationPanel />} />
         <Route path="/group-wait-for-friends" element={<GroupWaitForFriends />} />
         <Route path="/group-itinerary-summary" element={<GroupItinerarySummary />} />
-        <Route path="/itinerary-recommendation" element={<ItineraryRecommendation />} />
         <Route path="/ai-trip-generator-group" element={<AiTripGeneratorGroup />} />
-        <Route path="/media-highlights" element={<MediaHighlights />} />
+        <Route path="/trip/:tripId/recommendations" element={<ItineraryRecommendation />} />
+        <Route path="/trip/:tripId/media" element={<MediaHighlights />} />
 
         {/* Su */}
-        <Route path="/notes-and-checklists" element={<NotesAndChecklistPage />} />
-        <Route path="/budget" element={<BudgetPage />} />
+        <Route path="/trip/:tripId/notes" element={<NotesAndChecklistPage />} />
+        <Route path="/trip/:tripId/budget" element={<BudgetPage />} />
       </Routes>
     <Login
       isOpen={showLogin}
