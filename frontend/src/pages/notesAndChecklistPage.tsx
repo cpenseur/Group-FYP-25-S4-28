@@ -1,20 +1,74 @@
-import React, { useEffect, useState } from "react";
+// frontend/src/pages/notesAndChecklistPage.tsx
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+
+import TripSubHeader from "../components/TripSubHeader";
+import ItineraryMap, { MapItineraryItem } from "../components/ItineraryMap";
 import { apiFetch } from "../lib/apiClient";
 import { supabase } from "../lib/supabaseClient";
 
-interface ChecklistItem {
+/* =========================
+   Types (match F1 response)
+========================= */
+
+type ItineraryItem = {
   id: number;
-  label: string;
-  completed: boolean;
-}
-interface Checklist {
+  title: string;
+  address: string | null;
+  lat: number | null;
+  lon: number | null;
+  sort_order: number;
+  day: number | null; // TripDay PK
+};
+
+type TripDayResponse = {
   id: number;
-  name: string;
-  items: ChecklistItem[];
-}
+  trip: number;
+  date: string | null;
+  day_index: number;
+  note: string | null;
+};
+
+type TripResponse = {
+  id: number;
+  title: string;
+  main_city: string | null;
+  main_country: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  days: TripDayResponse[];
+  items: ItineraryItem[];
+};
+
+/* =========================
+   Notes/Checklist types
+   (MATCH PYTHON BACKEND)
+========================= */
+
 interface Note {
   id: number;
+  item: number;          // ✅ backend field
   content: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface ChecklistItem {
+  id: number;
+  checklist?: number;    // ✅ backend field (foreign key)
+  label: string;
+  is_completed: boolean; // ✅ backend field (NOT "completed")
+  sort_order?: number;
+  due_date?: string | null;
+}
+
+interface Checklist {
+  id: number;
+  trip?: number | null;
+  name: string;
+  description?: string | null;
+  checklist_type?: string | null;
+  items: ChecklistItem[];
 }
 
 type MenuType = "notes" | "checklists" | null;
@@ -27,7 +81,25 @@ type ModalType =
   | null;
 
 export default function NotesAndChecklistPage() {
+  const navigate = useNavigate();
+  const { tripId } = useParams();
+
+  const tripIdNum = useMemo(() => Number(tripId), [tripId]);
+
+  // auth user (optional)
   const [user, setUser] = useState<any>(null);
+
+  // Trip data for map + sidebar
+  const [trip, setTrip] = useState<TripResponse | null>(null);
+  const [days, setDays] = useState<TripDayResponse[]>([]);
+  const [items, setItems] = useState<ItineraryItem[]>([]);
+  const [mapItems, setMapItems] = useState<MapItineraryItem[]>([]);
+  const [loadingTrip, setLoadingTrip] = useState(false);
+
+  // Selected itinerary item for notes
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+
+  // Notes / Checklists
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNote, setNewNote] = useState("");
   const [editingNote, setEditingNote] = useState<Note | null>(null);
@@ -44,16 +116,107 @@ export default function NotesAndChecklistPage() {
     id: number;
   } | null>(null);
 
+  /* =========================
+     Load user (supabase)
+  ========================= */
   useEffect(() => {
-    const getUser = async () => {
+    (async () => {
       const { data } = await supabase.auth.getUser();
       setUser(data?.user || null);
-    };
-    getUser();
-    loadNotes();
-    loadChecklists();
+    })();
   }, []);
 
+  /* =========================
+     Load trip (F1) for map + sidebar
+  ========================= */
+  useEffect(() => {
+    if (!tripIdNum || Number.isNaN(tripIdNum)) return;
+
+    (async () => {
+      try {
+        setLoadingTrip(true);
+
+        // ✅ Same trip endpoint used by itinerary editor
+        const data: TripResponse = await apiFetch(`/f1/trips/${tripIdNum}/`);
+
+        const safeDays = Array.isArray(data?.days) ? data.days : [];
+        const safeItems = Array.isArray(data?.items) ? data.items : [];
+
+        setTrip(data);
+        setDays(safeDays);
+        setItems(safeItems);
+
+        // default selected item
+        if (safeItems.length > 0) setSelectedItemId(safeItems[0].id);
+
+        // Build day_id -> day_index mapping
+        const dayIndexMap = new Map<number, number>();
+        safeDays.forEach((d) => dayIndexMap.set(d.id, d.day_index));
+
+        // Convert itinerary items to MapItineraryItem
+        const mapped: MapItineraryItem[] = safeItems
+          .filter((it) => it.lat != null && it.lon != null)
+          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+          .map((it) => ({
+            id: it.id,
+            title: it.title,
+            address: it.address ?? null,
+            lat: it.lat,
+            lon: it.lon,
+            sort_order: it.sort_order ?? null,
+            day_index: it.day ? dayIndexMap.get(it.day) ?? null : null,
+            stop_index: null,
+          }));
+
+        setMapItems(mapped);
+      } catch (e) {
+        console.error("Failed to load trip for notes page", e);
+        setTrip(null);
+        setDays([]);
+        setItems([]);
+        setMapItems([]);
+      } finally {
+        setLoadingTrip(false);
+      }
+    })();
+  }, [tripIdNum]);
+
+  /* =========================
+     Helpers: refresh F3 lists
+  ========================= */
+  const refreshNotes = async () => {
+    if (!tripIdNum || Number.isNaN(tripIdNum)) return;
+    try {
+      const data = await apiFetch(`/f3/notes/?trip=${tripIdNum}`);
+      setNotes(Array.isArray(data) ? data : []);
+    } catch {
+      setNotes([]);
+    }
+  };
+
+  const refreshChecklists = async () => {
+    if (!tripIdNum || Number.isNaN(tripIdNum)) return;
+    try {
+      const data = await apiFetch(`/f3/checklists/?trip=${tripIdNum}`);
+      setChecklists(Array.isArray(data) ? data : []);
+    } catch {
+      setChecklists([]);
+    }
+  };
+
+  /* =========================
+     Load notes & checklists (F3)
+  ========================= */
+  useEffect(() => {
+    if (!tripIdNum || Number.isNaN(tripIdNum)) return;
+    refreshNotes();
+    refreshChecklists();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripIdNum]);
+
+  /* =========================
+     Outside click closes menu
+  ========================= */
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
@@ -67,73 +230,159 @@ export default function NotesAndChecklistPage() {
     setOpenMenu((prev) => (prev === menu ? null : menu));
   };
 
-  const loadNotes = async () => {
-    try {
-      const data = await apiFetch("/notes/dummy"); // TODO: replace with real endpoint
-      setNotes(data || []);
-    } catch (err) {
-      console.error("Failed to load notes");
-    }
-  };
+  /* =========================
+     REAL DB actions (F3)
+  ========================= */
 
-  const loadChecklists = async () => {
-    try {
-      const data = await apiFetch("/checklists/dummy"); // TODO: replace with real endpoint
-      setChecklists(data || []);
-    } catch (err) {
-      console.error("Failed to load checklists");
-    }
-  };
-
-  const saveNote = () => {
+  // NOTES: create/update
+  const saveNote = async () => {
     if (!newNote.trim()) return false;
-    if (editingNote) {
-      setNotes((prev) => prev.map((n) => (n.id === editingNote.id ? { ...n, content: newNote } : n)));
-      setEditingNote(null);
-    } else {
-      setNotes((prev) => [...prev, { id: Date.now(), content: newNote }]);
+
+    // Must have an itinerary item selected for backend
+    const itemId = selectedItemId ?? (items.length ? items[0].id : null);
+    if (!itemId) {
+      alert("No itinerary item found for this trip. Add itinerary first.");
+      return false;
     }
-    setNewNote("");
-    return true;
+
+    try {
+      if (editingNote) {
+        const updated = await apiFetch(`/f3/notes/${editingNote.id}/`, {
+          method: "PATCH",
+          body: JSON.stringify({ content: newNote, item: itemId }),
+        });
+        setNotes((prev) => prev.map((n) => (n.id === editingNote.id ? updated : n)));
+        setEditingNote(null);
+      } else {
+        const created = await apiFetch(`/f3/notes/`, {
+          method: "POST",
+          body: JSON.stringify({ item: itemId, content: newNote }),
+        });
+        setNotes((prev) => [created, ...prev]);
+      }
+      setNewNote("");
+      return true;
+    } catch (e) {
+      console.error(e);
+      alert("Failed to save note (check backend/auth).");
+      return false;
+    }
   };
 
-  const deleteNote = (id: number) => setNotes((prev) => prev.filter((n) => n.id !== id));
+  // NOTES: delete
+  const deleteNote = async (id: number) => {
+    try {
+      await apiFetch(`/f3/notes/${id}/`, { method: "DELETE" });
+      setNotes((prev) => prev.filter((n) => n.id !== id));
+    } catch (e) {
+      console.error(e);
+      alert("Failed to delete note.");
+    }
+  };
 
-  const saveChecklist = () => {
+  // CHECKLIST: create/update checklist + replace its items (simple reliable approach)
+  const saveChecklist = async () => {
     if (!newChecklistName.trim()) return false;
-    if (editingChecklist) {
-      setChecklists((prev) =>
-        prev.map((c) =>
-          c.id === editingChecklist.id ? { ...c, name: newChecklistName, items: editingChecklistItems } : c
+
+    try {
+      // 1) create/update checklist
+      let checklist: any;
+      if (editingChecklist) {
+        checklist = await apiFetch(`/f3/checklists/${editingChecklist.id}/`, {
+          method: "PATCH",
+          body: JSON.stringify({ name: newChecklistName, trip: tripIdNum }),
+        });
+      } else {
+        checklist = await apiFetch(`/f3/checklists/`, {
+          method: "POST",
+          body: JSON.stringify({ name: newChecklistName, trip: tripIdNum }),
+        });
+      }
+
+      // 2) If editing, delete old checklist items first (so we can recreate)
+      if (editingChecklist) {
+        const oldItems = await apiFetch(`/f3/checklist-items/?checklist=${checklist.id}`);
+        if (Array.isArray(oldItems)) {
+          await Promise.all(
+            oldItems.map((it: any) =>
+              apiFetch(`/f3/checklist-items/${it.id}/`, { method: "DELETE" })
+            )
+          );
+        }
+      }
+
+      // 3) Create new items
+      const cleanItems = editingChecklistItems
+        .map((it, idx) => ({
+          checklist: checklist.id,
+          label: it.label.trim(),
+          is_completed: !!it.is_completed,
+          sort_order: idx,
+        }))
+        .filter((it) => it.label.length > 0);
+
+      await Promise.all(
+        cleanItems.map((payload) =>
+          apiFetch(`/f3/checklist-items/`, {
+            method: "POST",
+            body: JSON.stringify(payload),
+          })
         )
       );
+
+      // 4) Refresh list
+      await refreshChecklists();
+
+      setNewChecklistName("");
+      setEditingChecklistItems([]);
       setEditingChecklist(null);
-    } else {
-      setChecklists((prev) => [...prev, { id: Date.now(), name: newChecklistName, items: editingChecklistItems }]);
+      return true;
+    } catch (e) {
+      console.error(e);
+      alert("Failed to save checklist.");
+      return false;
     }
-    setNewChecklistName("");
-    setEditingChecklistItems([]);
-    return true;
   };
 
-  const deleteChecklist = (id: number) => setChecklists((prev) => prev.filter((c) => c.id !== id));
-
-  const toggleItem = (checklistId: number, itemId: number) => {
-    setChecklists((prev) =>
-      prev.map((c) =>
-        c.id === checklistId
-          ? {
-              ...c,
-              items: c.items.map((i) => (i.id === itemId ? { ...i, completed: !i.completed } : i)),
-            }
-          : c
-      )
-    );
+  // CHECKLIST: delete
+  const deleteChecklist = async (id: number) => {
+    try {
+      await apiFetch(`/f3/checklists/${id}/`, { method: "DELETE" });
+      setChecklists((prev) => prev.filter((c) => c.id !== id));
+    } catch (e) {
+      console.error(e);
+      alert("Failed to delete checklist.");
+    }
   };
 
+  // CHECKLIST ITEM: toggle completion in DB
+  const toggleItem = async (checklistId: number, itemId: number) => {
+    const checklist = checklists.find((c) => c.id === checklistId);
+    const item = checklist?.items.find((i) => i.id === itemId);
+    if (!item) return;
+
+    try {
+      await apiFetch(`/f3/checklist-items/${itemId}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_completed: !item.is_completed }),
+      });
+      await refreshChecklists();
+    } catch (e) {
+      console.error(e);
+      alert("Failed to update checklist item.");
+    }
+  };
+
+  /* =========================
+     Modal open/close helpers
+  ========================= */
   const openNoteForm = (note?: Note) => {
     setEditingNote(note || null);
     setNewNote(note?.content || "");
+
+    // if editing a note, select its item
+    if (note?.item) setSelectedItemId(note.item);
+
     setActiveModal("noteForm");
     setOpenMenu(null);
   };
@@ -166,455 +415,150 @@ export default function NotesAndChecklistPage() {
     setActiveModal("deleteConfirm");
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
-    if (deleteTarget.type === "note") deleteNote(deleteTarget.id);
-    if (deleteTarget.type === "checklist") deleteChecklist(deleteTarget.id);
+    if (deleteTarget.type === "note") await deleteNote(deleteTarget.id);
+    if (deleteTarget.type === "checklist") await deleteChecklist(deleteTarget.id);
     closeModal();
   };
 
+  /* =========================
+     Checklist form local rows
+     (these are local until "Save")
+  ========================= */
   const addChecklistItemRow = () => {
-    setEditingChecklistItems((prev) => [...prev, { id: Date.now(), label: "", completed: false }]);
+    setEditingChecklistItems((prev) => [
+      ...prev,
+      { id: Date.now(), label: "", is_completed: false },
+    ]);
   };
 
   const updateChecklistItemLabel = (id: number, label: string) => {
-    setEditingChecklistItems((prev) => prev.map((item) => (item.id === id ? { ...item, label } : item)));
+    setEditingChecklistItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, label } : item))
+    );
   };
 
   const toggleChecklistItemCompleted = (id: number) => {
-    setEditingChecklistItems((prev) => prev.map((item) => (item.id === id ? { ...item, completed: !item.completed } : item)));
+    setEditingChecklistItems((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, is_completed: !item.is_completed } : item
+      )
+    );
   };
 
   const removeChecklistItemRow = (id: number) => {
     setEditingChecklistItems((prev) => prev.filter((item) => item.id !== id));
   };
 
+  /* =========================
+     Sidebar: quick day summary
+  ========================= */
+  const getStopsForDay = (dayId: number) => {
+    return items.filter((it) => it.day === dayId).length;
+  };
+
   return (
     <>
-      {/* Inline CSS so you only need ONE TSX file */}
-      <style>{`
-        .notes-checklist-container {
-          display: grid;
-          grid-template-columns: 1.2fr 1fr;
-          gap: 24px;
-          padding: 24px;
-          background: #f5f7fb;
-          min-height: 100vh;
-          font-family: "Inter", "Segoe UI", sans-serif;
-        }
+      {/* Trip header + tabs */}
+      <TripSubHeader />
 
-        .map-card {
-          background: linear-gradient(135deg, #c8e4ff, #f2f7ff);
-          border-radius: 18px;
-          min-height: 520px;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
-          border: 1px solid #e5edff;
-        }
+      {/* Layout: LEFT Map | MIDDLE Notes/Checklist | RIGHT Planbot */}
+      <div style={{ background: "#f5f7fb", minHeight: "100vh" }}>
+        <div
+          style={{
+            maxWidth: 1400,
+            margin: "0 auto",
+            padding: 24,
+            display: "grid",
+            gridTemplateColumns: "1.05fr 0.95fr 0.42fr",
+            gap: 18,
+            alignItems: "start",
+          }}
+        >
+          {/* LEFT: Map (same as itinerary page) */}
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 18,
+              border: "1px solid #e8edff",
+              boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)",
+              overflow: "hidden",
+              minHeight: 560,
+            }}
+          >
+            <ItineraryMap items={mapItems} />
+          </div>
 
-        .panel-stack {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
+          {/* MIDDLE: Notes & Checklists panels */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* Notes */}
+            <div
+              style={{
+                background: "#fff",
+                borderRadius: 16,
+                boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)",
+                border: "1px solid #e8edff",
+                padding: "16px 18px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 18,
+                    fontWeight: 700,
+                    color: "#1a2b4d",
+                  }}
+                >
+                  Notes
+                </h2>
 
-        .section-card {
-          background: #fff;
-          border-radius: 16px;
-          box-shadow: 0 8px 24px rgba(24, 49, 90, 0.08);
-          border: 1px solid #e8edff;
-          padding: 16px 18px;
-        }
-
-        .section-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 12px;
-        }
-
-        .section-header h2 {
-          margin: 0;
-          font-size: 18px;
-          font-weight: 700;
-          color: #1a2b4d;
-        }
-
-        .toolbar {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
-        .add-btn,
-        .save-btn,
-        .icon-btn {
-          border: none;
-          cursor: pointer;
-          font-weight: 600;
-        }
-
-        .add-btn,
-        .save-btn {
-          background: linear-gradient(120deg, #2f7bff, #53a3ff);
-          color: #fff;
-          padding: 8px 12px;
-          border-radius: 10px;
-          box-shadow: 0 6px 14px rgba(47, 123, 255, 0.3);
-          transition: transform 0.1s ease, box-shadow 0.1s ease;
-        }
-
-        .add-btn:hover,
-        .save-btn:hover {
-          transform: translateY(-1px);
-        }
-
-        .icon-btn {
-          background: none;
-          color: #1f3a6f;
-          padding: 6px;
-          border-radius: 8px;
-        }
-
-        .icon-btn.danger {
-          color: #c0392b;
-        }
-
-        .menu-wrapper {
-          position: relative;
-        }
-
-        .menu-btn {
-          background: #eef2ff;
-          border: 1px solid #d5def7;
-          color: #33415c;
-          border-radius: 10px;
-          padding: 6px 10px;
-          cursor: pointer;
-        }
-
-        .menu-dropdown {
-          position: absolute;
-          top: 40px;
-          right: 0;
-          background: #fff;
-          border: 1px solid #dce5ff;
-          border-radius: 14px;
-          box-shadow: 0 10px 26px rgba(18, 35, 87, 0.12);
-          display: flex;
-          flex-direction: column;
-          min-width: 180px;
-          z-index: 5;
-        }
-
-        .menu-item {
-          background: transparent;
-          border: none;
-          text-align: left;
-          padding: 12px 14px;
-          font-weight: 600;
-          color: #1d2d50;
-          cursor: pointer;
-        }
-
-        .menu-item:hover {
-          background: #f2f6ff;
-        }
-
-        .input-row {
-          display: flex;
-          gap: 10px;
-          margin-bottom: 12px;
-        }
-
-        textarea,
-        input[type="text"] {
-          flex: 1;
-          border: 1px solid #d8e4ff;
-          border-radius: 10px;
-          padding: 10px 12px;
-          background: #f8fbff;
-          font-size: 14px;
-          resize: vertical;
-        }
-
-        .note-card {
-          background: #e9f2ff;
-          border: 1px solid #d6e6ff;
-          border-radius: 12px;
-          padding: 12px;
-          margin-bottom: 10px;
-          display: flex;
-          justify-content: space-between;
-          gap: 10px;
-        }
-
-        .note-content {
-          color: #1b2b4d;
-          margin: 0;
-          line-height: 1.4;
-          overflow-wrap: anywhere;
-          word-break: break-word;
-          display: -webkit-box;
-          -webkit-line-clamp: 3;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
-        }
-
-        .note-actions {
-          display: flex;
-          gap: 8px;
-        }
-
-        .checklist-card {
-          border: 1px solid #dfe7ff;
-          border-radius: 12px;
-          padding: 12px;
-          margin-bottom: 12px;
-          background: #fff;
-        }
-
-        .checklist-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 10px;
-        }
-
-        .checklist-header h3 {
-          margin: 0;
-          font-size: 16px;
-          font-weight: 700;
-        }
-
-        .checklist-item {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          padding: 6px 0;
-          border-bottom: 1px solid #eef2ff;
-        }
-
-        .checklist-item:last-child {
-          border-bottom: none;
-        }
-
-        .checklist-item .done {
-          text-decoration: line-through;
-          color: #6b7c9c;
-        }
-
-        .add-item-btn {
-          background: none;
-          border: 1px dashed #9bb8ff;
-          color: #2f7bff;
-          padding: 8px 10px;
-          border-radius: 10px;
-          margin-top: 8px;
-          cursor: pointer;
-        }
-
-        .modal-overlay {
-          position: fixed;
-          inset: 0;
-          background: rgba(13, 24, 48, 0.35);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 20;
-          padding: 20px;
-        }
-
-        .modal-card {
-          background: #fff;
-          border-radius: 16px;
-          padding: 20px;
-          width: min(640px, 90vw);
-          box-shadow: 0 14px 34px rgba(20, 45, 105, 0.18);
-          display: flex;
-          flex-direction: column;
-          gap: 14px;
-        }
-
-        .modal-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-
-        .modal-header h3 {
-          margin: 0;
-          font-size: 18px;
-        }
-
-        .close-btn {
-          background: none;
-          border: 1px solid #d5def7;
-          border-radius: 50%;
-          width: 28px;
-          height: 28px;
-          cursor: pointer;
-          font-size: 16px;
-        }
-
-        .modal-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: 10px;
-          margin-top: 6px;
-        }
-
-        .ghost-btn {
-          background: transparent;
-          border: 1px solid #c8d6ff;
-          color: #1f3a6f;
-          padding: 8px 14px;
-          border-radius: 10px;
-          cursor: pointer;
-        }
-
-        .primary-btn {
-          background: #1f6bce;
-          color: #fff;
-          border: none;
-          padding: 10px 16px;
-          border-radius: 10px;
-          cursor: pointer;
-          font-weight: 700;
-        }
-
-        .danger-btn {
-          background: #d64545;
-          color: #fff;
-          border: none;
-          padding: 10px 16px;
-          border-radius: 10px;
-          cursor: pointer;
-          font-weight: 700;
-        }
-
-        .modal-list {
-          max-height: 360px;
-          overflow: auto;
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .modal-list-item {
-          border: 1px solid #e1e9ff;
-          border-radius: 12px;
-          padding: 12px;
-          background: #f7f9ff;
-          display: flex;
-          justify-content: space-between;
-          gap: 12px;
-        }
-
-        .checklist-item-row h4 {
-          margin: 0 0 6px 0;
-        }
-
-        .compact-list {
-          margin: 0;
-          padding-left: 18px;
-          color: #1c2c4f;
-        }
-
-        .compact-list .done {
-          text-decoration: line-through;
-          color: #6b7c9c;
-        }
-
-        .muted {
-          color: #7c8aa8;
-        }
-
-        .empty-copy {
-          color: #6d7fa3;
-          margin: 0;
-        }
-
-        .item-editor {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .item-row {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .item-input {
-          flex: 1;
-          border: 1px solid #d8e4ff;
-          border-radius: 8px;
-          padding: 8px 10px;
-          background: #f8fbff;
-        }
-
-        .add-item-inline {
-          background: none;
-          border: 1px dashed #9bb8ff;
-          color: #2f7bff;
-          padding: 8px 10px;
-          border-radius: 10px;
-          cursor: pointer;
-          align-self: flex-start;
-        }
-
-        .confirm-copy {
-          margin: 0 0 4px 0;
-          color: #1a2b4d;
-        }
-
-        /* Allow full text in modals (no clamp), clamp in cards */
-        .modal-card .note-content {
-          display: block;
-          -webkit-line-clamp: unset;
-          -webkit-box-orient: unset;
-          overflow: visible;
-          overflow-wrap: anywhere;
-          word-break: break-word;
-          line-height: 1.5;
-        }
-
-        @media (max-width: 1024px) {
-          .notes-checklist-container {
-            grid-template-columns: 1fr;
-          }
-          .map-card {
-            min-height: 320px;
-          }
-        }
-      `}</style>
-
-      <div className="notes-checklist-container">
-        <div className="map-card">{/* TODO: embed real map here */}</div>
-
-        <div className="panel-stack">
-          <section className="section-card">
-            <div className="section-header">
-              <h2>Notes</h2>
-              <div className="toolbar">
-                <div className="menu-wrapper">
-                  <button className="menu-btn" aria-label="Notes menu" onClick={() => toggleMenu("notes")}>
-                    ⋯
+                <div className="menu-wrapper" style={{ position: "relative" }}>
+                  <button
+                    onClick={() => toggleMenu("notes")}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 12,
+                      border: "1px solid #dbe5ff",
+                      background: "#eef2ff",
+                      cursor: "pointer",
+                      fontWeight: 800,
+                    }}
+                  >
+                    …
                   </button>
+
                   {openMenu === "notes" && (
-                    <div className="menu-dropdown">
-                      <button className="menu-item" onClick={() => openNoteForm()}>
-                        + Add New Note
+                    <div
+                      style={{
+                        position: "absolute",
+                        right: 0,
+                        top: 46,
+                        background: "white",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 12,
+                        boxShadow: "0 12px 28px rgba(15,23,42,0.12)",
+                        overflow: "hidden",
+                        minWidth: 170,
+                        zIndex: 50,
+                      }}
+                    >
+                      <button style={menuBtnStyle} onClick={() => openNoteForm()}>
+                        + Add Note
                       </button>
                       <button
-                        className="menu-item"
-                        onClick={() => {
-                          setActiveModal("notesList");
-                          setOpenMenu(null);
-                        }}
+                        style={menuBtnStyle}
+                        onClick={() => setActiveModal("notesList")}
                       >
-                        See All Notes
+                        View Notes
                       </button>
                     </div>
                   )}
@@ -622,241 +566,591 @@ export default function NotesAndChecklistPage() {
               </div>
             </div>
 
-            {notes.map((note) => (
-              <div key={note.id} className="note-card">
-                <p className="note-content">{note.content}</p>
-                <div className="note-actions">
-                  <button className="icon-btn" title="Edit" onClick={() => openNoteForm(note)}>
-                    ✏
-                  </button>
-                  <button className="icon-btn" title="Delete" onClick={() => requestDeleteNote(note.id)}>
-                    🗑
-                  </button>
-                </div>
-              </div>
-            ))}
-          </section>
+            {/* Checklists */}
+            <div
+              style={{
+                background: "#fff",
+                borderRadius: 16,
+                boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)",
+                border: "1px solid #e8edff",
+                padding: "16px 18px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <h2
+                  style={{
+                    margin: 0,
+                    fontSize: 18,
+                    fontWeight: 700,
+                    color: "#1a2b4d",
+                  }}
+                >
+                  Checklists
+                </h2>
 
-          <section className="section-card">
-            <div className="section-header">
-              <h2>Checklists</h2>
-              <div className="toolbar">
-                <div className="menu-wrapper">
-                  <button className="menu-btn" aria-label="Checklist menu" onClick={() => toggleMenu("checklists")}>
-                    ⋯
+                <div className="menu-wrapper" style={{ position: "relative" }}>
+                  <button
+                    onClick={() => toggleMenu("checklists")}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 12,
+                      border: "1px solid #dbe5ff",
+                      background: "#eef2ff",
+                      cursor: "pointer",
+                      fontWeight: 800,
+                    }}
+                  >
+                    …
                   </button>
+
                   {openMenu === "checklists" && (
-                    <div className="menu-dropdown">
-                      <button className="menu-item" onClick={() => openChecklistForm()}>
-                        + Add New Checklist
+                    <div
+                      style={{
+                        position: "absolute",
+                        right: 0,
+                        top: 46,
+                        background: "white",
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 12,
+                        boxShadow: "0 12px 28px rgba(15,23,42,0.12)",
+                        overflow: "hidden",
+                        minWidth: 190,
+                        zIndex: 50,
+                      }}
+                    >
+                      <button style={menuBtnStyle} onClick={() => openChecklistForm()}>
+                        + Add Checklist
                       </button>
                       <button
-                        className="menu-item"
-                        onClick={() => {
-                          setActiveModal("checklistList");
-                          setOpenMenu(null);
-                        }}
+                        style={menuBtnStyle}
+                        onClick={() => setActiveModal("checklistList")}
                       >
-                        See All Checklists
+                        View Checklists
                       </button>
                     </div>
                   )}
                 </div>
               </div>
-            </div>
-
-            {checklists.map((checklist) => (
-              <div key={checklist.id} className="checklist-card">
-                <div className="checklist-header">
-                  <h3>{checklist.name}</h3>
-                  <div>
-                    <button className="icon-btn" title="Edit" onClick={() => openChecklistForm(checklist)}>
-                      ✏
-                    </button>
-                    <button className="icon-btn" title="Delete" onClick={() => requestDeleteChecklist(checklist.id)}>
-                      🗑
-                    </button>
-                  </div>
-                </div>
-
-                <ul>
-                  {checklist.items.map((item) => (
-                    <li key={item.id} className="checklist-item">
-                      <input type="checkbox" checked={item.completed} onChange={() => toggleItem(checklist.id, item.id)} />
-                      <span className={item.completed ? "done" : ""}>{item.label}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </section>
-        </div>
-
-        {activeModal && (
-          <div className="modal-overlay" onClick={closeModal}>
-            <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-              {activeModal === "noteForm" && (
-                <>
-                  <div className="modal-header">
-                    <h3>{editingNote ? "Edit Note" : "Add Note"}</h3>
-                    <button className="close-btn" aria-label="Close" onClick={closeModal}>
-                      ×
-                    </button>
-                  </div>
-                  <textarea placeholder="Write your note..." value={newNote} onChange={(e) => setNewNote(e.target.value)} />
-                  <div className="modal-actions">
-                    <button className="ghost-btn" onClick={closeModal}>
-                      Cancel
-                    </button>
-                    <button
-                      className="primary-btn"
-                      onClick={() => {
-                        if (saveNote()) closeModal();
-                      }}
-                    >
-                      Save Changes
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {activeModal === "notesList" && (
-                <>
-                  <div className="modal-header">
-                    <h3>All Notes</h3>
-                    <button className="close-btn" aria-label="Close" onClick={closeModal}>
-                      ×
-                    </button>
-                  </div>
-                  <div className="modal-list">
-                    {notes.length === 0 && <p className="empty-copy">No notes yet.</p>}
-                    {notes.map((note) => (
-                      <div key={note.id} className="modal-list-item">
-                        <p className="note-content">{note.content}</p>
-                        <div className="note-actions">
-                          <button className="icon-btn" title="Edit" onClick={() => openNoteForm(note)}>
-                            ✏
-                          </button>
-                          <button className="icon-btn" title="Delete" onClick={() => requestDeleteNote(note.id)}>
-                            🗑
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {activeModal === "checklistForm" && (
-                <>
-                  <div className="modal-header">
-                    <h3>{editingChecklist ? "Edit Checklist" : "Add Checklist"}</h3>
-                    <button className="close-btn" aria-label="Close" onClick={closeModal}>
-                      ×
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    placeholder="Checklist name..."
-                    value={newChecklistName}
-                    onChange={(e) => setNewChecklistName(e.target.value)}
-                  />
-                  <div className="item-editor">
-                    {editingChecklistItems.map((item, idx) => (
-                      <div key={item.id} className="item-row">
-                        <input type="checkbox" checked={item.completed} onChange={() => toggleChecklistItemCompleted(item.id)} />
-                        <input
-                          className="item-input"
-                          type="text"
-                          placeholder={`Item ${idx + 1}`}
-                          value={item.label}
-                          onChange={(e) => updateChecklistItemLabel(item.id, e.target.value)}
-                        />
-                        <button className="icon-btn danger" title="Remove item" onClick={() => removeChecklistItemRow(item.id)}>
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                    <button className="add-item-inline" onClick={addChecklistItemRow}>
-                      + Add Item
-                    </button>
-                  </div>
-                  <div className="modal-actions">
-                    <button className="ghost-btn" onClick={closeModal}>
-                      Cancel
-                    </button>
-                    <button
-                      className="primary-btn"
-                      onClick={() => {
-                        if (saveChecklist()) closeModal();
-                      }}
-                    >
-                      Save Changes
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {activeModal === "checklistList" && (
-                <>
-                  <div className="modal-header">
-                    <h3>All Checklists</h3>
-                    <button className="close-btn" aria-label="Close" onClick={closeModal}>
-                      ×
-                    </button>
-                  </div>
-                  <div className="modal-list">
-                    {checklists.length === 0 && <p className="empty-copy">No checklists yet.</p>}
-                    {checklists.map((checklist) => (
-                      <div key={checklist.id} className="modal-list-item checklist-item-row">
-                        <div>
-                          <h4>{checklist.name}</h4>
-                          <ul className="compact-list">
-                            {checklist.items.length === 0 && <li className="muted">No items yet.</li>}
-                            {checklist.items.map((item) => (
-                              <li key={item.id} className={item.completed ? "done" : ""}>
-                                {item.label}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div className="note-actions">
-                          <button className="icon-btn" title="Edit" onClick={() => openChecklistForm(checklist)}>
-                            ✏
-                          </button>
-                          <button className="icon-btn" title="Delete" onClick={() => requestDeleteChecklist(checklist.id)}>
-                            🗑
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {activeModal === "deleteConfirm" && deleteTarget && (
-                <>
-                  <div className="modal-header">
-                    <h3>Confirm Delete</h3>
-                    <button className="close-btn" aria-label="Close" onClick={closeModal}>
-                      ×
-                    </button>
-                  </div>
-                  <p className="confirm-copy">Delete this {deleteTarget.type === "note" ? "note" : "checklist"}?</p>
-                  <div className="modal-actions">
-                    <button className="ghost-btn" onClick={closeModal}>
-                      Cancel
-                    </button>
-                    <button className="danger-btn" onClick={handleDeleteConfirm}>
-                      Delete
-                    </button>
-                  </div>
-                </>
-              )}
             </div>
           </div>
+
+          {/* RIGHT: Planbot + mini itinerary */}
+          <div
+            style={{
+              position: "sticky",
+              top: 90,
+              height: "calc(87vh - 90px)",
+              padding: "0.75rem 0.85rem",
+              background:
+                "linear-gradient(180deg,#f5f3ff 0%,#eef2ff 45%,#e0f2fe 100%)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              overflow: "hidden",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => navigate(`/trip/${tripIdNum}/chatbot`)}
+              style={{
+                alignSelf: "stretch",
+                borderRadius: "999px",
+                border: "none",
+                background:
+                  "linear-gradient(135deg,#fb923c 0%,#f97316 40%,#facc15 100%)",
+                color: "white",
+                padding: "0.5rem 0.9rem",
+                fontSize: "0.85rem",
+                fontWeight: 700,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: "0 8px 18px rgba(248,113,22,0.35)",
+                marginBottom: 4,
+              }}
+            >
+              ✨ Planbot
+            </button>
+
+            <div
+              style={{
+                fontSize: "0.85rem",
+                fontWeight: 600,
+                color: "#1f2933",
+                marginBottom: 4,
+              }}
+            >
+              Itinerary
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                overflowY: "auto",
+                flex: 1,
+              }}
+            >
+              {days.map((day) => {
+                const d = day.date ? new Date(day.date) : null;
+                const shortDow = d
+                  ? d.toLocaleDateString(undefined, { weekday: "short" })
+                  : "DAY";
+                const dayMonth = d
+                  ? d.toLocaleDateString(undefined, {
+                      day: "2-digit",
+                      month: "2-digit",
+                    })
+                  : `${day.day_index}`;
+
+                const stops = getStopsForDay(day.id);
+
+                return (
+                  <div
+                    key={day.id}
+                    style={{
+                      padding: "0.35rem 0.35rem",
+                      borderRadius: 10,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      cursor: "default",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 2,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 6,
+                          alignItems: "center",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: "0.82rem",
+                            fontWeight: 600,
+                            color: "#111827",
+                          }}
+                        >
+                          {shortDow}{" "}
+                          <span style={{ fontWeight: 500 }}>{dayMonth}</span>
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "0.72rem",
+                            fontWeight: 600,
+                            padding: "0.05rem 0.45rem",
+                            borderRadius: 999,
+                            backgroundColor: "rgba(148,163,184,0.18)",
+                            color: "#374151",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          Day {day.day_index}
+                        </span>
+                      </div>
+
+                      <span
+                        style={{
+                          marginTop: 2,
+                          fontSize: "0.7rem",
+                          color: "#9ca3af",
+                          fontWeight: 400,
+                        }}
+                      >
+                        {stops} stop{stops !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ============ Modals ============ */}
+        {activeModal === "noteForm" && (
+          <Modal
+            onClose={closeModal}
+            title={editingNote ? "Edit Note" : "Add Note"}
+          >
+            {/* ✅ Added itinerary item selector so notes connect to chosen itinerary */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6 }}>
+                Attach note to itinerary stop
+              </div>
+              <select
+                value={selectedItemId ?? ""}
+                onChange={(e) => setSelectedItemId(Number(e.target.value))}
+                style={inputStyle}
+              >
+                {items.length === 0 && (
+                  <option value="" disabled>
+                    No itinerary items yet
+                  </option>
+                )}
+                {items.map((it) => (
+                  <option key={it.id} value={it.id}>
+                    {it.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <textarea
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+              placeholder="Write your note…"
+              style={textAreaStyle}
+            />
+
+            <div style={modalFooterStyle}>
+              <button onClick={closeModal} style={secondaryBtnStyle}>
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const ok = await saveNote();
+                  if (ok) closeModal();
+                }}
+                style={primaryBtnStyle}
+              >
+                Save
+              </button>
+            </div>
+          </Modal>
+        )}
+
+        {activeModal === "notesList" && (
+          <Modal onClose={closeModal} title="Notes">
+            {notes.length === 0 ? (
+              <div style={{ color: "#6b7280" }}>No notes yet.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {notes.map((n) => (
+                  <div
+                    key={n.id}
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 12,
+                      padding: 12,
+                      background: "white",
+                    }}
+                  >
+                    <div style={{ color: "#111827", whiteSpace: "pre-wrap" }}>
+                      {n.content}
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                      <button style={secondaryBtnStyle} onClick={() => openNoteForm(n)}>
+                        Edit
+                      </button>
+                      <button style={dangerBtnStyle} onClick={() => requestDeleteNote(n.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Modal>
+        )}
+
+        {activeModal === "checklistForm" && (
+          <Modal
+            onClose={closeModal}
+            title={editingChecklist ? "Edit Checklist" : "Add Checklist"}
+          >
+            <input
+              value={newChecklistName}
+              onChange={(e) => setNewChecklistName(e.target.value)}
+              placeholder="Checklist name"
+              style={inputStyle}
+            />
+
+            <div style={{ marginTop: 12 }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <div style={{ fontWeight: 700, color: "#111827" }}>Items</div>
+                <button onClick={addChecklistItemRow} style={secondaryBtnStyle}>
+                  + Add Item
+                </button>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 10,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
+              >
+                {editingChecklistItems.length === 0 && (
+                  <div style={{ color: "#6b7280" }}>No items yet.</div>
+                )}
+
+                {editingChecklistItems.map((it) => (
+                  <div
+                    key={it.id}
+                    style={{ display: "flex", gap: 10, alignItems: "center" }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={it.is_completed}
+                      onChange={() => toggleChecklistItemCompleted(it.id)}
+                    />
+                    <input
+                      value={it.label}
+                      onChange={(e) => updateChecklistItemLabel(it.id, e.target.value)}
+                      placeholder="Item label"
+                      style={{ ...inputStyle, flex: 1 }}
+                    />
+                    <button onClick={() => removeChecklistItemRow(it.id)} style={dangerBtnStyle}>
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={modalFooterStyle}>
+              <button onClick={closeModal} style={secondaryBtnStyle}>
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const ok = await saveChecklist();
+                  if (ok) closeModal();
+                }}
+                style={primaryBtnStyle}
+              >
+                Save
+              </button>
+            </div>
+          </Modal>
+        )}
+
+        {activeModal === "checklistList" && (
+          <Modal onClose={closeModal} title="Checklists">
+            {checklists.length === 0 ? (
+              <div style={{ color: "#6b7280" }}>No checklists yet.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {checklists.map((c) => (
+                  <div
+                    key={c.id}
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 12,
+                      padding: 12,
+                      background: "white",
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, color: "#111827" }}>{c.name}</div>
+
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 8,
+                        marginTop: 10,
+                      }}
+                    >
+                      {c.items.map((i) => (
+                        <label
+                          key={i.id}
+                          style={{ display: "flex", gap: 10, alignItems: "center" }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={i.is_completed}
+                            onChange={() => toggleItem(c.id, i.id)}
+                          />
+                          <span style={{ color: "#111827" }}>{i.label}</span>
+                        </label>
+                      ))}
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                      <button style={secondaryBtnStyle} onClick={() => openChecklistForm(c)}>
+                        Edit
+                      </button>
+                      <button style={dangerBtnStyle} onClick={() => requestDeleteChecklist(c.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Modal>
+        )}
+
+        {activeModal === "deleteConfirm" && (
+          <Modal onClose={closeModal} title="Confirm Delete">
+            <div style={{ color: "#111827" }}>Are you sure you want to delete this?</div>
+            <div style={modalFooterStyle}>
+              <button onClick={closeModal} style={secondaryBtnStyle}>
+                Cancel
+              </button>
+              <button onClick={handleDeleteConfirm} style={dangerBtnStyle}>
+                Delete
+              </button>
+            </div>
+          </Modal>
         )}
       </div>
     </>
   );
 }
+
+/* =========================
+   Small reusable UI bits
+========================= */
+
+const menuBtnStyle: React.CSSProperties = {
+  width: "100%",
+  textAlign: "left",
+  padding: "10px 12px",
+  border: "none",
+  background: "white",
+  cursor: "pointer",
+  fontWeight: 600,
+};
+
+function Modal({
+  title,
+  children,
+  onClose,
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15,23,42,0.45)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 9999,
+      }}
+    >
+      <div
+        style={{
+          width: 560,
+          maxWidth: "92vw",
+          background: "white",
+          borderRadius: 16,
+          padding: 16,
+          boxShadow: "0 18px 45px rgba(0,0,0,0.25)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <div style={{ fontSize: 16, fontWeight: 800, color: "#111827" }}>
+            {title}
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              border: "none",
+              background: "transparent",
+              fontSize: 18,
+              cursor: "pointer",
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        <div style={{ marginTop: 14 }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  border: "1px solid #d1d5db",
+  borderRadius: 10,
+  padding: "10px 12px",
+  outline: "none",
+  fontSize: 14,
+};
+
+const textAreaStyle: React.CSSProperties = {
+  width: "100%",
+  minHeight: 140,
+  border: "1px solid #d1d5db",
+  borderRadius: 10,
+  padding: "10px 12px",
+  outline: "none",
+  fontSize: 14,
+  resize: "vertical",
+};
+
+const modalFooterStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: 10,
+  marginTop: 16,
+};
+
+const primaryBtnStyle: React.CSSProperties = {
+  border: "none",
+  borderRadius: 10,
+  padding: "10px 14px",
+  cursor: "pointer",
+  background: "linear-gradient(120deg, #2f7bff, #53a3ff)",
+  color: "white",
+  fontWeight: 800,
+};
+
+const secondaryBtnStyle: React.CSSProperties = {
+  border: "1px solid #d1d5db",
+  borderRadius: 10,
+  padding: "10px 14px",
+  cursor: "pointer",
+  background: "white",
+  color: "#111827",
+  fontWeight: 700,
+};
+
+const dangerBtnStyle: React.CSSProperties = {
+  border: "none",
+  borderRadius: 10,
+  padding: "10px 14px",
+  cursor: "pointer",
+  background: "#fee2e2",
+  color: "#b91c1c",
+  fontWeight: 800,
+};

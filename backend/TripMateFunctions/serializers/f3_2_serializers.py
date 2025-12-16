@@ -1,12 +1,10 @@
 from rest_framework import serializers
 from ..models import Checklist, ChecklistItem
 
-
 class F32ChecklistItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChecklistItem
         fields = ["id", "checklist", "label", "is_completed", "sort_order", "due_date"]
-
 
 class F32ChecklistSerializer(serializers.ModelSerializer):
     items = F32ChecklistItemSerializer(many=True, read_only=True)
@@ -24,3 +22,6 @@ class F32ChecklistSerializer(serializers.ModelSerializer):
             "updated_at",
             "items",
         ]
+        extra_kwargs = {
+            "owner": {"read_only": True},   # ✅ IMPORTANT
+        }
