@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import tripmateLogo from "../assets/tripmate_logo.png"; 
 
 const AiTripGeneratorStep1: React.FC = () => {
   const navigate = useNavigate();
@@ -23,7 +22,7 @@ const AiTripGeneratorStep1: React.FC = () => {
 
   // Navigation
   const goSolo = () => {
-    window.location.href = "/ai-trip-generator-step2";
+    window.location.href = "/ai-trip-generator-step-2";
   };
 
   const goGroup = () => {

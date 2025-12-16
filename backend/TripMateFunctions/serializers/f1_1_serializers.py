@@ -215,13 +215,26 @@ class TripOverviewSerializer(serializers.ModelSerializer):
         return " - ".join(cities)
 
     def get_duration_label(self, obj: Trip) -> str:
+        # For AI-generated trips: duration comes from TripDay count (slider),
+        # because start/end are just availability window.
+        if obj.travel_type in ("solo_ai", "group_ai"):
+            day_count = obj.days.count()  # TripDay related_name="days"
+            if day_count > 0:
+                nights = max(day_count - 1, 0)
+                return f"{day_count} days - {nights} nights"
+            return ""
+
+        # For manual trips: keep original behavior (date range is the actual trip)
         if not obj.start_date or not obj.end_date:
             return ""
+
         days = (obj.end_date - obj.start_date).days + 1
         if days <= 0:
             return ""
+
         nights = max(days - 1, 0)
         return f"{days} days - {nights} nights"
+
 
     def get_currency_code(self, obj: Trip) -> str | None:
         budget = getattr(obj, "budget", None)

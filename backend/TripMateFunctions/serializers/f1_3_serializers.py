@@ -44,3 +44,45 @@ class F13AIChatMessageSerializer(serializers.Serializer):
 
     # Optional trip context from the frontend (avoids backend DB lookups)
     trip_context = serializers.DictField(required=False)
+
+# ---- NEW (Solo AI Trip Generator request) ----
+class F13SoloTripGenerateRequestSerializer(serializers.Serializer):
+    start_date = serializers.DateField(required=False, allow_null=True)
+    end_date = serializers.DateField(required=False, allow_null=True)
+    duration_days = serializers.IntegerField(required=True, min_value=1)
+
+    activities = serializers.ListField(child=serializers.CharField(), allow_empty=True, required=False)
+    destination_types = serializers.ListField(child=serializers.CharField(), allow_empty=True, required=False)
+
+    budget_min = serializers.DecimalField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_digits=12,
+        decimal_places=2,
+    )
+    budget_max = serializers.DecimalField(required=False, allow_null=True, max_digits=12, decimal_places=2)
+
+    additional_info = serializers.CharField(required=False, allow_blank=True)
+    preferences_text = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        acts = attrs.get("activities") or []
+        dests = attrs.get("destination_types") or []
+        bmin = attrs.get("budget_min")
+        bmax = attrs.get("budget_max")
+        if len(acts) < 2:
+            raise serializers.ValidationError({"activities": "Select at least two options."})
+        if len(dests) < 2:
+            raise serializers.ValidationError({"destination_types": "Select at least two options."})
+        if bmin is not None and bmax is not None and bmin > bmax:
+            raise serializers.ValidationError({
+                "budget_min": "Minimum budget cannot exceed maximum budget."
+            })
+        
+        return attrs
+
+
+# ---- NEW (response) ----
+class F13SoloTripGenerateResponseSerializer(serializers.Serializer):
+    trip_id = serializers.UUIDField()
