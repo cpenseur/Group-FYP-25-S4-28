@@ -8,9 +8,14 @@ from rest_framework.response import Response
 from rest_framework import exceptions
 from rest_framework.permissions import IsAuthenticated
 from datetime import timedelta
+from django.utils import timezone
 from django.db import transaction
 from django.utils.dateparse import parse_date
 from django.shortcuts import get_object_or_404
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
+from django.core.mail import send_mail
+from django.conf import settings
 
 from ..models import AppUser, Trip, TripDay, ItineraryItem, TripCollaborator
 from ..serializers.f1_1_serializers import (
@@ -22,7 +27,6 @@ from ..serializers.f1_1_serializers import (
 )
 from .base_views import BaseViewSet
 
-
 class TripViewSet(BaseViewSet):
     queryset = Trip.objects.all().select_related("owner")
     serializer_class = TripSerializer
@@ -32,23 +36,28 @@ class TripViewSet(BaseViewSet):
             return [IsAuthenticated()]
         return super().get_permissions()
     
-    # def get_queryset(self):
-    #     qs = super().get_queryset()
-    #     user = getattr(self.request, "user", None)
-    #     if not isinstance(user, AppUser):
-    #         return Trip.objects.none()
+    def get_permissions(self):
+        if self.action in ["create", "list", "retrieve", "overview"]:
+            return [IsAuthenticated()]
+        return super().get_permissions()
 
-    #     # owner OR collaborator
-    #     return (
-    #         qs.filter(models.Q(owner=user) | models.Q(collaborators__user=user))
-    #         .distinct()
-    #         .select_related("owner")
-    #     )
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = getattr(self.request, "user", None)
+        if not isinstance(user, AppUser):
+            return Trip.objects.none()
+
+        return (
+            qs.filter(Q(owner=user) | Q(collaborators__user=user))
+            .distinct()
+            .select_related("owner")
+        )
     
-    # def get_serializer_class(self):
-    #     if self.action in ["list"]:
-    #         return TripOverviewSerializer
-    #     return TripSerializer
+    def get_serializer_class(self):
+        # Optional but recommended
+        if self.action == "list":
+            return TripOverviewSerializer
+        return TripSerializer
 
     def perform_create(self, serializer):
         user = getattr(self.request, "user", None)
@@ -63,8 +72,13 @@ class TripViewSet(BaseViewSet):
         TripCollaborator.objects.get_or_create(
             trip=trip,
             user=user,
-            defaults={"role": TripCollaborator.Role.OWNER},
+            defaults={
+                "role": TripCollaborator.Role.OWNER,
+                "status": TripCollaborator.Status.ACTIVE,
+                "accepted_at": timezone.now(),
+            },
         )
+
 
         # Auto-create TripDay rows so itinerary shows empty days immediately
         if trip.start_date and trip.end_date and trip.end_date >= trip.start_date:
@@ -87,32 +101,60 @@ class TripViewSet(BaseViewSet):
         role = (request.data.get("role") or TripCollaborator.Role.EDITOR)
 
         if not email:
-            return Response({"email": ["This field is required."]}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"email": ["This field is required."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # basic access control: only owner can invite (simple + safe)
         user = getattr(request, "user", None)
         if not isinstance(user, AppUser) or trip.owner_id != user.id:
-            return Response({"detail": "Only the trip owner can invite collaborators."}, status=status.HTTP_403_FORBIDDEN)
+            return Response(
+                {"detail": "Only the trip owner can invite collaborators."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
-        invitee = get_object_or_404(AppUser, email=email)
+        invitee = AppUser.objects.filter(email=email).first()
 
-        collab, created = TripCollaborator.objects.get_or_create(
-            trip=trip,
-            user=invitee,
-            defaults={"role": role},
+        if invitee:
+            collab, created = TripCollaborator.objects.get_or_create(
+                trip=trip,
+                user=invitee,
+                defaults={
+                    "role": role,
+                    "status": TripCollaborator.Status.INVITED,
+                },
+            )
+        else:
+            collab, created = TripCollaborator.objects.get_or_create(
+                trip=trip,
+                invited_email=email,
+                defaults={
+                    "role": role,
+                    "status": TripCollaborator.Status.INVITED,
+                },
+            )            
+        collab.ensure_token()
+        collab.save(update_fields=["invite_token"])
+        invite_url = f"http://localhost:5173/accept-invite?token={collab.invite_token}"
+        send_mail(
+            subject="You're invited to a Trip on TripMate ✈️",
+            message=(
+                f"You've been invited to join a trip.\n\n"
+                f"Click the link below to accept the invite:\n"
+                f"{invite_url}\n\n"
+                f"If you didn’t expect this, you can ignore this email."
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[email],
+            fail_silently=False,
         )
-
-        if not created:
-            # keep existing role; or update if you want:
-            # collab.role = role; collab.save(update_fields=["role"])
-            pass
 
         return Response(
             {
-                "id": invitee.id,
-                "email": invitee.email,
-                "full_name": invitee.full_name or "",
-                "role": collab.role,
+                "kind": "linked" if invitee else "invited",
+                "email": email,
+                "invite_token": collab.invite_token,  
             },
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
