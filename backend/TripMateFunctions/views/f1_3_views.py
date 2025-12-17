@@ -8,19 +8,35 @@ from django.conf import settings
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 
+import json
+import requests
+from datetime import datetime, timedelta
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+
 import os
 import requests
 
-from ..models import(
+from ..models import (
     Trip,
-    AppUser,
+    TripDay,
+    ItineraryItem,
+    TripCollaborator,
     TripBudget,
     GroupPreference,
-)  
+    AppUser,
+)
 from ..serializers.f1_3_serializers import (
     F13AITripPromptSerializer,
     F13GeneratedItinerarySerializer,
     F13AIChatMessageSerializer,
+    F13SoloTripGenerateRequestSerializer,
+    F13SoloTripGenerateResponseSerializer,
 )
 
 
@@ -278,3 +294,194 @@ class F13SaveTripPreferenceView(APIView):
             status=status.HTTP_200_OK,
         )
 
+
+
+class F13SoloAITripGenerateCreateView(APIView):
+    """
+    POST /api/f1/ai-solo-trip/
+    Generates itinerary via SEA-LION and creates Trip + Days + Items
+
+    IMPORTANT:
+    - duration comes ONLY from duration_days (slider)
+    - start_date/end_date are ONLY availability window
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = F13SoloTripGenerateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        user = request.user
+
+        # ---------- duration must come from slider ----------
+        duration = data["duration_days"]
+
+        # availability window (NOT used to compute duration)
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        # ---------- build SEA-LION prompt ----------
+        api_key = getattr(settings, "SEA_LION_API_KEY", None) or os.environ.get("SEA_LION_API_KEY")
+        if not api_key:
+            return Response(
+                {"detail": "SEA_LION_API_KEY not configured"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        system_prompt = (
+            "You are a travel planning AI. "
+            "Return ONLY valid JSON. No markdown. No commentary."
+        )
+
+        availability_line = ""
+        if start_date and end_date:
+            availability_line = f"User availability window (NOT trip duration): {start_date} to {end_date}"
+        elif start_date:
+            availability_line = f"User availability window (NOT trip duration): starting {start_date}"
+        elif end_date:
+            availability_line = f"User availability window (NOT trip duration): until {end_date}"
+
+        user_prompt = f"""
+Create a SOLO travel itinerary.
+
+{availability_line}
+
+Trip duration (must follow this exactly): {duration} days
+
+Activities: {", ".join(data["activities"])}
+Destination types: {", ".join(data["destination_types"])}
+Budget: {data.get("budget_min")} - {data.get("budget_max")}
+Additional info: {data.get("additional_info", "")}
+
+Return JSON in this format:
+{{
+  "title": "...",
+  "main_city": "...",
+  "main_country": "...",
+  "days": {duration},
+  "stops": [
+    {{
+      "day_index": 1,
+      "title": "...",
+      "description": "...",
+      "item_type": "activity|food|sightseeing",
+      "start_time": "09:00",
+      "end_time": "11:00",
+      "address": "optional",
+      "lat": optional,
+      "lon": optional
+    }}
+  ]
+}}
+""".strip()
+
+        # ---------- call SEA-LION ----------
+        try:
+            resp = requests.post(
+                "https://api.sea-lion.ai/v1/chat/completions",
+                headers={
+                    "accept": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "aisingapore/Llama-SEA-LION-v3-70B-IT",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    "temperature": 0.4,
+                },
+                timeout=60,
+            )
+        except requests.RequestException:
+            return Response(
+                {"detail": "Network error reaching AI service"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        if not resp.ok:
+            return Response(
+                {"detail": "AI service failed"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        ai_content = resp.json()["choices"][0]["message"]["content"]
+
+        try:
+            itinerary = json.loads(ai_content.strip())
+        except Exception:
+            return Response(
+                {"detail": "AI returned invalid JSON"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        # ---------- create DB objects ----------
+        with transaction.atomic():
+            # keep availability window stored on trip (fine)
+            trip = Trip.objects.create(
+                owner=user,
+                title=itinerary.get("title", "AI Trip"),
+                main_city=itinerary.get("main_city"),
+                main_country=itinerary.get("main_country"),
+                start_date=start_date,
+                end_date=end_date,
+                visibility=Trip.Visibility.PRIVATE,
+                travel_type="solo_ai",
+            )
+
+            TripCollaborator.objects.create(
+                trip=trip,
+                user=user,
+                role=TripCollaborator.Role.OWNER,
+                status=TripCollaborator.Status.ACTIVE,
+                accepted_at=timezone.now(),
+            )
+
+            # IMPORTANT: TripDay.date should NOT be derived from availability window
+            TripDay.objects.bulk_create(
+                [TripDay(trip=trip, day_index=i + 1, date=None) for i in range(duration)]
+            )
+
+            day_map = {d.day_index: d for d in TripDay.objects.filter(trip=trip)}
+
+            items = []
+            sort_order = 1
+            for stop in itinerary.get("stops", []):
+                day_index = int(stop.get("day_index", 1) or 1)
+                if day_index < 1:
+                    day_index = 1
+                if day_index > duration:
+                    day_index = duration
+
+                day = day_map.get(day_index)
+                items.append(
+                    ItineraryItem(
+                        trip=trip,
+                        day=day,
+                        title=stop.get("title") or "Untitled",
+                        item_type=stop.get("item_type"),
+                        notes_summary=stop.get("description"),
+                        address=stop.get("address"),
+                        lat=stop.get("lat"),
+                        lon=stop.get("lon"),
+                        sort_order=sort_order,  # keeps stable ordering
+                    )
+                )
+                sort_order += 1
+
+            if items:
+                ItineraryItem.objects.bulk_create(items)
+
+            if data.get("budget_max") is not None:
+                TripBudget.objects.create(
+                    trip=trip,
+                    currency="USD",
+                    planned_total=data["budget_max"],
+                )
+
+        return Response(
+            F13SoloTripGenerateResponseSerializer({"trip_id": trip.id}).data,
+            status=status.HTTP_201_CREATED,
+        )

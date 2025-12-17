@@ -22,7 +22,7 @@ const AiTripGeneratorStep1: React.FC = () => {
 
   // Navigation
   const goSolo = () => {
-    window.location.href = "/ai-trip-generator-step2";
+    window.location.href = "/ai-trip-generator-step-2";
   };
 
   const goGroup = () => {

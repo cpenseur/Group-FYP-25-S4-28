@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter
 
 from ..views.f1_1_views import TripViewSet, TripDayViewSet, ItineraryItemViewSet
 from ..views.f1_2_views import F12RouteOptimizationView
-from ..views.f1_3_views import F13AITripGeneratorView, F13AIChatbotView, F13SaveTripPreferenceView
+from ..views.f1_3_views import F13AITripGeneratorView, F13AIChatbotView, F13SaveTripPreferenceView, F13SoloAITripGenerateCreateView
 from ..views.f1_4_views import F14AdaptivePlanningView
 from ..views.f1_5_views import F15AIRecommendationsSidebarView
 from ..views.f1_6_views import F16DestinationFAQView
@@ -39,6 +39,11 @@ urlpatterns = [
         "trips/<int:trip_id>/preferences/",
         F13SaveTripPreferenceView.as_view(),
         name="f13-save-trip-preferences",
+    ), 
+    path(   
+        "ai-solo-trip/",
+        F13SoloAITripGenerateCreateView.as_view(),
+        name="f1-ai-solo-trip",
     ),
 
     # F1.4 - Adaptive AI Planning

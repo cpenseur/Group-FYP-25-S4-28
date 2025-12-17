@@ -12,6 +12,7 @@ import CreateTrip from "./pages/createTrip";
 import ItineraryEditor from "./pages/itineraryEditor";
 import PlanbotPage from "./pages/chatbot";
 import Trips from "./pages/trips";
+import AITripGeneratorWait from "./pages/aiTripGeneratorWait";
 
 // PohYee
 import ExportPDF from "./pages/exportPDF";
@@ -74,6 +75,8 @@ export default function App() {
         <Route path="/trip/:tripId/itinerary" element={<ItineraryEditor />} />
         <Route path="/trip/:tripId/chatbot" element={<PlanbotPage />} />
         <Route path="/trips" element={<Trips />} />
+        <Route path="/ai-trip-generator/wait" element={<AITripGeneratorWait />} />
+
 
         {/* PohYee */}
         <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
