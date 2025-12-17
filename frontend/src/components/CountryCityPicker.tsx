@@ -18,11 +18,21 @@ type Props = {
 };
 
 function toOptions(values: string[]): SelectOption[] {
-  return values
-    .filter(Boolean)
-    .map((v) => ({ label: v, value: v }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+  const seen = new Set<string>();
+  const out: SelectOption[] = [];
+
+  for (const v of values) {
+    const s = (v || "").trim();
+    if (!s) continue;
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ label: s, value: s });
+  }
+
+  return out.sort((a, b) => a.label.localeCompare(b.label));
 }
+
 
 export default function CountryCityPicker({
   country,

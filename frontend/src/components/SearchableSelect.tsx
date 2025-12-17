@@ -14,6 +14,35 @@ type Props = {
   width?: string | number;
 };
 
+function norm(s: string) {
+  return (s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// lower = better; 9999 = no match
+function scoreOption(label: string, q: string) {
+  const s = norm(label);
+  if (!q) return 0;
+
+  if (s.startsWith(q)) return 0;
+
+  // word boundary match: "new y" -> "New York"
+  const wb = new RegExp(`\\b${escapeRegExp(q)}`);
+  if (wb.test(s)) return 1;
+
+  const idx = s.indexOf(q);
+  if (idx >= 0) return 2 + Math.min(idx, 50);
+
+  return 9999;
+}
+
 export default function SearchableSelect({
   label,
   placeholder = "Select…",
@@ -24,34 +53,54 @@ export default function SearchableSelect({
   required,
   width = "100%",
 }: Props) {
+  const instanceId = useRef(`tm-select-${Math.random().toString(36).slice(2)}`).current;
+
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  // ✅ anchor ref (we use its bounding box for fixed-position dropdown)
   const anchorRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
-  // ✅ dropdown coords in viewport
-  const [menuRect, setMenuRect] = useState<{
-    left: number;
-    top: number;
-    width: number;
-  } | null>(null);
+  const [menuRect, setMenuRect] = useState<{ left: number; top: number; width: number } | null>(null);
+
+  // ✅ Global “only one open” coordinator
+  useEffect(() => {
+    const onOtherOpen = (e: Event) => {
+      const ev = e as CustomEvent<{ id: string }>;
+      if (ev.detail?.id && ev.detail.id !== instanceId) {
+        setOpen(false);
+        setQuery("");
+      }
+    };
+    window.addEventListener("tm-select-open", onOtherOpen as EventListener);
+    return () => window.removeEventListener("tm-select-open", onOtherOpen as EventListener);
+  }, [instanceId]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = norm(query);
     if (!q) return options;
-    return options.filter((o) => o.label.toLowerCase().includes(q));
+
+    // 1 letter: startsWith ONLY (your requirement)
+    if (q.length === 1) {
+      return options
+        .filter((o) => norm(o.label).startsWith(q))
+        .slice(0, 80);
+    }
+
+    // ranked search for >= 2 chars
+    const scored = options
+      .map((o) => ({ o, s: scoreOption(o.label, q) }))
+      .filter((x) => x.s < 9999)
+      .sort((a, b) => a.s - b.s || a.o.label.localeCompare(b.o.label));
+
+    return scored.map((x) => x.o).slice(0, 80);
   }, [options, query]);
 
-  useEffect(() => {
-    setHighlight(0);
-  }, [query, open]);
+  useEffect(() => setHighlight(0), [query, open]);
 
-  // ✅ compute dropdown position (fixed) whenever opened and on scroll/resize
   useEffect(() => {
     if (!open) return;
 
@@ -59,16 +108,10 @@ export default function SearchableSelect({
       const el = anchorRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      setMenuRect({
-        left: r.left,
-        top: r.bottom + 8, // gap
-        width: r.width,
-      });
+      setMenuRect({ left: r.left, top: r.bottom + 8, width: r.width });
     };
 
     compute();
-
-    // capture scroll from any parent containers + window resize
     window.addEventListener("resize", compute);
     window.addEventListener("scroll", compute, true);
 
@@ -82,12 +125,10 @@ export default function SearchableSelect({
     const onDocMouseDown = (e: MouseEvent) => {
       const target = e.target as Node;
       const root = rootRef.current;
-      if (!root) return;
+      const menu = menuRef.current;
 
-      // close only if click is outside BOTH input area and menu
-      const menu = document.getElementById("__tm_select_menu");
+      const clickedInsideRoot = !!(root && root.contains(target));
       const clickedInsideMenu = !!(menu && menu.contains(target));
-      const clickedInsideRoot = root.contains(target);
 
       if (!clickedInsideRoot && !clickedInsideMenu) {
         setOpen(false);
@@ -98,6 +139,12 @@ export default function SearchableSelect({
     document.addEventListener("mousedown", onDocMouseDown);
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, []);
+
+  const openMenu = () => {
+    if (disabled) return;
+    window.dispatchEvent(new CustomEvent("tm-select-open", { detail: { id: instanceId } }));
+    setOpen(true);
+  };
 
   const selectOption = (opt: SelectOption) => {
     onChange(opt);
@@ -119,7 +166,7 @@ export default function SearchableSelect({
     open && !disabled && menuRect
       ? createPortal(
           <div
-            id="__tm_select_menu"
+            ref={menuRef}
             style={{
               position: "fixed",
               left: menuRect.left,
@@ -133,13 +180,7 @@ export default function SearchableSelect({
               overflow: "hidden",
             }}
           >
-            <div
-              style={{
-                maxHeight: 260,
-                overflowY: "auto",
-                padding: 6,
-              }}
-            >
+            <div style={{ maxHeight: 260, overflowY: "auto", padding: 6 }}>
               {filtered.length === 0 ? (
                 <div style={{ padding: 10, color: "#6b7280", fontSize: "0.9rem" }}>
                   No results
@@ -153,7 +194,6 @@ export default function SearchableSelect({
                       key={opt.value}
                       onMouseEnter={() => setHighlight(idx)}
                       onMouseDown={(e) => {
-                        // prevent input blur before click registers
                         e.preventDefault();
                         selectOption(opt);
                       }}
@@ -168,12 +208,8 @@ export default function SearchableSelect({
                         alignItems: "center",
                       }}
                     >
-                      <span style={{ color: "#111827", fontSize: "0.95rem" }}>
-                        {opt.label}
-                      </span>
-                      {selected ? (
-                        <span style={{ color: "#4f46e5", fontWeight: 700 }}>✓</span>
-                      ) : null}
+                      <span style={{ color: "#111827", fontSize: "0.95rem" }}>{opt.label}</span>
+                      {selected ? <span style={{ color: "#4f46e5", fontWeight: 700 }}>✓</span> : null}
                     </div>
                   );
                 })
@@ -189,43 +225,34 @@ export default function SearchableSelect({
       ref={rootRef}
       style={{
         width,
-        minWidth: 0, // ✅ helps grid layouts avoid overflow
-        fontFamily:
-          'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        minWidth: 0,
+        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
     >
       {label && (
-        <label
-          style={{
-            display: "block",
-            fontSize: "0.85rem",
-            fontWeight: 600,
-            color: "#6b7280",
-            marginBottom: "0.5rem",
-          }}
-        >
+        <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, color: "#6b7280", marginBottom: "0.5rem" }}>
           {label} {required ? <span style={{ color: "#ef4444" }}>*</span> : null}
         </label>
       )}
 
-      {/* ✅ anchorRef wraps the input so we can position menu relative to it */}
       <div ref={anchorRef} style={{ position: "relative" }}>
         <input
           ref={inputRef}
           value={shownText}
           placeholder={placeholder}
           disabled={disabled}
-          onFocus={() => setOpen(true)}
+          autoComplete="off"
+          spellCheck={false}
+          onFocus={openMenu}
           onChange={(e) => {
-            setOpen(true);
+            openMenu();
             setQuery(e.target.value);
           }}
           onKeyDown={(e) => {
             if (!open) {
-              if (e.key === "ArrowDown") setOpen(true);
+              if (e.key === "ArrowDown") openMenu();
               return;
             }
-
             if (e.key === "ArrowDown") {
               e.preventDefault();
               setHighlight((h) => Math.min(h + 1, Math.max(filtered.length - 1, 0)));
@@ -254,7 +281,6 @@ export default function SearchableSelect({
           }}
         />
 
-        {/* right controls */}
         <div
           style={{
             position: "absolute",
@@ -291,6 +317,7 @@ export default function SearchableSelect({
             type="button"
             onClick={() => {
               if (disabled) return;
+              window.dispatchEvent(new CustomEvent("tm-select-open", { detail: { id: instanceId } }));
               setOpen((o) => !o);
               requestAnimationFrame(() => inputRef.current?.focus());
             }}
@@ -309,7 +336,6 @@ export default function SearchableSelect({
         </div>
       </div>
 
-      {/* ✅ dropdown rendered in portal so it never gets clipped */}
       {menu}
     </div>
   );
