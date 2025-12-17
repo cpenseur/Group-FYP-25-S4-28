@@ -3,7 +3,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from ..views.f1_1_views import TripViewSet, TripDayViewSet, ItineraryItemViewSet
-from ..views.f1_2_views import F12RouteOptimizationView
+from ..views.f1_2_views import F12RouteOptimizationView, F12FullTripRouteOptimizationView
 from ..views.f1_3_views import F13AITripGeneratorView, F13AIChatbotView, F13SoloAITripGenerateCreateView
 from ..views.f1_4_views import F14AdaptivePlanningView
 from ..views.f1_5_views import F15AIRecommendationsSidebarView
@@ -23,6 +23,13 @@ urlpatterns = [
         F12RouteOptimizationView.as_view(),
         name="f1-route-optimize",
     ),
+
+    path(
+        "route-optimize-full/",
+        F12FullTripRouteOptimizationView.as_view(),
+        name="f1-route-optimize-full",
+    ),
+
 
     # F1.3 - AI Trip Generator & Chatbot
     path(

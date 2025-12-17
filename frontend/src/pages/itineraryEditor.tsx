@@ -344,6 +344,21 @@ export default function ItineraryEditor() {
   const [isOptimising, setIsOptimising] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const [isOptimisingFull, setIsOptimisingFull] = useState(false);
+
+  /* -------------------- Apply updated items after optimisation -------------------- */
+  const applyUpdatedItems = (
+    updated: Array<{ id: number; day: number | null; sort_order: number }>
+  ) => {
+    const byId = new Map(updated.map((u) => [u.id, u]));
+    setItems((prev) =>
+      prev.map((it) => {
+        const u = byId.get(it.id);
+        return u ? { ...it, day: u.day, sort_order: u.sort_order } : it;
+      })
+    );
+  };
+
   /* DnD sensors */
 
   const mouseSensor = useSensor(MouseSensor, {
@@ -543,23 +558,10 @@ export default function ItineraryEditor() {
         body: JSON.stringify({ trip_id: numericTripId, profile: "driving-car" }),
       });
 
-      const order: number[] = data?.optimized_order || [];
       const legsData: LegInfo[] = data?.legs || [];
+      const updatedItems = data?.updated_items || [];
 
-      if (order.length > 0) {
-        setItems((prev) => {
-          const itemById = new Map(prev.map((i) => [i.id, i]));
-          const reordered: ItineraryItem[] = [];
-          order.forEach((id, idx) => {
-            const item = itemById.get(id);
-            if (item) {
-              reordered.push({ ...item, sort_order: idx + 1 });
-            }
-          });
-          return reordered;
-        });
-      }
-
+      if (updatedItems.length > 0) applyUpdatedItems(updatedItems);
       setLegs(legsData);
     } catch (err: any) {
       console.error("Failed to optimise route:", err);
@@ -572,6 +574,31 @@ export default function ItineraryEditor() {
   const handleOptimiseRouteClick = async () => {
     await optimiseRoute();
   };
+
+  const optimiseFullTripRoute = async () => {
+    if (!numericTripId) return;
+    setIsOptimisingFull(true);
+    setErrorMsg(null);
+
+    try {
+      const data = await apiFetch("/f1/route-optimize-full/", {
+        method: "POST",
+        body: JSON.stringify({ trip_id: numericTripId, profile: "driving-car" }),
+      });
+
+      const legsData: LegInfo[] = data?.legs || [];
+      const updatedItems = data?.updated_items || [];
+
+      if (updatedItems.length > 0) applyUpdatedItems(updatedItems);
+      setLegs(legsData);
+    } catch (err: any) {
+      console.error("Failed to optimise full trip route:", err);
+      setErrorMsg("Could not optimise the full trip right now.");
+    } finally {
+      setIsOptimisingFull(false);
+    }
+  };
+
 
   /* ------------- Open add stop modal ------------- */
 
@@ -1012,24 +1039,49 @@ export default function ItineraryEditor() {
                     Itinerary Planner
                   </div>
 
-                  <button
-                    onClick={handleOptimiseRouteClick}
-                    disabled={isOptimising || items.length < 2}
-                    style={{
-                      borderRadius: "999px",
-                      border: "none",
-                      backgroundColor: "#6366f1",
-                      color: "white",
-                      padding: "0.45rem 1.3rem",
-                      fontSize: "0.85rem",
-                      fontWeight: 600,
-                      cursor: isOptimising || items.length < 2 ? "not-allowed" : "pointer",
-                      opacity: items.length < 2 ? 0.6 : 1,
-                      boxShadow: "0 6px 15px rgba(99,102,241,0.35)",
-                    }}
-                  >
-                    {isOptimising ? "Optimising..." : "Optimise route"}
-                  </button>
+                  <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+                    <button
+                      onClick={handleOptimiseRouteClick}
+                      disabled={isOptimising || items.length < 2}
+                      style={{
+                        borderRadius: "999px",
+                        border: "none",
+                        backgroundColor: "#6366f1",
+                        color: "white",
+                        padding: "0.45rem 1.3rem",
+                        fontSize: "0.85rem",
+                        fontWeight: 600,
+                        cursor:
+                          isOptimising || items.length < 2 ? "not-allowed" : "pointer",
+                        opacity: items.length < 2 ? 0.6 : 1,
+                        boxShadow: "0 6px 15px rgba(99,102,241,0.35)",
+                      }}
+                      title="Reorders stops within each day for a more efficient daily route."
+                    >
+                      {isOptimising ? "Optimising..." : "Optimise daily routes"}
+                    </button>
+
+                    <button
+                      onClick={optimiseFullTripRoute}
+                      disabled={isOptimisingFull || items.length < 2}
+                      style={{
+                        borderRadius: "999px",
+                        border: "1px solid #c7d2fe",
+                        backgroundColor: "white",
+                        color: "#4f46e5",
+                        padding: "0.45rem 1.05rem",
+                        fontSize: "0.85rem",
+                        fontWeight: 700,
+                        cursor:
+                          isOptimisingFull || items.length < 2 ? "not-allowed" : "pointer",
+                        opacity: items.length < 2 ? 0.6 : 1,
+                        boxShadow: "0 6px 15px rgba(15,23,42,0.08)",
+                      }}
+                      title="Optimises the route across the entire trip and redistributes stops across days."
+                    >
+                      {isOptimisingFull ? "Optimising..." : "Optimise full trip"}
+                    </button>
+                  </div>
                 </div>
               </div>
               <div style={{ height: "0.75rem" }} />
@@ -1590,6 +1642,8 @@ export default function ItineraryEditor() {
 
             <div style={{ width: "94%", marginBottom: "1.3rem" }}>
               <PlaceSearchBar
+                biasCity={trip?.main_city ?? ""}
+                biasCountry={trip?.main_country ?? ""}  
                 onSelect={(f) =>
                   setModalPlace({
                     name: f.text || "Selected place",
