@@ -62,7 +62,6 @@ export default function App() {
         {/* Dev home (team testing menu) */}
         <Route path="/" element={<Home />} />
 
-<<<<<<< HEAD
         {/* PohYee */}
         <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
         <Route path="/export-pdf" element={<ExportPDF />} />
@@ -75,8 +74,6 @@ export default function App() {
         <Route path="/reset-password" element={<ResetPassword />} />
         
         
-=======
->>>>>>> origin/Vania
         {/* Vania */}
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/ai-trip-generator-step-1" element={<AiTripGeneratorStep1 />} />
@@ -84,30 +81,7 @@ export default function App() {
         <Route path="/create-trip" element={<CreateTrip />} />
         <Route path="/trip/:tripId/itinerary" element={<ItineraryEditor />} />
         <Route path="/trip/:tripId/chatbot" element={<PlanbotPage />} />
-<<<<<<< HEAD
-        
-
-
-        {/* Trip-based routes (with TripSubHeader inside each page) */}
-        <Route path="/trip/:tripId/itinerary" element={<ItineraryEditor />} />
-        <Route path="/trip/:tripId/notes" element={<NotesAndChecklistPage />} />
-        <Route path="/trip/:tripId/budget" element={<BudgetPage />} />
-        <Route path="/trip/:tripId/media" element={<MediaHighlights />} />
-        <Route path="/trip/:tripId/recommendations" element={<ItineraryRecommendation />} />
-=======
         <Route path="/trips" element={<Trips />} />
-
-        {/* PohYee */}
-        <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
-        <Route path="/export-pdf" element={<ExportPDF />} />
-        <Route path="/demo" element={<Demo onLoginClick={openLogin} onSignupClick={openSignup} />} />
-        <Route path="/travel-guides/:guideId" element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />} />
-        <Route path="/guest-faq" element={<GuestFAQPage />} />
-        <Route path="/admin-dashboard" element={<AdminDashboard />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />
-        <Route path="/reset-password" element={<ResetPassword />} />
->>>>>>> origin/Vania
 
         {/* KK */}
         <Route path="/discovery-local" element={<DiscoveryLocal />} />

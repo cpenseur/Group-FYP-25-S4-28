@@ -1,3 +1,4 @@
+from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
 from ..views.f3_1_views import (
@@ -31,7 +32,9 @@ router.register(r"notes", F33ItineraryItemNoteViewSet, basename="f3-note")
 router.register(r"tags", F33ItineraryItemTagViewSet, basename="f3-tag")
 router.register(r"documents", F33TravelDocumentViewSet, basename="f3-document")
 
-urlpatterns = router.urls
+urlpatterns = [
+    path("", include(router.urls)),
+]
 
 # backend/.../urls_f3.py
 

@@ -1,11 +1,32 @@
+from django.db.models import Q
 from rest_framework import exceptions
 from .base_views import BaseViewSet
-from ..models import ItineraryItemNote, ItineraryItemTag, TravelDocument, AppUser
+from ..models import (
+    ItineraryItemNote,
+    ItineraryItemTag,
+    TravelDocument,
+    AppUser,
+    Trip,
+    TripCollaborator,
+    ItineraryItem,
+)
 from ..serializers.f3_3_serializers import (
     F33ItineraryItemNoteSerializer,
     F33ItineraryItemTagSerializer,
     F33TravelDocumentSerializer,
 )
+
+
+def _user_can_access_trip(user: AppUser, trip: Trip) -> bool:
+    if not isinstance(user, AppUser):
+        return False
+    if trip.owner_id == user.id:
+        return True
+    return TripCollaborator.objects.filter(
+        trip=trip,
+        user=user,
+        status=TripCollaborator.Status.ACTIVE,
+    ).exists()
 
 
 class F33ItineraryItemNoteViewSet(BaseViewSet):
@@ -19,19 +40,49 @@ class F33ItineraryItemNoteViewSet(BaseViewSet):
     serializer_class = F33ItineraryItemNoteSerializer
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().select_related("item", "item__trip")
 
         trip_id = self.request.query_params.get("trip")
         item_id = self.request.query_params.get("item")
 
+        user = getattr(self.request, "user", None)
+        if not isinstance(user, AppUser):
+            # if your app expects login for this page, block it
+            raise exceptions.NotAuthenticated("Login required.")
+
+        # If item is provided, validate trip access using that item
         if item_id:
+            try:
+                item = ItineraryItem.objects.select_related("trip").get(id=item_id)
+            except ItineraryItem.DoesNotExist:
+                raise exceptions.ValidationError({"item": "Itinerary item not found"})
+
+            if not _user_can_access_trip(user, item.trip):
+                raise exceptions.PermissionDenied("No access to this trip.")
+
             qs = qs.filter(item_id=item_id)
+
+        # If trip is provided, validate trip access
         elif trip_id:
+            try:
+                trip = Trip.objects.get(id=trip_id)
+            except Trip.DoesNotExist:
+                raise exceptions.ValidationError({"trip": "Trip not found"})
+
+            if not _user_can_access_trip(user, trip):
+                raise exceptions.PermissionDenied("No access to this trip.")
+
             qs = qs.filter(item__trip_id=trip_id)
 
-        user = getattr(self.request, "user", None)
-        if isinstance(user, AppUser):
-            qs = qs.filter(user=user)
+        # If neither trip nor item is provided, only return notes for trips the user can access
+        else:
+            qs = qs.filter(
+                Q(item__trip__owner_id=user.id)
+                | Q(
+                    item__trip__collaborators__user_id=user.id,
+                    item__trip__collaborators__status=TripCollaborator.Status.ACTIVE,
+                )
+            ).distinct()
 
         return qs.order_by("-updated_at", "-created_at")
 
@@ -39,8 +90,16 @@ class F33ItineraryItemNoteViewSet(BaseViewSet):
         user = getattr(self.request, "user", None)
         if not isinstance(user, AppUser):
             raise exceptions.NotAuthenticated("Login required to create note.")
-        serializer.save(user=user)
 
+        item = serializer.validated_data.get("item")
+        if not item:
+            raise exceptions.ValidationError({"item": "Item is required."})
+
+        trip = getattr(item, "trip", None)
+        if not trip or not _user_can_access_trip(user, trip):
+            raise exceptions.PermissionDenied("No access to this trip.")
+
+        serializer.save(user=user)
 
 class F33ItineraryItemTagViewSet(BaseViewSet):
     """

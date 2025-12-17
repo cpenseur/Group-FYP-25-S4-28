@@ -1,63 +1,103 @@
+from django.db.models import Q
+from rest_framework import viewsets
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from rest_framework import exceptions
-from .base_views import BaseViewSet
-from ..models import Checklist, ChecklistItem, AppUser
-from ..serializers.f3_2_serializers import (
-    F32ChecklistSerializer,
-    F32ChecklistItemSerializer,
-)
+from ..models import Checklist, ChecklistItem, Trip, TripCollaborator
+from ..serializers.f3_2_serializers import F32ChecklistSerializer, F32ChecklistItemSerializer
 
 
-class F32ChecklistViewSet(BaseViewSet):
-    """
-    Endpoints:
-      GET  /api/f3/checklists/?trip=<tripId>
-      POST /api/f3/checklists/   (expects { trip, name, ... })
-    """
-    queryset = Checklist.objects.all()
+def _user_can_access_trip(user, trip: Trip) -> bool:
+    if not user:
+        return False
+    if trip.owner_id == user.id:
+        return True
+    return TripCollaborator.objects.filter(
+        trip=trip,
+        user=user,
+        status=TripCollaborator.Status.ACTIVE,
+    ).exists()
+
+
+class F32ChecklistViewSet(viewsets.ModelViewSet):
     serializer_class = F32ChecklistSerializer
+    queryset = Checklist.objects.all()
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        user = self.request.user
         trip_id = self.request.query_params.get("trip")
 
-        # filter by trip if provided
+        qs = Checklist.objects.all()
+
+        # if trip filter is provided, enforce trip access
         if trip_id:
+            try:
+                trip = Trip.objects.get(id=trip_id)
+            except Trip.DoesNotExist:
+                raise ValidationError({"trip": "Trip not found"})
+
+            if not _user_can_access_trip(user, trip):
+                raise PermissionDenied("You do not have access to this trip.")
+
             qs = qs.filter(trip_id=trip_id)
 
-        # filter by logged-in user if available
-        user = getattr(self.request, "user", None)
-        if isinstance(user, AppUser):
-            qs = qs.filter(owner=user)
+        # Only show user’s own checklists OR checklists for trips user can access
+        qs = qs.filter(
+            Q(owner_id=user.id) |
+            Q(trip__owner_id=user.id) |
+            Q(trip__collaborators__user_id=user.id, trip__collaborators__status=TripCollaborator.Status.ACTIVE)
+        ).distinct()
 
-        return qs.order_by("-updated_at", "-created_at")
+        return qs.order_by("-updated_at")
 
     def perform_create(self, serializer):
-        user = getattr(self.request, "user", None)
-        if not isinstance(user, AppUser):
-            raise exceptions.NotAuthenticated("Login required to create checklist.")
+        user = self.request.user
+        trip_id = self.request.data.get("trip")
+
+        if not trip_id:
+            raise ValidationError({"trip": "Trip is required."})
+
+        try:
+            trip = Trip.objects.get(id=trip_id)
+        except Trip.DoesNotExist:
+            raise ValidationError({"trip": "Trip not found"})
+
+        if not _user_can_access_trip(user, trip):
+            raise PermissionDenied("You do not have access to this trip.")
+
         serializer.save(owner=user)
 
 
-class F32ChecklistItemViewSet(BaseViewSet):
-    """
-    Endpoints:
-      GET  /api/f3/checklist-items/?checklist=<checklistId>
-      POST /api/f3/checklist-items/ (expects { checklist, label, ... })
-    """
-    queryset = ChecklistItem.objects.all()
+class F32ChecklistItemViewSet(viewsets.ModelViewSet):
     serializer_class = F32ChecklistItemSerializer
+    queryset = ChecklistItem.objects.all()
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        user = self.request.user
         checklist_id = self.request.query_params.get("checklist")
+
+        qs = ChecklistItem.objects.select_related("checklist", "checklist__trip")
 
         if checklist_id:
             qs = qs.filter(checklist_id=checklist_id)
 
-        # Optional: only allow items for user's checklists
-        user = getattr(self.request, "user", None)
-        if isinstance(user, AppUser):
-            qs = qs.filter(checklist__owner=user)
+        # only items of checklists the user can access
+        qs = qs.filter(
+            Q(checklist__owner_id=user.id) |
+            Q(checklist__trip__owner_id=user.id) |
+            Q(checklist__trip__collaborators__user_id=user.id, checklist__trip__collaborators__status=TripCollaborator.Status.ACTIVE)
+        ).distinct()
 
         return qs.order_by("sort_order", "id")
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        checklist = serializer.validated_data.get("checklist")
+
+        if not checklist:
+            raise ValidationError({"checklist": "Checklist is required."})
+
+        trip = checklist.trip
+        if trip and not _user_can_access_trip(user, trip) and checklist.owner_id != user.id:
+            raise PermissionDenied("You do not have access to this checklist/trip.")
+
+        serializer.save()
