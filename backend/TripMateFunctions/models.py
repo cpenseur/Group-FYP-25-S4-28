@@ -12,9 +12,10 @@ import uuid
 class AppUser(models.Model):
     id = models.UUIDField(
         primary_key=True,
+        default=uuid.uuid4,
         editable=False
     )    
-
+    
     class Role(models.TextChoices):
         NORMAL = "normal", "Normal"
         ADMIN = "admin", "Admin"
@@ -380,7 +381,13 @@ class ItineraryItemNote(models.Model):
         on_delete=models.CASCADE,
         related_name="notes",
     )
-
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="itinerary_notes",
+    )
     content = models.TextField()
 
     created_at = models.DateTimeField(default=django_timezone.now)
@@ -520,6 +527,11 @@ class Checklist(models.Model):
         BOOKINGS = "bookings", "Bookings"
         CUSTOM = "custom", "Custom"
 
+    owner = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="checklists",
+    )
     trip = models.ForeignKey(
         Trip,
         on_delete=models.SET_NULL,
