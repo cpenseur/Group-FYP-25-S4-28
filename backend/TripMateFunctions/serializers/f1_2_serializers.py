@@ -27,6 +27,12 @@ class F12RouteLegSerializer(serializers.Serializer):
     duration_min = serializers.FloatField()
 
 
+class F12ItemOrderUpdateSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    day = serializers.IntegerField(allow_null=True)
+    sort_order = serializers.IntegerField()
+
+
 class F12RouteOptimizationResponseSerializer(serializers.Serializer):
     """
     Response payload summarising optimised route in terms of itinerary items.
@@ -38,3 +44,4 @@ class F12RouteOptimizationResponseSerializer(serializers.Serializer):
     legs = F12RouteLegSerializer(many=True)
     total_distance_km = serializers.FloatField()
     total_duration_min = serializers.FloatField()
+    updated_items = F12ItemOrderUpdateSerializer(many=True, required=False)
