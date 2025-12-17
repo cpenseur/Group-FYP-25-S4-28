@@ -16,9 +16,28 @@ from ..serializers.f3_3_serializers import (
     F33TravelDocumentSerializer,
 )
 
+def get_app_user(request) -> AppUser:
+    u = getattr(request, "user", None)
+    if not u or not getattr(u, "is_authenticated", False):
+        raise exceptions.NotAuthenticated("Login required.")
+
+    # Case 1: auth already returns AppUser
+    if isinstance(u, AppUser):
+        return u
+
+    # Case 2: auth returns Django User or something else with email/id
+    email = getattr(u, "email", None)
+    if email:
+        try:
+            return AppUser.objects.get(email=email)
+        except AppUser.DoesNotExist:
+            raise exceptions.NotAuthenticated("No matching AppUser for this login.")
+
+    # If you want to support mapping by id, add it here (only if ids match)
+    raise exceptions.NotAuthenticated("Cannot resolve AppUser from request.user.")
 
 def _user_can_access_trip(user: AppUser, trip: Trip) -> bool:
-    if not isinstance(user, AppUser):
+    if not user:
         return False
     if trip.owner_id == user.id:
         return True
@@ -27,6 +46,7 @@ def _user_can_access_trip(user: AppUser, trip: Trip) -> bool:
         user=user,
         status=TripCollaborator.Status.ACTIVE,
     ).exists()
+
 
 
 class F33ItineraryItemNoteViewSet(BaseViewSet):
@@ -45,7 +65,7 @@ class F33ItineraryItemNoteViewSet(BaseViewSet):
         trip_id = self.request.query_params.get("trip")
         item_id = self.request.query_params.get("item")
 
-        user = getattr(self.request, "user", None)
+        user = get_app_user(self.request)
         if not isinstance(user, AppUser):
             # if your app expects login for this page, block it
             raise exceptions.NotAuthenticated("Login required.")
@@ -87,7 +107,7 @@ class F33ItineraryItemNoteViewSet(BaseViewSet):
         return qs.order_by("-updated_at", "-created_at")
 
     def perform_create(self, serializer):
-        user = getattr(self.request, "user", None)
+        user = get_app_user(self.request)
         if not isinstance(user, AppUser):
             raise exceptions.NotAuthenticated("Login required to create note.")
 
@@ -142,14 +162,14 @@ class F33TravelDocumentViewSet(BaseViewSet):
         if trip_id:
             qs = qs.filter(trip_id=trip_id)
 
-        user = getattr(self.request, "user", None)
+        user = get_app_user(self.request)
         if isinstance(user, AppUser):
             qs = qs.filter(user=user)
 
         return qs.order_by("-uploaded_at")
 
     def perform_create(self, serializer):
-        user = getattr(self.request, "user", None)
+        user = get_app_user(self.request)
         if not isinstance(user, AppUser):
             raise exceptions.NotAuthenticated("Login required to upload document.")
         serializer.save(user=user)

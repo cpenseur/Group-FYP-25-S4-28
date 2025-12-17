@@ -1,10 +1,28 @@
 from django.db.models import Q
-from rest_framework import viewsets
+from rest_framework import viewsets, exceptions
 from rest_framework.exceptions import PermissionDenied, ValidationError
-
-from ..models import Checklist, ChecklistItem, Trip, TripCollaborator
+from ..models import Checklist, ChecklistItem, Trip, TripCollaborator, AppUser
 from ..serializers.f3_2_serializers import F32ChecklistSerializer, F32ChecklistItemSerializer
 
+def get_app_user(request) -> AppUser:
+    u = getattr(request, "user", None)
+    if not u or not getattr(u, "is_authenticated", False):
+        raise exceptions.NotAuthenticated("Login required.")
+
+    # Case 1: auth already returns AppUser
+    if isinstance(u, AppUser):
+        return u
+
+    # Case 2: auth returns Django User or something else with email/id
+    email = getattr(u, "email", None)
+    if email:
+        try:
+            return AppUser.objects.get(email=email)
+        except AppUser.DoesNotExist:
+            raise exceptions.NotAuthenticated("No matching AppUser for this login.")
+
+    # If you want to support mapping by id, add it here (only if ids match)
+    raise exceptions.NotAuthenticated("Cannot resolve AppUser from request.user.")
 
 def _user_can_access_trip(user, trip: Trip) -> bool:
     if not user:
@@ -23,7 +41,7 @@ class F32ChecklistViewSet(viewsets.ModelViewSet):
     queryset = Checklist.objects.all()
 
     def get_queryset(self):
-        user = self.request.user
+        user = get_app_user(self.request)
         trip_id = self.request.query_params.get("trip")
 
         qs = Checklist.objects.all()
@@ -50,7 +68,7 @@ class F32ChecklistViewSet(viewsets.ModelViewSet):
         return qs.order_by("-updated_at")
 
     def perform_create(self, serializer):
-        user = self.request.user
+        user = get_app_user(self.request)
         trip_id = self.request.data.get("trip")
 
         if not trip_id:
@@ -72,7 +90,7 @@ class F32ChecklistItemViewSet(viewsets.ModelViewSet):
     queryset = ChecklistItem.objects.all()
 
     def get_queryset(self):
-        user = self.request.user
+        user = get_app_user(self.request)
         checklist_id = self.request.query_params.get("checklist")
 
         qs = ChecklistItem.objects.select_related("checklist", "checklist__trip")
@@ -90,7 +108,7 @@ class F32ChecklistItemViewSet(viewsets.ModelViewSet):
         return qs.order_by("sort_order", "id")
 
     def perform_create(self, serializer):
-        user = self.request.user
+        user = get_app_user(self.request)
         checklist = serializer.validated_data.get("checklist")
 
         if not checklist:
