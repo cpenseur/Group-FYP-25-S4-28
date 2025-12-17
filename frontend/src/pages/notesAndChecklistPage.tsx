@@ -47,7 +47,7 @@ type TripResponse = {
 
 interface Note {
   id: number;
-  item: number;          // ✅ backend field
+  item: number; // backend field
   content: string;
   created_at?: string;
   updated_at?: string;
@@ -55,9 +55,9 @@ interface Note {
 
 interface ChecklistItem {
   id: number;
-  checklist?: number;    // ✅ backend field (foreign key)
+  checklist?: number;
   label: string;
-  is_completed: boolean; // ✅ backend field (NOT "completed")
+  is_completed: boolean;
   sort_order?: number;
   due_date?: string | null;
 }
@@ -116,6 +116,22 @@ export default function NotesAndChecklistPage() {
     id: number;
   } | null>(null);
 
+  // UI: previews
+  const NOTES_PREVIEW_COUNT = 3;
+  const CHECKLISTS_PREVIEW_COUNT = 3;
+  const CHECKLIST_ITEMS_PREVIEW_COUNT = 3;
+
+  const notesPreview = useMemo(
+    () => (Array.isArray(notes) ? notes.slice(0, NOTES_PREVIEW_COUNT) : []),
+    [notes]
+  );
+
+  const checklistsPreview = useMemo(
+    () =>
+      Array.isArray(checklists) ? checklists.slice(0, CHECKLISTS_PREVIEW_COUNT) : [],
+    [checklists]
+  );
+
   /* =========================
      Load user (supabase)
   ========================= */
@@ -136,7 +152,6 @@ export default function NotesAndChecklistPage() {
       try {
         setLoadingTrip(true);
 
-        // ✅ Same trip endpoint used by itinerary editor
         const data: TripResponse = await apiFetch(`/f1/trips/${tripIdNum}/`);
 
         const safeDays = Array.isArray(data?.days) ? data.days : [];
@@ -146,14 +161,11 @@ export default function NotesAndChecklistPage() {
         setDays(safeDays);
         setItems(safeItems);
 
-        // default selected item
         if (safeItems.length > 0) setSelectedItemId(safeItems[0].id);
 
-        // Build day_id -> day_index mapping
         const dayIndexMap = new Map<number, number>();
         safeDays.forEach((d) => dayIndexMap.set(d.id, d.day_index));
 
-        // Convert itinerary items to MapItineraryItem
         const mapped: MapItineraryItem[] = safeItems
           .filter((it) => it.lat != null && it.lon != null)
           .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
@@ -234,11 +246,9 @@ export default function NotesAndChecklistPage() {
      REAL DB actions (F3)
   ========================= */
 
-  // NOTES: create/update
   const saveNote = async () => {
     if (!newNote.trim()) return false;
 
-    // Must have an itinerary item selected for backend
     const itemId = selectedItemId ?? (items.length ? items[0].id : null);
     if (!itemId) {
       alert("No itinerary item found for this trip. Add itinerary first.");
@@ -269,7 +279,6 @@ export default function NotesAndChecklistPage() {
     }
   };
 
-  // NOTES: delete
   const deleteNote = async (id: number) => {
     try {
       await apiFetch(`/f3/notes/${id}/`, { method: "DELETE" });
@@ -280,12 +289,10 @@ export default function NotesAndChecklistPage() {
     }
   };
 
-  // CHECKLIST: create/update checklist + replace its items (simple reliable approach)
   const saveChecklist = async () => {
     if (!newChecklistName.trim()) return false;
 
     try {
-      // 1) create/update checklist
       let checklist: any;
       if (editingChecklist) {
         checklist = await apiFetch(`/f3/checklists/${editingChecklist.id}/`, {
@@ -299,7 +306,6 @@ export default function NotesAndChecklistPage() {
         });
       }
 
-      // 2) If editing, delete old checklist items first (so we can recreate)
       if (editingChecklist) {
         const oldItems = await apiFetch(`/f3/checklist-items/?checklist=${checklist.id}`);
         if (Array.isArray(oldItems)) {
@@ -311,7 +317,6 @@ export default function NotesAndChecklistPage() {
         }
       }
 
-      // 3) Create new items
       const cleanItems = editingChecklistItems
         .map((it, idx) => ({
           checklist: checklist.id,
@@ -330,7 +335,6 @@ export default function NotesAndChecklistPage() {
         )
       );
 
-      // 4) Refresh list
       await refreshChecklists();
 
       setNewChecklistName("");
@@ -344,7 +348,6 @@ export default function NotesAndChecklistPage() {
     }
   };
 
-  // CHECKLIST: delete
   const deleteChecklist = async (id: number) => {
     try {
       await apiFetch(`/f3/checklists/${id}/`, { method: "DELETE" });
@@ -355,7 +358,6 @@ export default function NotesAndChecklistPage() {
     }
   };
 
-  // CHECKLIST ITEM: toggle completion in DB
   const toggleItem = async (checklistId: number, itemId: number) => {
     const checklist = checklists.find((c) => c.id === checklistId);
     const item = checklist?.items.find((i) => i.id === itemId);
@@ -380,7 +382,6 @@ export default function NotesAndChecklistPage() {
     setEditingNote(note || null);
     setNewNote(note?.content || "");
 
-    // if editing a note, select its item
     if (note?.item) setSelectedItemId(note.item);
 
     setActiveModal("noteForm");
@@ -424,7 +425,6 @@ export default function NotesAndChecklistPage() {
 
   /* =========================
      Checklist form local rows
-     (these are local until "Save")
   ========================= */
   const addChecklistItemRow = () => {
     setEditingChecklistItems((prev) => [
@@ -454,16 +454,117 @@ export default function NotesAndChecklistPage() {
   /* =========================
      Sidebar: quick day summary
   ========================= */
-  const getStopsForDay = (dayId: number) => {
-    return items.filter((it) => it.day === dayId).length;
+  const getStopsForDay = (dayId: number) => items.filter((it) => it.day === dayId).length;
+
+  /* =========================
+     Small preview cards
+  ========================= */
+  const noteCard = (n: Note) => {
+    const itemTitle = items.find((it) => it.id === n.item)?.title ?? "Itinerary stop";
+
+    return (
+      <div
+        key={n.id}
+        style={{
+          border: "1px solid #e5e7eb",
+          borderRadius: 12,
+          padding: 12,
+          background: "white",
+          boxSizing: "border-box",
+        }}
+      >
+        <div style={{ fontSize: 12, color: "#64748b", fontWeight: 700, marginBottom: 6 }}>
+          {itemTitle}
+        </div>
+
+        <div style={{ color: "#111827", whiteSpace: "pre-wrap", fontSize: 14 }}>
+          {n.content.length > 160 ? n.content.slice(0, 160) + "…" : n.content}
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <button style={secondaryBtnStyle} onClick={() => openNoteForm(n)}>
+            Edit
+          </button>
+          <button style={dangerBtnStyle} onClick={() => requestDeleteNote(n.id)}>
+            Delete
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const checklistCard = (c: Checklist) => {
+    const previewItems = (c.items || []).slice(0, CHECKLIST_ITEMS_PREVIEW_COUNT);
+
+    return (
+      <div
+        key={c.id}
+        style={{
+          border: "1px solid #e5e7eb",
+          borderRadius: 12,
+          padding: 12,
+          background: "white",
+          boxSizing: "border-box",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ fontWeight: 800, color: "#111827", fontSize: 14 }}>{c.name}</div>
+          <button style={secondaryBtnSmallStyle} onClick={() => openChecklistForm(c)}>
+            Edit
+          </button>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+          {previewItems.length === 0 ? (
+            <div style={{ color: "#6b7280", fontSize: 13 }}>No items yet.</div>
+          ) : (
+            previewItems.map((i) => (
+              <label
+                key={i.id}
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  alignItems: "center",
+                  fontSize: 13,
+                  color: "#111827",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={i.is_completed}
+                  onChange={() => toggleItem(c.id, i.id)}
+                />
+                <span style={{ textDecoration: i.is_completed ? "line-through" : "none" }}>
+                  {i.label}
+                </span>
+              </label>
+            ))
+          )}
+
+          {c.items && c.items.length > CHECKLIST_ITEMS_PREVIEW_COUNT && (
+            <button
+              style={linkBtnStyle}
+              onClick={() => setActiveModal("checklistList")}
+              type="button"
+            >
+              View more items…
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button style={dangerBtnStyle} onClick={() => requestDeleteChecklist(c.id)}>
+            Delete
+          </button>
+        </div>
+      </div>
+    );
   };
 
   return (
     <>
-      {/* Trip header + tabs */}
       <TripSubHeader />
 
-      {/* Layout: LEFT Map | MIDDLE Notes/Checklist | RIGHT Planbot */}
       <div style={{ background: "#f5f7fb", minHeight: "100vh" }}>
         <div
           style={{
@@ -476,7 +577,7 @@ export default function NotesAndChecklistPage() {
             alignItems: "start",
           }}
         >
-          {/* LEFT: Map (same as itinerary page) */}
+          {/* LEFT: Map */}
           <div
             style={{
               background: "#fff",
@@ -502,25 +603,14 @@ export default function NotesAndChecklistPage() {
                 padding: "16px 18px",
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <h2
-                  style={{
-                    margin: 0,
-                    fontSize: 18,
-                    fontWeight: 700,
-                    color: "#1a2b4d",
-                  }}
-                >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#1a2b4d" }}>
                   Notes
                 </h2>
 
-                <div className="menu-wrapper" style={{ position: "relative" }}>
+                <div className="menu-wrapper" style={{ position: "relative", display: "flex", gap: 8 }}>
+                  
+
                   <button
                     onClick={() => toggleMenu("notes")}
                     style={{
@@ -532,6 +622,7 @@ export default function NotesAndChecklistPage() {
                       cursor: "pointer",
                       fontWeight: 800,
                     }}
+                    type="button"
                   >
                     …
                   </button>
@@ -554,15 +645,32 @@ export default function NotesAndChecklistPage() {
                       <button style={menuBtnStyle} onClick={() => openNoteForm()}>
                         + Add Note
                       </button>
-                      <button
-                        style={menuBtnStyle}
-                        onClick={() => setActiveModal("notesList")}
-                      >
+                      <button style={menuBtnStyle} onClick={() => setActiveModal("notesList")}>
                         View Notes
                       </button>
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                {notes.length === 0 ? (
+                  <div style={{ color: "#6b7280", fontSize: 13 }}>
+                    No notes yet. Click “…” → Add Note.
+                  </div>
+                ) : (
+                  notesPreview.map(noteCard)
+                )}
+
+                {notes.length > NOTES_PREVIEW_COUNT && (
+                  <button
+                    style={{ ...linkBtnStyle, alignSelf: "flex-start" }}
+                    onClick={() => setActiveModal("notesList")}
+                    type="button"
+                  >
+                    View all notes…
+                  </button>
+                )}
               </div>
             </div>
 
@@ -576,25 +684,14 @@ export default function NotesAndChecklistPage() {
                 padding: "16px 18px",
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <h2
-                  style={{
-                    margin: 0,
-                    fontSize: 18,
-                    fontWeight: 700,
-                    color: "#1a2b4d",
-                  }}
-                >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#1a2b4d" }}>
                   Checklists
                 </h2>
 
-                <div className="menu-wrapper" style={{ position: "relative" }}>
+                <div className="menu-wrapper" style={{ position: "relative", display: "flex", gap: 8 }}>
+                  
+
                   <button
                     onClick={() => toggleMenu("checklists")}
                     style={{
@@ -606,6 +703,7 @@ export default function NotesAndChecklistPage() {
                       cursor: "pointer",
                       fontWeight: 800,
                     }}
+                    type="button"
                   >
                     …
                   </button>
@@ -628,15 +726,32 @@ export default function NotesAndChecklistPage() {
                       <button style={menuBtnStyle} onClick={() => openChecklistForm()}>
                         + Add Checklist
                       </button>
-                      <button
-                        style={menuBtnStyle}
-                        onClick={() => setActiveModal("checklistList")}
-                      >
+                      <button style={menuBtnStyle} onClick={() => setActiveModal("checklistList")}>
                         View Checklists
                       </button>
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                {checklists.length === 0 ? (
+                  <div style={{ color: "#6b7280", fontSize: 13 }}>
+                    No checklists yet. Click “…” → Add Checklist.
+                  </div>
+                ) : (
+                  checklistsPreview.map(checklistCard)
+                )}
+
+                {checklists.length > CHECKLISTS_PREVIEW_COUNT && (
+                  <button
+                    style={{ ...linkBtnStyle, alignSelf: "flex-start" }}
+                    onClick={() => setActiveModal("checklistList")}
+                    type="button"
+                  >
+                    View all checklists…
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -648,8 +763,7 @@ export default function NotesAndChecklistPage() {
               top: 90,
               height: "calc(87vh - 90px)",
               padding: "0.75rem 0.85rem",
-              background:
-                "linear-gradient(180deg,#f5f3ff 0%,#eef2ff 45%,#e0f2fe 100%)",
+              background: "linear-gradient(180deg,#f5f3ff 0%,#eef2ff 45%,#e0f2fe 100%)",
               display: "flex",
               flexDirection: "column",
               gap: 8,
@@ -663,8 +777,7 @@ export default function NotesAndChecklistPage() {
                 alignSelf: "stretch",
                 borderRadius: "999px",
                 border: "none",
-                background:
-                  "linear-gradient(135deg,#fb923c 0%,#f97316 40%,#facc15 100%)",
+                background: "linear-gradient(135deg,#fb923c 0%,#f97316 40%,#facc15 100%)",
                 color: "white",
                 padding: "0.5rem 0.9rem",
                 fontSize: "0.85rem",
@@ -680,36 +793,18 @@ export default function NotesAndChecklistPage() {
               ✨ Planbot
             </button>
 
-            <div
-              style={{
-                fontSize: "0.85rem",
-                fontWeight: 600,
-                color: "#1f2933",
-                marginBottom: 4,
-              }}
-            >
+            <div style={{ fontSize: "0.85rem", fontWeight: 600, color: "#1f2933", marginBottom: 4 }}>
               Itinerary
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-                overflowY: "auto",
-                flex: 1,
-              }}
-            >
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, overflowY: "auto", flex: 1 }}>
               {days.map((day) => {
                 const d = day.date ? new Date(day.date) : null;
                 const shortDow = d
                   ? d.toLocaleDateString(undefined, { weekday: "short" })
                   : "DAY";
                 const dayMonth = d
-                  ? d.toLocaleDateString(undefined, {
-                      day: "2-digit",
-                      month: "2-digit",
-                    })
+                  ? d.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" })
                   : `${day.day_index}`;
 
                 const stops = getStopsForDay(day.id);
@@ -726,29 +821,10 @@ export default function NotesAndChecklistPage() {
                       cursor: "default",
                     }}
                   >
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 2,
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 6,
-                          alignItems: "center",
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontSize: "0.82rem",
-                            fontWeight: 600,
-                            color: "#111827",
-                          }}
-                        >
-                          {shortDow}{" "}
-                          <span style={{ fontWeight: 500 }}>{dayMonth}</span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "#111827" }}>
+                          {shortDow} <span style={{ fontWeight: 500 }}>{dayMonth}</span>
                         </span>
                         <span
                           style={{
@@ -765,14 +841,7 @@ export default function NotesAndChecklistPage() {
                         </span>
                       </div>
 
-                      <span
-                        style={{
-                          marginTop: 2,
-                          fontSize: "0.7rem",
-                          color: "#9ca3af",
-                          fontWeight: 400,
-                        }}
-                      >
+                      <span style={{ marginTop: 2, fontSize: "0.7rem", color: "#9ca3af", fontWeight: 400 }}>
                         {stops} stop{stops !== 1 ? "s" : ""}
                       </span>
                     </div>
@@ -785,11 +854,7 @@ export default function NotesAndChecklistPage() {
 
         {/* ============ Modals ============ */}
         {activeModal === "noteForm" && (
-          <Modal
-            onClose={closeModal}
-            title={editingNote ? "Edit Note" : "Add Note"}
-          >
-            {/* ✅ Added itinerary item selector so notes connect to chosen itinerary */}
+          <Modal onClose={closeModal} title={editingNote ? "Edit Note" : "Add Note"}>
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6 }}>
                 Attach note to itinerary stop
@@ -837,45 +902,19 @@ export default function NotesAndChecklistPage() {
         )}
 
         {activeModal === "notesList" && (
-          <Modal onClose={closeModal} title="Notes">
+          <Modal onClose={closeModal} title={`Notes (${notes.length})`}>
             {notes.length === 0 ? (
               <div style={{ color: "#6b7280" }}>No notes yet.</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {notes.map((n) => (
-                  <div
-                    key={n.id}
-                    style={{
-                      border: "1px solid #e5e7eb",
-                      borderRadius: 12,
-                      padding: 12,
-                      background: "white",
-                    }}
-                  >
-                    <div style={{ color: "#111827", whiteSpace: "pre-wrap" }}>
-                      {n.content}
-                    </div>
-
-                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                      <button style={secondaryBtnStyle} onClick={() => openNoteForm(n)}>
-                        Edit
-                      </button>
-                      <button style={dangerBtnStyle} onClick={() => requestDeleteNote(n.id)}>
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                {notes.map(noteCard)}
               </div>
             )}
           </Modal>
         )}
 
         {activeModal === "checklistForm" && (
-          <Modal
-            onClose={closeModal}
-            title={editingChecklist ? "Edit Checklist" : "Add Checklist"}
-          >
+          <Modal onClose={closeModal} title={editingChecklist ? "Edit Checklist" : "Add Checklist"}>
             <input
               value={newChecklistName}
               onChange={(e) => setNewChecklistName(e.target.value)}
@@ -884,27 +923,14 @@ export default function NotesAndChecklistPage() {
             />
 
             <div style={{ marginTop: 12 }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                 <div style={{ fontWeight: 700, color: "#111827" }}>Items</div>
-                <button onClick={addChecklistItemRow} style={secondaryBtnStyle}>
+                <button onClick={addChecklistItemRow} style={secondaryBtnStyle} type="button">
                   + Add Item
                 </button>
               </div>
 
-              <div
-                style={{
-                  marginTop: 10,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 10,
-                }}
-              >
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
                 {editingChecklistItems.length === 0 && (
                   <div style={{ color: "#6b7280" }}>No items yet.</div>
                 )}
@@ -912,7 +938,12 @@ export default function NotesAndChecklistPage() {
                 {editingChecklistItems.map((it) => (
                   <div
                     key={it.id}
-                    style={{ display: "flex", gap: 10, alignItems: "center" }}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "24px 1fr auto",
+                      gap: 10,
+                      alignItems: "center",
+                    }}
                   >
                     <input
                       type="checkbox"
@@ -923,9 +954,9 @@ export default function NotesAndChecklistPage() {
                       value={it.label}
                       onChange={(e) => updateChecklistItemLabel(it.id, e.target.value)}
                       placeholder="Item label"
-                      style={{ ...inputStyle, flex: 1 }}
+                      style={inputStyle}
                     />
-                    <button onClick={() => removeChecklistItemRow(it.id)} style={dangerBtnStyle}>
+                    <button onClick={() => removeChecklistItemRow(it.id)} style={dangerBtnStyle} type="button">
                       Remove
                     </button>
                   </div>
@@ -951,7 +982,7 @@ export default function NotesAndChecklistPage() {
         )}
 
         {activeModal === "checklistList" && (
-          <Modal onClose={closeModal} title="Checklists">
+          <Modal onClose={closeModal} title={`Checklists (${checklists.length})`}>
             {checklists.length === 0 ? (
               <div style={{ color: "#6b7280" }}>No checklists yet.</div>
             ) : (
@@ -964,23 +995,14 @@ export default function NotesAndChecklistPage() {
                       borderRadius: 12,
                       padding: 12,
                       background: "white",
+                      boxSizing: "border-box",
                     }}
                   >
                     <div style={{ fontWeight: 800, color: "#111827" }}>{c.name}</div>
 
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 8,
-                        marginTop: 10,
-                      }}
-                    >
-                      {c.items.map((i) => (
-                        <label
-                          key={i.id}
-                          style={{ display: "flex", gap: 10, alignItems: "center" }}
-                        >
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+                      {(c.items || []).map((i) => (
+                        <label key={i.id} style={{ display: "flex", gap: 10, alignItems: "center" }}>
                           <input
                             type="checkbox"
                             checked={i.is_completed}
@@ -992,10 +1014,10 @@ export default function NotesAndChecklistPage() {
                     </div>
 
                     <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                      <button style={secondaryBtnStyle} onClick={() => openChecklistForm(c)}>
+                      <button style={secondaryBtnStyle} onClick={() => openChecklistForm(c)} type="button">
                         Edit
                       </button>
-                      <button style={dangerBtnStyle} onClick={() => requestDeleteChecklist(c.id)}>
+                      <button style={dangerBtnStyle} onClick={() => requestDeleteChecklist(c.id)} type="button">
                         Delete
                       </button>
                     </div>
@@ -1036,6 +1058,7 @@ const menuBtnStyle: React.CSSProperties = {
   background: "white",
   cursor: "pointer",
   fontWeight: 600,
+  boxSizing: "border-box",
 };
 
 function Modal({
@@ -1057,28 +1080,23 @@ function Modal({
         alignItems: "center",
         justifyContent: "center",
         zIndex: 9999,
+        padding: 16,
+        boxSizing: "border-box",
       }}
     >
       <div
         style={{
-          width: 560,
-          maxWidth: "92vw",
+          width: 620,
+          maxWidth: "100%",
           background: "white",
           borderRadius: 16,
-          padding: 16,
+          padding: 18,
           boxShadow: "0 18px 45px rgba(0,0,0,0.25)",
+          boxSizing: "border-box",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <div style={{ fontSize: 16, fontWeight: 800, color: "#111827" }}>
-            {title}
-          </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: "#111827" }}>{title}</div>
           <button
             onClick={onClose}
             style={{
@@ -1086,13 +1104,15 @@ function Modal({
               background: "transparent",
               fontSize: 18,
               cursor: "pointer",
+              lineHeight: 1,
             }}
+            type="button"
           >
             ×
           </button>
         </div>
 
-        <div style={{ marginTop: 14 }}>{children}</div>
+        <div style={{ marginTop: 14, boxSizing: "border-box" }}>{children}</div>
       </div>
     </div>
   );
@@ -1100,22 +1120,28 @@ function Modal({
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
+  maxWidth: "100%",
   border: "1px solid #d1d5db",
-  borderRadius: 10,
-  padding: "10px 12px",
+  borderRadius: 12,
+  padding: "12px 14px",
   outline: "none",
   fontSize: 14,
+  boxSizing: "border-box",
+  display: "block",
 };
 
 const textAreaStyle: React.CSSProperties = {
   width: "100%",
-  minHeight: 140,
+  maxWidth: "100%",
+  minHeight: 170,
   border: "1px solid #d1d5db",
-  borderRadius: 10,
-  padding: "10px 12px",
+  borderRadius: 12,
+  padding: "12px 14px",
   outline: "none",
   fontSize: 14,
   resize: "vertical",
+  boxSizing: "border-box",
+  display: "block",
 };
 
 const modalFooterStyle: React.CSSProperties = {
@@ -1127,8 +1153,8 @@ const modalFooterStyle: React.CSSProperties = {
 
 const primaryBtnStyle: React.CSSProperties = {
   border: "none",
-  borderRadius: 10,
-  padding: "10px 14px",
+  borderRadius: 12,
+  padding: "10px 16px",
   cursor: "pointer",
   background: "linear-gradient(120deg, #2f7bff, #53a3ff)",
   color: "white",
@@ -1137,20 +1163,42 @@ const primaryBtnStyle: React.CSSProperties = {
 
 const secondaryBtnStyle: React.CSSProperties = {
   border: "1px solid #d1d5db",
-  borderRadius: 10,
-  padding: "10px 14px",
+  borderRadius: 12,
+  padding: "10px 16px",
   cursor: "pointer",
   background: "white",
   color: "#111827",
   fontWeight: 700,
 };
 
+const secondaryBtnSmallStyle: React.CSSProperties = {
+  border: "1px solid #d1d5db",
+  borderRadius: 999,
+  padding: "8px 12px",
+  cursor: "pointer",
+  background: "white",
+  color: "#111827",
+  fontWeight: 700,
+  fontSize: 13,
+};
+
 const dangerBtnStyle: React.CSSProperties = {
   border: "none",
-  borderRadius: 10,
-  padding: "10px 14px",
+  borderRadius: 12,
+  padding: "10px 16px",
   cursor: "pointer",
   background: "#fee2e2",
   color: "#b91c1c",
   fontWeight: 800,
 };
+
+const linkBtnStyle: React.CSSProperties = {
+  border: "none",
+  background: "transparent",
+  cursor: "pointer",
+  color: "#2563eb",
+  fontWeight: 700,
+  fontSize: 13,
+  padding: 0,
+};
+

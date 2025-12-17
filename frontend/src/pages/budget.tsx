@@ -19,6 +19,7 @@ import TripSubHeader from "../components/TripSubHeader";
  *
  * - Splits:
  *    POST   /f3/expense-splits/
+ *    DELETE /f3/expense-splits/:id/
  *
  * - Trip members:
  *    GET    /f3/budgets/trip-members/?trip=:tripId
@@ -28,7 +29,7 @@ import TripSubHeader from "../components/TripSubHeader";
  */
 
 type TripMember = {
-  id: number;
+  id: string; // UUID string
   full_name: string | null;
   email: string | null;
 };
@@ -36,7 +37,7 @@ type TripMember = {
 type ExpenseSplit = {
   id: number;
   expense: number;
-  user: number;
+  user: string; // UUID string
   amount: number;
   is_settled: boolean;
 };
@@ -44,7 +45,7 @@ type ExpenseSplit = {
 type TripExpense = {
   id: number;
   trip: number;
-  payer: number; // user id
+  payer: string; // UUID string
   description: string;
   category: string;
   amount: number;
@@ -59,13 +60,27 @@ type TripBudget = {
   id: number;
   trip: number;
   currency: string;
-  planned_total: number;
-  actual_total: number;
+  planned_total: any; // backend may send string
+  actual_total: any;
 };
 
 type ModalType = "budget" | "expense" | "balances" | null;
 
-const currencyOptions = ["SGD", "USD", "EUR", "GBP", "JPY", "AUD", "CAD", "MYR", "THB", "IDR", "CNY", "INR", "KRW"];
+const currencyOptions = [
+  "SGD",
+  "USD",
+  "EUR",
+  "GBP",
+  "JPY",
+  "AUD",
+  "CAD",
+  "MYR",
+  "THB",
+  "IDR",
+  "CNY",
+  "INR",
+  "KRW",
+];
 
 const categoryOptions = [
   "Flights",
@@ -89,12 +104,6 @@ const pageStyles = `
   min-height: 100vh;
   font-family: "Inter", "Segoe UI", sans-serif;
   color: #1f1f1f;
-}
-.top-note {
-  max-width: 1200px;
-  margin: 0 auto 12px auto;
-  font-size: 14px;
-  color: #6b7280;
 }
 .warn {
   max-width: 1200px;
@@ -237,6 +246,7 @@ const pageStyles = `
   padding: 18px;
   z-index: 999;
 }
+
 .modal {
   width: min(760px, 96vw);
   background: #fff;
@@ -244,7 +254,11 @@ const pageStyles = `
   padding: 18px;
   border: 1px solid #e5e7eb;
   box-shadow: 0 18px 50px rgba(0,0,0,0.2);
+  max-height: 90vh;
+  overflow-y: auto;
 }
+
+
 .modal h3 {
   margin: 0 0 12px 0;
   font-size: 20px;
@@ -264,14 +278,23 @@ const pageStyles = `
 }
 .field input, .field select, .field textarea {
   width: 100%;
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-radius: 12px;
-  border: 1px solid #d7d9df;
+  border: 1px solid #d1d5db;
   outline: none;
+  font-size: 14px;
+  box-sizing: border-box;
+  background: #fff;
+  color: #111827;
+  font-family: inherit;
 }
 .field textarea {
   min-height: 84px;
   resize: vertical;
+}
+.field select[multiple] {
+  min-height: 120px;
+  padding: 8px 10px;
 }
 .modal-actions {
   display:flex;
@@ -288,15 +311,6 @@ const pageStyles = `
   font-weight: 900;
   cursor:pointer;
 }
-.danger {
-  background:#fee2e2;
-  color:#991b1b;
-  border:1px solid #fecaca;
-  padding: 10px 14px;
-  border-radius: 12px;
-  font-weight: 900;
-  cursor:pointer;
-}
 .primary {
   background:#111827;
   color:#fff;
@@ -306,6 +320,76 @@ const pageStyles = `
   font-weight: 900;
   cursor:pointer;
 }
+
+/* --- Category chart (like screenshot #1) --- */
+.cat-chart-wrap {
+  margin-top: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+  padding: 12px;
+}
+.cat-chart-title {
+  font-weight: 900;
+  margin: 0 0 10px 0;
+  color: #111827;
+}
+.cat-chart {
+  position: relative;
+  width: 100%;
+  overflow-x: auto;
+}
+.cat-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(17, 24, 39, 0.92);
+  color: #fff;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.2;
+  transform: translate(-50%, -120%);
+  white-space: nowrap;
+}
+.cat-tooltip strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.split-controls {
+  display: flex;
+  gap: 10px;
+  margin: 4px 0 8px;
+}
+.split-controls button {
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+.split-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 140px;
+  overflow-y: auto;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fff;
+}
+.split-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #111827;
+}
+
+
 @media (max-width: 1024px) {
   .page-grid { grid-template-columns: 1fr; }
 }
@@ -315,14 +399,124 @@ function memberLabel(m: TripMember) {
   return (m.full_name && m.full_name.trim()) || (m.email && m.email.trim()) || `User #${m.id}`;
 }
 
-function fmt(amount: number) {
-  if (!Number.isFinite(amount)) return "0.00";
-  return amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// ✅ Handles string/number safely
+function fmt(amount: any) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return "0.00";
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function CategoryBarChart({
+  currency,
+  categoryList,
+  categoryTotals,
+  maxValue,
+}: {
+  currency: string;
+  categoryList: string[];
+  categoryTotals: Record<string, number>;
+  maxValue: number;
+}) {
+  const [tip, setTip] = useState<null | { x: number; y: number; cat: string; val: number }>(null);
+
+  const W = 720;
+  const rowH = 34;
+  const topPad = 16;
+  const leftPad = 140;
+  const rightPad = 24;
+  const bottomPad = 38;
+
+  const H = topPad + categoryList.length * rowH + bottomPad;
+  const safeMax = maxValue > 0 ? maxValue : 1;
+
+  const ticks = 4;
+  const tickValues = Array.from({ length: ticks + 1 }, (_, i) => (safeMax * i) / ticks);
+
+  const xScale = (v: number) => {
+    const usable = W - leftPad - rightPad;
+    return leftPad + (Math.max(0, v) / safeMax) * usable;
+  };
+
+  const onMove = (e: React.MouseEvent, cat: string, val: number) => {
+    const bounds = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setTip({ x: e.clientX - bounds.left, y: e.clientY - bounds.top, cat, val });
+  };
+
+  return (
+    <div className="cat-chart-wrap" onMouseLeave={() => setTip(null)}>
+      <div className="cat-chart-title">Category Breakdown</div>
+
+      <div className="cat-chart" style={{ minWidth: 0 }}>
+        {tip && (
+          <div className="cat-tooltip" style={{ left: tip.x, top: tip.y }}>
+            <strong>{tip.cat}</strong>
+            {currency} {fmt(tip.val)}
+          </div>
+        )}
+
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Category breakdown chart">
+          {/* grid + ticks */}
+          {tickValues.map((tv, i) => {
+            const x = xScale(tv);
+            return (
+              <g key={i}>
+                <line x1={x} y1={topPad - 6} x2={x} y2={H - bottomPad + 6} stroke="#e5e7eb" />
+                <text x={x} y={H - 12} textAnchor="middle" fontSize="12" fill="#6b7280">
+                  {currency} {fmt(tv)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* x-axis */}
+          <line x1={leftPad} y1={H - bottomPad} x2={W - rightPad} y2={H - bottomPad} stroke="#6b7280" />
+
+          {/* bars + labels */}
+          {categoryList.map((cat, idx) => {
+            const val = categoryTotals[cat] || 0;
+            const y = topPad + idx * rowH;
+            const barY = y + 7;
+            const barH = 20;
+
+            const x0 = leftPad;
+            const x1 = xScale(val);
+
+            return (
+              <g key={cat} onMouseMove={(e) => onMove(e, cat, val)} style={{ cursor: "default" }}>
+                <text x={leftPad - 10} y={y + 22} textAnchor="end" fontSize="14" fill="#4b5563">
+                  {cat}
+                </text>
+
+                <rect
+                  x={x0}
+                  y={barY}
+                  width={W - rightPad - leftPad}
+                  height={barH}
+                  rx={10}
+                  fill="#f3f4f6"
+                  stroke="#e5e7eb"
+                />
+
+                <rect
+                  x={x0}
+                  y={barY}
+                  width={Math.max(0, x1 - x0)}
+                  height={barH}
+                  rx={10}
+                  fill="#bfc8ff"
+                />
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
 }
 
 export default function BudgetPage() {
   const params = useParams();
-  const tripId = Number(params.tripId || params.id);
+  const tripId = Number((params as any).tripId || (params as any).id);
 
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -331,34 +525,28 @@ export default function BudgetPage() {
   const [expenses, setExpenses] = useState<TripExpense[]>([]);
   const [budget, setBudget] = useState<TripBudget | null>(null);
 
-  // budget currency (preferred)
   const [currency, setCurrency] = useState<string>("SGD");
 
-  // FX rates: sgd_per_unit["USD"] means SGD for 1 USD
   const [sgdPerUnit, setSgdPerUnit] = useState<Record<string, number>>({ SGD: 1 });
   const [fxWarning, setFxWarning] = useState<string | null>(null);
 
-  // UI
   const [activeModal, setActiveModal] = useState<ModalType>(null);
 
-  // Budget form
   const [formBudget, setFormBudget] = useState<string>("0");
   const [formCurrency, setFormCurrency] = useState<string>("SGD");
 
-  // Expense form
   const [editingExpense, setEditingExpense] = useState<TripExpense | null>(null);
   const [formCategory, setFormCategory] = useState(categoryOptions[0]);
   const [formAmount, setFormAmount] = useState("");
   const [formExpenseCurrency, setFormExpenseCurrency] = useState("SGD");
-  const [formPayerId, setFormPayerId] = useState<number | null>(null);
+  const [formPayerId, setFormPayerId] = useState<string | null>(null);
+  const [formSplitIds, setFormSplitIds] = useState<string[]>([]);
   const [formDate, setFormDate] = useState("");
-  const [formSplitIds, setFormSplitIds] = useState<number[]>([]);
   const [formDescription, setFormDescription] = useState("");
 
   const convertAmount = (amount: number, from: string, to: string) => {
     const fromRate = sgdPerUnit[from] ?? 1;
     const toRate = sgdPerUnit[to] ?? 1;
-    // amount[from] -> SGD -> to
     return (amount * fromRate) / toRate;
   };
 
@@ -373,13 +561,11 @@ export default function BudgetPage() {
     setErrorMsg(null);
 
     try {
-      // 1) Members (owner + collaborators)
       const m: TripMember[] = await apiFetch(`/f3/budgets/trip-members/?trip=${tripId}`);
-      setMembers(m);
+      setMembers(Array.isArray(m) ? m : []);
 
-      // 2) Budget row (get or create)
       const budgetList: TripBudget[] = await apiFetch(`/f3/budgets/?trip=${tripId}`);
-      let b = budgetList?.[0] || null;
+      let b = (Array.isArray(budgetList) ? budgetList : [])?.[0] || null;
 
       if (!b) {
         b = await apiFetch(`/f3/budgets/`, {
@@ -396,13 +582,11 @@ export default function BudgetPage() {
       setBudget(b);
       setCurrency(b.currency || "SGD");
       setFormCurrency(b.currency || "SGD");
-      setFormBudget(String(b.planned_total ?? 0));
+      setFormBudget(String(Number(b.planned_total ?? 0)));
 
-      // 3) Expenses
       const exps: TripExpense[] = await apiFetch(`/f3/expenses/?trip=${tripId}`);
       setExpenses(Array.isArray(exps) ? exps : []);
 
-      // 4) FX
       try {
         const fx = await apiFetch(`/f3/fx/latest/?base=SGD`);
         const rates = fx?.sgd_per_unit || fx?.rates || null;
@@ -413,7 +597,7 @@ export default function BudgetPage() {
         } else {
           setFxWarning("FX rates endpoint returned unexpected data. Using 1:1 conversion.");
         }
-      } catch (e: any) {
+      } catch {
         setFxWarning("FX rates endpoint not available yet. Using 1:1 conversion.");
       }
     } catch (e: any) {
@@ -428,40 +612,66 @@ export default function BudgetPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId]);
 
-  const plannedTotal = budget?.planned_total ?? 0;
+  const plannedTotal = Number(budget?.planned_total ?? 0);
 
   const totalSpent = useMemo(() => {
     return expenses.reduce((sum, e) => sum + convertAmount(e.amount, e.currency, currency), 0);
   }, [expenses, currency, sgdPerUnit]);
 
+  const categoryTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    expenses.forEach((e) => {
+      const cat = e.category && e.category.trim() ? e.category : "Other";
+      totals[cat] = (totals[cat] || 0) + convertAmount(e.amount, e.currency, currency);
+    });
+    return totals;
+  }, [expenses, currency, sgdPerUnit]);
+
+  const categoryList = useMemo(() => {
+    const extras = new Set<string>();
+    expenses.forEach((e) => {
+      if (e.category && e.category.trim()) extras.add(e.category);
+    });
+
+    const merged = [...categoryOptions];
+    extras.forEach((c) => {
+      if (!merged.includes(c)) merged.push(c);
+    });
+    return merged;
+  }, [expenses]);
+
+  const maxCategoryTotal = useMemo(() => {
+    if (!categoryList.length) return 0;
+    return Math.max(0, ...categoryList.map((c) => categoryTotals[c] || 0));
+  }, [categoryList, categoryTotals]);
+
   const remaining = plannedTotal - totalSpent;
 
   const memberById = useMemo(() => {
-    const map = new Map<number, TripMember>();
-    members.forEach((m) => map.set(m.id, m));
+    const map = new Map<string, TripMember>();
+    members.forEach((m) => map.set(String(m.id), m));
     return map;
   }, [members]);
 
-  // balances: payer +, participants -
   const balances = useMemo(() => {
-    const bal: Record<number, number> = {};
-    members.forEach((m) => (bal[m.id] = 0));
+    const bal: Record<string, number> = {};
+    members.forEach((m) => (bal[String(m.id)] = 0));
 
     for (const exp of expenses) {
       const expTotalPref = convertAmount(exp.amount, exp.currency, currency);
       const splits = exp.splits && exp.splits.length ? exp.splits : null;
 
       if (exp.payer) {
-        bal[exp.payer] = (bal[exp.payer] ?? 0) + expTotalPref;
+        bal[String(exp.payer)] = (bal[String(exp.payer)] ?? 0) + expTotalPref;
       }
 
       if (splits) {
         for (const s of splits) {
           const sharePref = convertAmount(s.amount, exp.currency, currency);
-          bal[s.user] = (bal[s.user] ?? 0) - sharePref;
+          bal[String(s.user)] = (bal[String(s.user)] ?? 0) - sharePref;
         }
       } else {
-        const ids = members.map((m) => m.id);
+        const ids = members.map((m) => String(m.id));
         const share = ids.length ? expTotalPref / ids.length : expTotalPref;
         ids.forEach((uid) => {
           bal[uid] = (bal[uid] ?? 0) - share;
@@ -478,7 +688,7 @@ export default function BudgetPage() {
   }, [plannedTotal, totalSpent]);
 
   const openBudgetModal = () => {
-    setFormBudget(String(budget?.planned_total ?? 0));
+    setFormBudget(String(Number(budget?.planned_total ?? 0)));
     setFormCurrency(currency);
     setActiveModal("budget");
   };
@@ -491,11 +701,8 @@ export default function BudgetPage() {
     setFormDate("");
     setFormDescription("");
 
-    const defaultPayer = members[0]?.id ?? null;
-    setFormPayerId(defaultPayer);
-
-    // default: split with everyone
-    setFormSplitIds(members.map((m) => m.id));
+    setFormPayerId(null);
+    setFormSplitIds(members.map((m) => String(m.id)));
   };
 
   const openNewExpenseModal = () => {
@@ -512,11 +719,10 @@ export default function BudgetPage() {
     setFormDescription(e.description || "");
     setFormPayerId(e.payer ?? null);
 
-    // if splits present, preselect participants from splits; else everyone
     if (e.splits && e.splits.length) {
-      setFormSplitIds(e.splits.map((s) => s.user));
+      setFormSplitIds(e.splits.map((s) => String(s.user)));
     } else {
-      setFormSplitIds(members.map((m) => m.id));
+      setFormSplitIds(members.map((m) => String(m.id)));
     }
 
     setActiveModal("expense");
@@ -544,6 +750,8 @@ export default function BudgetPage() {
 
       setBudget(updated);
       setCurrency(updated.currency || newCurrency);
+      setFormBudget(String(Number(updated.planned_total ?? planned)));
+      setFormCurrency(updated.currency || newCurrency);
       setActiveModal(null);
     } catch (e: any) {
       alert(e?.message || "Failed to save budget.");
@@ -559,7 +767,7 @@ export default function BudgetPage() {
       return;
     }
     if (!formPayerId) {
-      alert("Please choose payer.");
+      alert("Please select who paid for this expense.");
       return;
     }
     if (!formSplitIds.length) {
@@ -583,6 +791,16 @@ export default function BudgetPage() {
       let saved: TripExpense;
 
       if (editingExpense) {
+        if (editingExpense.splits && editingExpense.splits.length > 0) {
+          await Promise.all(
+            editingExpense.splits.map((split) =>
+              apiFetch(`/f3/expense-splits/${split.id}/`, {
+                method: "DELETE",
+              })
+            )
+          );
+        }
+
         saved = await apiFetch(`/f3/expenses/${editingExpense.id}/`, {
           method: "PATCH",
           body: JSON.stringify(payload),
@@ -594,14 +812,11 @@ export default function BudgetPage() {
         });
       }
 
-      // Save splits as equal shares (basic version)
-      // shares stored in expense currency, then UI converts to budget currency
-      const share = amt / formSplitIds.length;
+      const share = Math.round((amt / formSplitIds.length) * 100) / 100;
 
-      // NOTE: This will create NEW split rows; for a production version you’d delete old splits first.
-      await Promise.all(
-        formSplitIds.map((uid) =>
-          apiFetch(`/f3/expense-splits/`, {
+      for (const uid of formSplitIds) {
+        try {
+          await apiFetch(`/f3/expense-splits/`, {
             method: "POST",
             body: JSON.stringify({
               expense: saved.id,
@@ -609,9 +824,11 @@ export default function BudgetPage() {
               amount: share,
               is_settled: false,
             }),
-          })
-        )
-      );
+          });
+        } catch (splitError: any) {
+          console.error(`Failed to create split for user ${uid}:`, splitError);
+        }
+      }
 
       setActiveModal(null);
       await reloadAll();
@@ -636,7 +853,9 @@ export default function BudgetPage() {
         <style>{pageStyles}</style>
         <TripSubHeader />
         <div className="budget-page">
-          <div className="top-note">Loading budget...</div>
+          <div style={{ maxWidth: 1200, margin: "0 auto", color: "#6b7280", fontSize: 14 }}>
+            Loading budget...
+          </div>
         </div>
       </>
     );
@@ -648,7 +867,6 @@ export default function BudgetPage() {
         <style>{pageStyles}</style>
         <TripSubHeader />
         <div className="budget-page">
-          <div className="top-note">Trip #{tripId}</div>
           <div className="warn">{errorMsg}</div>
         </div>
       </>
@@ -658,17 +876,13 @@ export default function BudgetPage() {
   return (
     <>
       <style>{pageStyles}</style>
-
-      {/* ✅ Same trip sub header tabs as notes/checklists */}
       <TripSubHeader />
 
       <div className="budget-page">
-        <div className="top-note">Trip #{tripId} • Stored in database • No hardcoded expenses</div>
-
         {fxWarning && <div className="warn">{fxWarning}</div>}
 
         <div className="page-grid">
-          {/* LEFT: Budget */}
+          {/* LEFT */}
           <div className="panel">
             <h2>Budgeting</h2>
 
@@ -703,7 +917,7 @@ export default function BudgetPage() {
             </button>
           </div>
 
-          {/* RIGHT: Expenses */}
+          {/* RIGHT */}
           <div className="panel">
             <div className="exp-header">
               <h2 style={{ margin: 0 }}>Expenses</h2>
@@ -718,28 +932,29 @@ export default function BudgetPage() {
               </div>
             ) : (
               expenses.map((e) => {
-                const payer = memberById.get(e.payer);
+                const payer = memberById.get(String(e.payer));
                 const payerName = payer ? memberLabel(payer) : `User #${e.payer}`;
-
                 const converted = convertAmount(e.amount, e.currency, currency);
 
-                // show split list for UI
                 const splitNames =
                   e.splits && e.splits.length
                     ? e.splits
-                        .map((s) => memberById.get(s.user))
-                        .filter(Boolean)
-                        .map((u) => memberLabel(u as TripMember))
-                        .join(", ")
-                    : "—";
+                      .map((s) => memberById.get(String(s.user)))
+                      .filter(Boolean)
+                      .map((u) => memberLabel(u as TripMember))
+                      .join(", ")
+                    : "Everyone";
 
                 return (
                   <div key={e.id} className="card">
                     <div className="card-top">
                       <div>
                         <div className="card-title">{e.category}</div>
-                        <div className="card-meta">Paid by <b>{payerName}</b></div>
+                        <div className="card-meta">
+                          Paid by <b>{payerName}</b>
+                        </div>
                         <div className="card-meta">Split with {splitNames}</div>
+                        {e.description ? <div className="card-meta">{e.description}</div> : null}
                       </div>
 
                       <div className="card-right">
@@ -752,8 +967,12 @@ export default function BudgetPage() {
                           </div>
                         </div>
 
-                        <button className="link-btn" onClick={() => openEditExpenseModal(e)}>Edit</button>
-                        <button className="link-btn" onClick={() => deleteExpense(e)}>Delete</button>
+                        <button className="link-btn" onClick={() => openEditExpenseModal(e)}>
+                          Edit
+                        </button>
+                        <button className="link-btn" onClick={() => deleteExpense(e)}>
+                          Delete
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -763,7 +982,7 @@ export default function BudgetPage() {
           </div>
         </div>
 
-        {/* MODALS */}
+        {/* Budget modal */}
         {activeModal === "budget" && (
           <div className="modal-backdrop" onMouseDown={() => setActiveModal(null)}>
             <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
@@ -799,6 +1018,7 @@ export default function BudgetPage() {
           </div>
         )}
 
+        {/* Expense modal */}
         {activeModal === "expense" && (
           <div className="modal-backdrop" onMouseDown={() => setActiveModal(null)}>
             <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
@@ -808,7 +1028,7 @@ export default function BudgetPage() {
                 <div className="field">
                   <label>Category</label>
                   <select value={formCategory} onChange={(e) => setFormCategory(e.target.value)}>
-                    {categoryOptions.map((c) => (
+                    {categoryList.map((c) => (
                       <option key={c} value={c}>
                         {c}
                       </option>
@@ -823,7 +1043,10 @@ export default function BudgetPage() {
 
                 <div className="field">
                   <label>Currency</label>
-                  <select value={formExpenseCurrency} onChange={(e) => setFormExpenseCurrency(e.target.value)}>
+                  <select
+                    value={formExpenseCurrency}
+                    onChange={(e) => setFormExpenseCurrency(e.target.value)}
+                  >
                     {currencyOptions.map((c) => (
                       <option key={c} value={c}>
                         {c}
@@ -841,9 +1064,10 @@ export default function BudgetPage() {
                   <label>Payer</label>
                   <select
                     value={formPayerId ?? ""}
-                    onChange={(e) => setFormPayerId(e.target.value ? Number(e.target.value) : null)}
+                    onChange={(e) => setFormPayerId(e.target.value ? e.target.value : null)}
                   >
                     <option value="">Select payer</option>
+                    {members.length === 0 && <option disabled>No members found</option>}
                     {members.map((m) => (
                       <option key={m.id} value={m.id}>
                         {memberLabel(m)}
@@ -854,27 +1078,44 @@ export default function BudgetPage() {
 
                 <div className="field">
                   <label>Participants (split with)</label>
-                  <select
-                    multiple
-                    value={formSplitIds.map(String)}
-                    onChange={(e) => {
-                      const selected = Array.from(e.target.selectedOptions).map((o) => Number(o.value));
-                      setFormSplitIds(selected);
-                    }}
-                    style={{ height: 120 }}
-                  >
-                    {members.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {memberLabel(m)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
 
-              <div className="field" style={{ marginTop: 12 }}>
-                <label>Description (optional)</label>
-                <textarea value={formDescription} onChange={(e) => setFormDescription(e.target.value)} />
+                  <div className="split-controls">
+                    <button
+                      type="button"
+                      onClick={() => setFormSplitIds(members.map((m) => m.id))}
+                    >
+                      Select all
+                    </button>
+                    <button type="button" onClick={() => setFormSplitIds([])}>
+                      Clear
+                    </button>
+                  </div>
+
+                  <div className="split-options">
+                    {members.map((m) => (
+                      <label key={m.id} className="split-option">
+                        <input
+                          type="checkbox"
+                          checked={formSplitIds.includes(m.id)}
+                          onChange={() => {
+                            setFormSplitIds((prev) =>
+                              prev.includes(m.id)
+                                ? prev.filter((id) => id !== m.id)
+                                : [...prev, m.id]
+                            );
+                          }}
+                        />
+                        <span>{memberLabel(m)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+
+                <div className="field" style={{ gridColumn: "1 / -1" }}>
+                  <label>Description (optional)</label>
+                  <textarea value={formDescription} onChange={(e) => setFormDescription(e.target.value)} />
+                </div>
               </div>
 
               <div className="modal-actions">
@@ -889,14 +1130,30 @@ export default function BudgetPage() {
           </div>
         )}
 
+        {/* Balances modal */}
         {activeModal === "balances" && (
           <div className="modal-backdrop" onMouseDown={() => setActiveModal(null)}>
             <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
               <h3>Total Balances ({currency})</h3>
 
+              {expenses.length === 0 ? (
+                <div style={{ color: "#6b7280", fontSize: 13 }}>No expenses yet.</div>
+              ) : (
+                <CategoryBarChart
+                  currency={currency}
+                  categoryList={categoryList}
+                  categoryTotals={categoryTotals}
+                  maxValue={maxCategoryTotal}
+                />
+              )}
+
+              <div style={{ marginTop: 18, fontWeight: 900, color: "#111827", fontSize: 18 }}>
+                Balances by member
+              </div>
+
               <div style={{ marginTop: 10 }}>
                 {members.map((m) => {
-                  const v = balances[m.id] ?? 0;
+                  const v = balances[String(m.id)] ?? 0;
                   return (
                     <div
                       key={m.id}
@@ -907,7 +1164,7 @@ export default function BudgetPage() {
                         borderBottom: "1px solid #eee",
                       }}
                     >
-                      <div style={{ fontWeight: 900 }}>{memberLabel(m)}</div>
+                      <div style={{ fontWeight: 800 }}>{memberLabel(m)}</div>
                       <div style={{ fontWeight: 900 }}>
                         {v >= 0 ? "+" : "-"} {currency} {fmt(Math.abs(v))}
                       </div>
