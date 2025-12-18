@@ -28,6 +28,11 @@ urlpatterns = [
         TemplateView.as_view(template_name="api_index.html"),
         name="api-index",
     ),
+
+    # SeaLion endpoint (legacy path kept) and AI alias
+    path("api/sealion/", include("TripMateFunctions.urls.urls_ai")),
+    path("api/ai/", include("TripMateFunctions.urls.urls_ai")),
+
 ]
 
 # Serve static/media files in development

@@ -1,27 +1,35 @@
-//export default function GroupWaitForFriends() {
-//  return (
-//    <div style={{ padding: "2rem" }}>
-//      <h1>Group Trip - Waiting for Friends (F2.2)</h1>
-//      <p>Summary of merged group preferences.</p>
-//    </div>
-//  );
-//}
-
 // frontend/src/pages/groupWaitForFriends.tsx
 
 import React, { useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 
 export default function GroupWaitForFriends() {
+  // Get tripId from URL params
+  const { tripId } = useParams<{ tripId: string }>();
+  const navigate = useNavigate();
+
   // Simulated list of participants
+  // In production, this would be fetched from the backend
   const [friends, setFriends] = useState([
     { email: "max04trompete@web.de", status: "confirmed" },
     { email: "johannes@gmail.com", status: "pending" },
     { email: "antoniaherrlich@icloud.com", status: "pending" },
   ]);
 
-  // Remove a pending friend
+  // Remove a pending friend from the list
   const removeFriend = (email: string) => {
     setFriends((prev) => prev.filter((f) => f.email !== email));
+  };
+
+  // Handle "Start the search" button click
+  const handleStartSearch = () => {
+    if (tripId) {
+      // Navigate to group itinerary summary with tripId
+      navigate(`/group-trip/${tripId}/summary`);
+    } else {
+      // Show error if tripId is missing
+      alert("No trip ID found. Cannot proceed.");
+    }
   };
 
   return (
@@ -36,7 +44,7 @@ export default function GroupWaitForFriends() {
         paddingTop: "140px",
       }}
     >
-      {/* Title */}
+      {/* Main Title */}
       <h1
         style={{
           fontSize: "48px",
@@ -87,6 +95,7 @@ export default function GroupWaitForFriends() {
                   : "1px solid #D6C8FF",
             }}
           >
+            {/* Friend email */}
             <span
               style={{
                 fontSize: "14px",
@@ -123,7 +132,7 @@ export default function GroupWaitForFriends() {
               </span>
             )}
 
-            {/* Pending: X button */}
+            {/* Pending: X button to remove */}
             {f.status === "pending" && (
               <button
                 onClick={() => removeFriend(f.email)}
@@ -135,6 +144,7 @@ export default function GroupWaitForFriends() {
                   cursor: "pointer",
                   color: "#8D73FF",
                 }}
+                title="Remove friend"
               >
                 ×
               </button>
@@ -157,11 +167,9 @@ export default function GroupWaitForFriends() {
           alignItems: "center",
           gap: "10px",
         }}
-        onClick={() => {
-          window.location.href = "/group-itinerary-summary";
-        }}
+        onClick={handleStartSearch}
       >
-        <span style={{ fontSize: "18px" }}></span>
+        <span style={{ fontSize: "18px" }}>✨</span>
         Start the search
       </button>
     </div>

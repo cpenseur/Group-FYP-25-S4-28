@@ -36,6 +36,7 @@ import LocalInformationPanel from "./pages/localInformationPanel";
 import GroupWaitForFriends from "./pages/groupWaitForFriends";
 import GroupItinerarySummary from "./pages/groupItinerarySummary";
 import ItineraryRecommendation from "./pages/itineraryRecommendation";
+import AiTripGeneratorGroup from "./pages/GroupTripGeneratorPage";
 import MediaHighlights from "./pages/mediaHighlights";
 
 // Su
@@ -55,6 +56,9 @@ export default function App() {
   };
 
   const closeLogin = () => setShowLogin(false);  
+  console.log("Sealion Key Loaded:", import.meta.env.VITE_SEALION_API_KEY);
+
+
   return (
     <>
       <TopBar />
@@ -93,8 +97,9 @@ export default function App() {
         {/* Mingyu */}
         <Route path="/destination-faq-panel" element={<DestinationFaqPanel />} />
         <Route path="/local-info-panel" element={<LocalInformationPanel />} />
-        <Route path="/group-wait-for-friends" element={<GroupWaitForFriends />} />
-        <Route path="/group-itinerary-summary" element={<GroupItinerarySummary />} />
+        <Route path="/group-wait-for-friends/:tripId" element={<GroupWaitForFriends />} />
+        <Route path="/group-trip/:tripId/summary" element={<GroupItinerarySummary />} />
+        <Route path="/ai-trip-generator-group" element={<AiTripGeneratorGroup />} />
         <Route path="/trip/:tripId/recommendations" element={<ItineraryRecommendation />} />
         <Route path="/trip/:tripId/media" element={<MediaHighlights />} />
 

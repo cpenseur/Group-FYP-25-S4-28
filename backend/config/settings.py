@@ -153,10 +153,16 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 
+# Allow Vite frontend (localhost:5173) to POST (CSRF Origin check)
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
-# 🔐 Django REST Framework configuration
+
+# Django REST Framework configuration
 REST_FRAMEWORK = {
-    # ✅ Default: everything is public unless a view overrides it
+    # Default: everything is public unless a view overrides it
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
         "rest_framework.permissions.IsAuthenticated",
