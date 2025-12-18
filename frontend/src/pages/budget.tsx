@@ -916,7 +916,7 @@ export default function BudgetPage() {
 
             {expenses.length === 0 ? (
               <div className="caption" style={{ marginTop: 12 }}>
-                No expenses yet. Click ƒ?oAdd Expenseƒ??.
+                No expenses yet. Click "+ Add Expense".
               </div>
             ) : (
               expenses.map((e) => {
