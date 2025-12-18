@@ -15,7 +15,6 @@ import Trips from "./pages/trips";
 import AITripGeneratorWait from "./pages/aiTripGeneratorWait";
 
 // PohYee
-import ExportPDF from "./pages/exportPDF";
 import LandingPage from "./pages/landingPage";
 import Demo from "./pages/Demo";
 import TravelGuidesTutorial from "./pages/travelGuidesTutorial";
@@ -29,6 +28,7 @@ import ResetPassword from "./pages/resetPassword";
 import DiscoveryLocal from "./pages/discoveryLocal";
 import DiscoveryInternational from "./pages/discoveryInternational";
 import DiscoveryFAQ from "./pages/discoveryFAQ";
+import DiscoveryItineraryDetail from "./pages/discoveryItineraryDetail";
 
 // Mingyu
 import DestinationFaqPanel from "./pages/destinationFaqPanel";
@@ -76,7 +76,6 @@ export default function App() {
 
         {/* PohYee */}
         <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
-        <Route path="/export-pdf" element={<ExportPDF />} />
         <Route path="/demo" element={<Demo onLoginClick={openLogin} onSignupClick={openSignup} />} />
         <Route path="/travel-guides/:guideId" element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />} />
         <Route path="/guest-faq" element={<GuestFAQPage />} />
@@ -89,6 +88,7 @@ export default function App() {
         <Route path="/discovery-local" element={<DiscoveryLocal />} />
         <Route path="/discovery-international" element={<DiscoveryInternational />} />
         <Route path="/discovery-faq" element={<DiscoveryFAQ />} />
+        <Route path="/discovery-itinerary/:tripId" element={<DiscoveryItineraryDetail />} />
 
         {/* Mingyu */}
         <Route path="/destination-faq-panel" element={<DestinationFaqPanel />} />
