@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
 
 /* ================= TYPES ================= */
@@ -24,10 +24,12 @@ type DayItinerary = {
 
 /* ================= HELPERS ================= */
 
+// Format date as "DD Mon" (e.g., "20 Oct")
 function formatDDMon(date: Date): string {
   return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
 }
 
+// Add days to a base date
 function addDays(base: Date, days: number): Date {
   const d = new Date(base);
   d.setDate(d.getDate() + days);
@@ -35,8 +37,8 @@ function addDays(base: Date, days: number): Date {
 }
 
 /**
- * Parse SeaLion text in the requested format.
- * Expected (example):
+ * Parse SeaLion AI text response into structured day itinerary
+ * Expected format:
  * DAY 1:
  * 10:00 - Place | Area
  * 15:00 - Place | Area
@@ -49,7 +51,7 @@ function parseSealionToDays(
 ): DayItinerary[] {
   const days: DayItinerary[] = [];
 
-  // split by DAY X:
+  // Split by "DAY X:" pattern
   const blocks = text.split(/DAY\s*\d+\s*:/i).slice(1);
 
   for (let i = 0; i < totalDays; i++) {
@@ -63,7 +65,7 @@ function parseSealionToDays(
     const items: ItineraryItem[] = [];
 
     for (const line of lines) {
-      // match "10:00 - Place | Area"
+      // Match pattern: "10:00 - Place | Area"
       const match = line.match(/^(\d{2}:\d{2})\s*-\s*(.+?)\s*\|\s*(.+)$/);
       if (match) {
         items.push({
@@ -88,47 +90,157 @@ function parseSealionToDays(
 
 export default function GroupItinerarySummary() {
   const navigate = useNavigate();
+  const { tripId } = useParams<{ tripId: string }>();
 
-  // change these if you want
-  const TRIP_DAYS = 3; // can be dynamic later
-  const START_DATE = useMemo(() => new Date(2025, 9, 20), []); // 20 Oct 2025
+  // Trip metadata
+  const [tripDays, setTripDays] = useState(3);
+  const [startDate, setStartDate] = useState<Date>(new Date());
 
-  const [groupPreferences, setGroupPreferences] = useState<GroupPreference[]>([
-    { username: "alice29", preferences: ["Food", "Temples"], isOwner: true },
-    { username: "chris33", preferences: ["Museums", "Photography"] },
-    { username: "cinderella08", preferences: ["Shopping", "Nature"] },
-  ]);
+  // Group preferences state
+  const [groupPreferences, setGroupPreferences] = useState<GroupPreference[]>([]);
 
+  // Find the trip owner
   const ownerUsername = useMemo(
     () => groupPreferences.find((u) => u.isOwner)?.username ?? groupPreferences[0]?.username ?? "owner",
     [groupPreferences]
   );
 
-  const [itinerary, setItinerary] = useState<DayItinerary[]>([
-    {
-      day: 1,
-      date: formatDDMon(START_DATE),
-      items: [
-        { time: "10:00", title: "Bugis Street", location: "Bugis" },
-        { time: "15:00", title: "Gardens by the Bay", location: "Marina Bay" },
-        { time: "19:00", title: "Maxwell Food Centre", location: "Chinatown" },
-      ],
-    },
-    { day: 2, date: formatDDMon(addDays(START_DATE, 1)), items: [] },
-    { day: 3, date: formatDDMon(addDays(START_DATE, 2)), items: [] },
-  ]);
+  // Itinerary data (loaded from backend)
+  const [itinerary, setItinerary] = useState<DayItinerary[]>([]);
 
+  // UI state
   const [expandedDay, setExpandedDay] = useState<number>(1);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string>("");
 
+  // Remove a user from the group (owner cannot be removed)
   const removeUser = (username: string) => {
-    // owner cannot be removed
     if (username === ownerUsername) return;
     setGroupPreferences((prev) => prev.filter((u) => u.username !== username));
   };
 
-  /* ================= SEALION CALL ================= */
+  /* ================= LOAD TRIP DATA FROM API ================= */
+
+  useEffect(() => {
+    const loadTripData = async () => {
+      if (!tripId) {
+        setErrorMsg("No trip ID found in URL");
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+
+        // Fetch trip details including days and items
+        const tripData = await apiFetch(`/f1/trips/${tripId}/`, { 
+          method: "GET" 
+        });
+
+        console.log("Loaded trip data:", tripData);
+
+        // Set trip metadata
+        if (tripData.start_date) {
+          setStartDate(new Date(tripData.start_date));
+        }
+        
+        if (tripData.days) {
+          setTripDays(tripData.days.length);
+        }
+
+        // Convert backend data to DayItinerary format
+        if (tripData.days && tripData.items) {
+          const convertedDays: DayItinerary[] = tripData.days
+            .sort((a: any, b: any) => a.day_index - b.day_index)
+            .map((day: any) => {
+              // Get all items for this specific day
+              const dayItems = tripData.items
+                .filter((item: any) => item.day === day.id)
+                .sort((a: any, b: any) => a.sort_order - b.sort_order)
+                .map((item: any) => ({
+                  time: item.start_time ? item.start_time.slice(11, 16) : "—",
+                  title: item.title || "Unnamed activity",
+                  location: item.address || "Location not specified",
+                }));
+
+              return {
+                day: day.day_index,
+                date: day.date ? formatDDMon(new Date(day.date)) : `Day ${day.day_index}`,
+                items: dayItems,
+              };
+            });
+
+          setItinerary(convertedDays);
+          
+          // Expand first day that has items
+          const firstDayWithItems = convertedDays.find(d => d.items.length > 0);
+          if (firstDayWithItems) {
+            setExpandedDay(firstDayWithItems.day);
+          }
+        }
+
+        setErrorMsg("");
+      } catch (err: any) {
+        console.error("Failed to load trip data:", err);
+        setErrorMsg("Failed to load trip data. Using defaults.");
+        
+        // Fallback: create empty days
+        const emptyDays: DayItinerary[] = [];
+        for (let i = 0; i < tripDays; i++) {
+          emptyDays.push({
+            day: i + 1,
+            date: formatDDMon(addDays(startDate, i)),
+            items: [],
+          });
+        }
+        setItinerary(emptyDays);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadTripData();
+  }, [tripId]);
+
+  /* ================= LOAD GROUP PREFERENCES ================= */
+
+  useEffect(() => {
+    const fetchGroupPreferences = async () => {
+      if (!tripId) return;
+
+      try {
+        const data = await apiFetch(`/f2/trips/${tripId}/preferences/`, { 
+          method: "GET" 
+        });
+
+        if (Array.isArray(data) && data.length) {
+          setGroupPreferences(
+            data.map((u: any) => ({
+              username: u.username,
+              preferences: u.preferences,
+              isOwner: u.is_owner,
+            }))
+          );
+        } else {
+          // Fallback to demo data if no preferences found
+          setGroupPreferences([
+            { username: "You", preferences: ["Adventure", "Cultural Immersion"], isOwner: true },
+          ]);
+        }
+      } catch (err) {
+        console.error("Failed to load group preferences", err);
+        // Use fallback data
+        setGroupPreferences([
+          { username: "You", preferences: ["Adventure", "Cultural Immersion"], isOwner: true },
+        ]);
+      }
+    };
+
+    fetchGroupPreferences();
+  }, [tripId]);
+
+  /* ================= AI GENERATION (SEALION) ================= */
 
   const generateAnotherPlan = async () => {
     if (isGenerating) return;
@@ -136,12 +248,13 @@ export default function GroupItinerarySummary() {
     setErrorMsg("");
 
     try {
+      // Build AI prompt with group preferences
       const prompt = `
 You are an AI travel planner.
 
 Task:
-Generate a ${TRIP_DAYS}-day Singapore itinerary based on this group's preferences.
-Choose REAL attractions/places in Singapore (not placeholders like "Morning Activity").
+Generate a ${tripDays}-day itinerary based on this group's preferences.
+Choose REAL attractions/places (not placeholders like "Morning Activity").
 Keep each day to 3 time slots: 10:00, 15:00, 19:00.
 
 Group preferences:
@@ -159,13 +272,10 @@ DAY 2:
 15:00 - Place | Area
 19:00 - Place | Area
 
-DAY 3:
-10:00 - Place | Area
-15:00 - Place | Area
-19:00 - Place | Area
+${tripDays > 2 ? `DAY 3:\n10:00 - Place | Area\n15:00 - Place | Area\n19:00 - Place | Area\n` : ""}
 `.trim();
 
-      // Use the shared API client; keep this path distinct from chatbot (/api/ai/chat)
+      // Call AI API
       const data = await apiFetch("/ai/test/", {
         method: "POST",
         body: JSON.stringify({ prompt }),
@@ -175,12 +285,13 @@ DAY 3:
         data?.choices?.[0]?.message?.content ?? data?.reply;
 
       if (!text) {
-        throw new Error("Sealion returned empty response.");
+        throw new Error("AI returned empty response.");
       }
 
-      const parsed = parseSealionToDays(text, TRIP_DAYS, START_DATE);
+      // Parse AI response into structured format
+      const parsed = parseSealionToDays(text, tripDays, startDate);
 
-      // if AI format is off and no items parsed, show message but keep UI stable
+      // Validate AI response
       const totalItems = parsed.reduce((sum, d) => sum + d.items.length, 0);
       if (totalItems === 0) {
         throw new Error("AI response format did not match the required template. Try again.");
@@ -189,39 +300,12 @@ DAY 3:
       setItinerary(parsed);
       setExpandedDay(1);
     } catch (err: any) {
-      console.error("Sealion error:", err);
+      console.error("AI generation error:", err);
       setErrorMsg(err?.message ?? "Failed to generate. Please try again.");
     } finally {
       setIsGenerating(false);
     }
   };
-
-  // generate once on first load (optional; if you don’t want, remove this useEffect)
-  useEffect(() => {
-    const fetchGroupPreferences = async () => {
-      try {
-        const data = await apiFetch("/f2/trips/1/preferences/", { method: "GET" });
-
-        if (Array.isArray(data) && data.length) {
-          setGroupPreferences(
-            data.map((u: any) => ({
-              username: u.username,
-              preferences: u.preferences,
-              isOwner: u.is_owner,
-            }))
-          );
-        }
-        // if empty or not array, keep existing defaults
-      } catch (err) {
-        console.error("Failed to load group preferences", err);
-        // keep existing defaults on error
-      }
-    };
-
-
-  fetchGroupPreferences();
-}, []);
-
 
   /* ================= STYLES ================= */
 
@@ -414,17 +498,7 @@ DAY 3:
       marginTop: "24px",
     },
 
-    btnPrimary: {
-      padding: "10px 22px",
-      borderRadius: "999px",
-      border: "none",
-      background: "#eef2ff",
-      color: "#4f46e5",
-      fontSize: "14px",
-      fontWeight: 700,
-      cursor: "pointer",
-    },
-
+    // Both buttons now use the same secondary style (white bg, blue border/text)
     btnSecondary: {
       padding: "10px 22px",
       borderRadius: "999px",
@@ -435,41 +509,72 @@ DAY 3:
       fontWeight: 700,
       cursor: "pointer",
     },
+
+    loading: {
+      textAlign: "center",
+      padding: "40px",
+      fontSize: "14px",
+      color: "#6d6d8c",
+    },
   };
 
   /* ================= RENDER ================= */
 
+  // Show loading state while fetching data
+  if (isLoading) {
+    return (
+      <div style={styles.page}>
+        <div style={styles.container}>
+          <div style={styles.loading}>Loading trip data...</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.page}>
-      {/* MAIN */}
+      {/* MAIN CONTENT */}
       <div style={styles.container}>
         <div style={styles.title}>Your Group Itinerary is Ready!</div>
-        <div style={styles.subtitle}>AI combined everyone’s preferences into one trip plan</div>
+        <div style={styles.subtitle}>AI combined everyone's preferences into one trip plan</div>
 
-        {/* GROUP PREF SUMMARY */}
+        {/* Show error message if any */}
+        {errorMsg && (
+          <div style={styles.error}>
+            {errorMsg}
+          </div>
+        )}
+
+        {/* GROUP PREFERENCES SUMMARY */}
         <div style={styles.card}>
           <div style={styles.sectionTitle}>Group Preferences Summary</div>
 
-          {groupPreferences.map((p) => (
-            <div key={p.username} style={styles.preferenceRow}>
-              <strong>{p.username}</strong>
-
-              <div style={styles.prefRight}>
-                <span>{p.preferences.join(", ")}</span>
-
-                {/* X button for non-owner */}
-                {p.username !== ownerUsername && (
-                  <button
-                    title="Remove user"
-                    style={styles.removeBtn}
-                    onClick={() => removeUser(p.username)}
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
+          {groupPreferences.length === 0 ? (
+            <div style={{ color: "#7a7aa0", fontSize: "13px", padding: "6px" }}>
+              No preferences loaded yet.
             </div>
-          ))}
+          ) : (
+            groupPreferences.map((p) => (
+              <div key={p.username} style={styles.preferenceRow}>
+                <strong>{p.username}</strong>
+
+                <div style={styles.prefRight}>
+                  <span>{p.preferences.join(", ")}</span>
+
+                  {/* X button - only show for non-owner users */}
+                  {p.username !== ownerUsername && (
+                    <button
+                      title="Remove user"
+                      style={styles.removeBtn}
+                      onClick={() => removeUser(p.username)}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
         {/* DAILY ITINERARY */}
@@ -477,6 +582,7 @@ DAY 3:
           <div style={styles.itineraryHeader}>
             <div style={styles.sectionTitle}>Daily Itinerary</div>
 
+            {/* Generate another plan button */}
             <div
               style={{
                 ...styles.generateBtn,
@@ -489,67 +595,89 @@ DAY 3:
             </div>
           </div>
 
-          {errorMsg && <div style={styles.error}>{errorMsg}</div>}
+          {/* Show itinerary or empty state */}
+          {itinerary.length === 0 ? (
+            <div style={{ color: "#7a7aa0", fontSize: "13px", padding: "6px" }}>
+              No itinerary data available yet.
+            </div>
+          ) : (
+            itinerary.map((day) => {
+              const isOpen = expandedDay === day.day;
 
-          {itinerary.map((day) => {
-            const isOpen = expandedDay === day.day;
+              return (
+                <div key={day.day} style={{ marginBottom: "18px" }}>
+                  {/* Day header (collapsible) */}
+                  <div
+                    style={styles.dayHeader}
+                    onClick={() => setExpandedDay(isOpen ? 0 : day.day)}
+                  >
+                    <span>
+                      DAY {day.day} · {day.date}
+                    </span>
+                    <span>{isOpen ? "⌃" : "⌄"}</span>
+                  </div>
 
-            return (
-              <div key={day.day} style={{ marginBottom: "18px" }}>
-                <div
-                  style={styles.dayHeader}
-                  onClick={() => setExpandedDay(isOpen ? 0 : day.day)}
-                >
-                  <span>
-                    DAY {day.day} · {day.date}
-                  </span>
-                  <span>{isOpen ? "⌃" : "⌄"}</span>
-                </div>
-
-                {isOpen && (
-                  <>
-                    {day.items.length === 0 ? (
-                      <div style={{ color: "#7a7aa0", fontSize: "13px", padding: "6px 6px 2px 6px" }}>
-                        No items generated for this day yet.
-                      </div>
-                    ) : (
-                      day.items.map((item, idx) => (
-                        <div key={idx} style={styles.row}>
-                          <div style={styles.time}>{item.time}</div>
-
-                          <div>
-                            <div style={styles.itemTitle}>{item.title}</div>
-                            <div style={styles.itemSub}>{item.location}</div>
-                          </div>
-
-                          <button
-                            style={styles.detailsBtn}
-                            onClick={() => navigate("/discovery-local")}
-                          >
-                            Details
-                          </button>
+                  {/* Day content (shown when expanded) */}
+                  {isOpen && (
+                    <>
+                      {day.items.length === 0 ? (
+                        <div style={{ color: "#7a7aa0", fontSize: "13px", padding: "6px 6px 2px 6px" }}>
+                          No activities scheduled for this day yet.
                         </div>
-                      ))
-                    )}
-                  </>
-                )}
-              </div>
-            );
-          })}
+                      ) : (
+                        day.items.map((item, idx) => (
+                          <div key={idx} style={styles.row}>
+                            {/* Time */}
+                            <div style={styles.time}>{item.time}</div>
+
+                            {/* Activity details */}
+                            <div>
+                              <div style={styles.itemTitle}>{item.title}</div>
+                              <div style={styles.itemSub}>{item.location}</div>
+                            </div>
+
+                            {/* Details button */}
+                            <button
+                              style={styles.detailsBtn}
+                              onClick={() => navigate("/discovery-local")}
+                            >
+                              Details
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })
+          )}
         </div>
 
         {/* ACTION BUTTONS */}
         <div style={styles.actionRow}>
+          {/* Edit Itinerary button - navigate to itinerary editor */}
           <button
             style={styles.btnSecondary}
-            onClick={() => navigate("/trip/:tripId/itinerary")}
+            onClick={() => {
+              if (tripId) {
+                navigate(`/trip/${tripId}/itinerary`);
+              } else {
+                setErrorMsg("No trip ID available. Cannot edit itinerary.");
+              }
+            }}
           >
             Edit Itinerary
           </button>
 
+          {/* Confirm button - save trip and navigate to trips page */}
           <button
-            style={styles.btnPrimary}
-            onClick={() => console.log("Confirmed")}
+            style={styles.btnSecondary}  // Same style as Edit Itinerary button
+            onClick={() => {
+              console.log("Trip confirmed:", tripId);
+              // Navigate to trips page after confirmation
+              navigate("/trips");
+            }}
           >
             Confirm
           </button>

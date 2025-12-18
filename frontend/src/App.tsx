@@ -97,8 +97,8 @@ export default function App() {
         {/* Mingyu */}
         <Route path="/destination-faq-panel" element={<DestinationFaqPanel />} />
         <Route path="/local-info-panel" element={<LocalInformationPanel />} />
-        <Route path="/group-wait-for-friends" element={<GroupWaitForFriends />} />
-        <Route path="/group-itinerary-summary" element={<GroupItinerarySummary />} />
+        <Route path="/group-wait-for-friends/:tripId" element={<GroupWaitForFriends />} />
+        <Route path="/group-trip/:tripId/summary" element={<GroupItinerarySummary />} />
         <Route path="/ai-trip-generator-group" element={<AiTripGeneratorGroup />} />
         <Route path="/trip/:tripId/recommendations" element={<ItineraryRecommendation />} />
         <Route path="/trip/:tripId/media" element={<MediaHighlights />} />
