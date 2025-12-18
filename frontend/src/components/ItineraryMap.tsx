@@ -1,4 +1,5 @@
 // frontend/src/components/ItineraryMap.tsx
+/*
 import React, { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 
@@ -176,6 +177,227 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items }) => {
         map.removeSource("itinerary-route");
       }
     }
+  }, [items]);
+
+  return (
+    <div
+      ref={mapContainerRef}
+      style={{ width: "100%", height: "100%", minHeight: "520px" }}
+    />
+  );
+};
+
+export default ItineraryMap;
+*/
+// frontend/src/components/ItineraryMap.tsx
+import React, { useEffect, useRef } from "react";
+import maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+
+export type MapItineraryItem = {
+  id: number;
+  title: string;
+  address?: string | null;
+  lat: number | null;
+  lon: number | null;
+  sort_order?: number | null; // global sequence 1..N
+  day_index?: number | null;  // which day (for color)
+  stop_index?: number | null; // stop number within that day
+};
+
+type ItineraryMapProps = {
+  items: MapItineraryItem[];
+};
+
+const mapDayColorPalette = [
+  "#746ee5ff",
+  "#b13171ff",
+  "#2fa57eff",
+  "#eb904eff",
+  "#56acd4ff",
+  "#bc78fbff",
+];
+
+function getMapDayColor(dayIndex: number | null | undefined): string {
+  if (!dayIndex || dayIndex <= 0) return "#4f46e5";
+  const idx =
+    ((dayIndex - 1) % mapDayColorPalette.length + mapDayColorPalette.length) %
+    mapDayColorPalette.length;
+  return mapDayColorPalette[idx];
+}
+
+const ROUTE_ID = "itinerary-route";
+
+const ItineraryMap: React.FC<ItineraryMapProps> = ({ items }) => {
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const markersRef = useRef<maplibregl.Marker[]>([]);
+  const styleReadyRef = useRef(false);
+
+  // Init map once
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return;
+
+    const defaultCenter: [number, number] = [103.8198, 1.3521];
+    const styleUrl =
+      "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
+
+    const map = new maplibregl.Map({
+      container: mapContainerRef.current,
+      style: styleUrl,
+      center: defaultCenter,
+      zoom: 6,
+    });
+
+    map.addControl(new maplibregl.NavigationControl(), "bottom-right");
+
+    map.on("error", (e) => {
+      console.error("MapLibre error:", (e as any).error);
+    });
+
+    // ✅ Mark style ready only after "load"
+    map.on("load", () => {
+      styleReadyRef.current = true;
+    });
+
+    mapRef.current = map;
+
+    return () => {
+      try {
+        map.remove();
+      } catch {
+        // ignore
+      }
+      mapRef.current = null;
+      styleReadyRef.current = false;
+    };
+  }, []);
+
+  // Update markers + route when items change
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // If style isn't ready yet, wait then rerun
+    if (!styleReadyRef.current || !map.isStyleLoaded()) {
+      const onLoad = () => {
+        styleReadyRef.current = true;
+        // Trigger a re-render of this effect by doing nothing;
+        // we can just call the same logic again by calling setTimeout
+        setTimeout(() => {
+          // nothing; effect will run next items change anyway
+        }, 0);
+      };
+      map.once("load", onLoad);
+      return () => {
+        map.off("load", onLoad);
+      };
+    }
+
+    // ---- clear old markers ----
+    markersRef.current.forEach((m) => m.remove());
+    markersRef.current = [];
+
+    const coords: [number, number][] = [];
+
+    const sorted = [...(items || [])].sort((a, b) => {
+      const sa = a.sort_order ?? 0;
+      const sb = b.sort_order ?? 0;
+      if (sa !== sb) return sa - sb;
+      return a.id - b.id;
+    });
+
+    sorted.forEach((item) => {
+      if (item.lat == null || item.lon == null) return;
+
+      const seq = item.sort_order ?? 0;
+      const dayIdx = item.day_index ?? 1;
+      const stopIdx = item.stop_index ?? null;
+
+      const color = getMapDayColor(dayIdx);
+
+      const el = document.createElement("div");
+      el.style.width = "26px";
+      el.style.height = "26px";
+      el.style.borderRadius = "999px";
+      el.style.background = color;
+      el.style.color = "white";
+      el.style.display = "flex";
+      el.style.alignItems = "center";
+      el.style.justifyContent = "center";
+      el.style.fontSize = "11px";
+      el.style.fontWeight = "600";
+      el.style.boxShadow = "0 2px 6px rgba(15,23,42,0.35)";
+      el.textContent = seq ? String(seq) : "";
+
+      const dayLabel = item.day_index ? `Day ${item.day_index}` : "";
+      const stopLabel = stopIdx ? ` · Stop ${stopIdx}` : "";
+
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([item.lon, item.lat])
+        .setPopup(
+          new maplibregl.Popup({ offset: 16 }).setHTML(
+            `<strong>${seq ? seq + ". " : ""}${item.title}</strong><br/>
+            ${dayLabel}${stopLabel}<br/>
+            ${item.address || ""}`
+          )
+        )
+        .addTo(map);
+
+      markersRef.current.push(marker);
+      coords.push([item.lon, item.lat]);
+    });
+
+    // ---- fit bounds ----
+    if (coords.length) {
+      const bounds = coords.reduce(
+        (b, c) => b.extend(c as any),
+        new maplibregl.LngLatBounds(coords[0], coords[0])
+      );
+      try {
+        map.fitBounds(bounds, { padding: 60, maxZoom: 13 });
+      } catch {
+        // ignore fit errors
+      }
+    }
+
+    // ---- route layer/source ----
+    const removeRoute = () => {
+      if (map.getLayer(ROUTE_ID)) map.removeLayer(ROUTE_ID);
+      if (map.getSource(ROUTE_ID)) map.removeSource(ROUTE_ID);
+    };
+
+    if (coords.length >= 2) {
+      const routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
+        type: "Feature",
+        geometry: { type: "LineString", coordinates: coords },
+        properties: {},
+      };
+
+      if (map.getSource(ROUTE_ID)) {
+        (map.getSource(ROUTE_ID) as maplibregl.GeoJSONSource).setData(routeGeoJson);
+      } else {
+        map.addSource(ROUTE_ID, { type: "geojson", data: routeGeoJson });
+        map.addLayer({
+          id: ROUTE_ID,
+          type: "line",
+          source: ROUTE_ID,
+          layout: { "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": "#4f46e5",
+            "line-width": 4,
+            "line-opacity": 0.85,
+          },
+        });
+      }
+    } else {
+      removeRoute();
+    }
+
+    return () => {
+      // cleanup route on unmount/refresh
+      // (don’t remove markers here because we already remove them at top)
+    };
   }, [items]);
 
   return (

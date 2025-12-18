@@ -67,6 +67,17 @@ export default function App() {
         {/* Dev home (team testing menu) */}
         <Route path="/" element={<Home />} />
 
+        {/* PohYee */}
+        <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
+        <Route path="/demo" element={<Demo onLoginClick={openLogin} onSignupClick={openSignup} />} />
+        <Route path="/travel-guides/:guideId" element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />} />
+        <Route path="/guest-faq" element={<GuestFAQPage />} />
+        <Route path="/admin-dashboard" element={<AdminDashboard />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        
+        
         {/* Vania */}
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/ai-trip-generator-step-1" element={<AiTripGeneratorStep1 />} />
@@ -77,16 +88,6 @@ export default function App() {
         <Route path="/trips" element={<Trips />} />
         <Route path="/ai-trip-generator/wait" element={<AITripGeneratorWait />} />
 
-
-        {/* PohYee */}
-        <Route path="/landing-page" element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup}  />} />
-        <Route path="/demo" element={<Demo onLoginClick={openLogin} onSignupClick={openSignup} />} />
-        <Route path="/travel-guides/:guideId" element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />} />
-        <Route path="/guest-faq" element={<GuestFAQPage />} />
-        <Route path="/admin-dashboard" element={<AdminDashboard />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />
-        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* KK */}
         <Route path="/discovery-local" element={<DiscoveryLocal />} />
