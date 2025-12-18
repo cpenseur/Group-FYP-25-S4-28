@@ -4,6 +4,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from ..models import Checklist, ChecklistItem, Trip, TripCollaborator, AppUser
 from ..serializers.f3_2_serializers import F32ChecklistSerializer, F32ChecklistItemSerializer
 
+
 def get_app_user(request) -> AppUser:
     u = getattr(request, "user", None)
     if not u or not getattr(u, "is_authenticated", False):
@@ -24,6 +25,7 @@ def get_app_user(request) -> AppUser:
     # If you want to support mapping by id, add it here (only if ids match)
     raise exceptions.NotAuthenticated("Cannot resolve AppUser from request.user.")
 
+
 def _user_can_access_trip(user, trip: Trip) -> bool:
     if not user:
         return False
@@ -32,7 +34,7 @@ def _user_can_access_trip(user, trip: Trip) -> bool:
     return TripCollaborator.objects.filter(
         trip=trip,
         user=user,
-        status=TripCollaborator.Status.ACTIVE,
+        status__in=[TripCollaborator.Status.ACTIVE, TripCollaborator.Status.INVITED],
     ).exists()
 
 
@@ -60,9 +62,15 @@ class F32ChecklistViewSet(viewsets.ModelViewSet):
 
         # Only show user’s own checklists OR checklists for trips user can access
         qs = qs.filter(
-            Q(owner_id=user.id) |
-            Q(trip__owner_id=user.id) |
-            Q(trip__collaborators__user_id=user.id, trip__collaborators__status=TripCollaborator.Status.ACTIVE)
+            Q(owner_id=user.id)
+            | Q(trip__owner_id=user.id)
+            | Q(
+                trip__collaborators__user_id=user.id,
+                trip__collaborators__status__in=[
+                    TripCollaborator.Status.ACTIVE,
+                    TripCollaborator.Status.INVITED,
+                ],
+            )
         ).distinct()
 
         return qs.order_by("-updated_at")
@@ -100,9 +108,15 @@ class F32ChecklistItemViewSet(viewsets.ModelViewSet):
 
         # only items of checklists the user can access
         qs = qs.filter(
-            Q(checklist__owner_id=user.id) |
-            Q(checklist__trip__owner_id=user.id) |
-            Q(checklist__trip__collaborators__user_id=user.id, checklist__trip__collaborators__status=TripCollaborator.Status.ACTIVE)
+            Q(checklist__owner_id=user.id)
+            | Q(checklist__trip__owner_id=user.id)
+            | Q(
+                checklist__trip__collaborators__user_id=user.id,
+                checklist__trip__collaborators__status__in=[
+                    TripCollaborator.Status.ACTIVE,
+                    TripCollaborator.Status.INVITED,
+                ],
+            )
         ).distinct()
 
         return qs.order_by("sort_order", "id")

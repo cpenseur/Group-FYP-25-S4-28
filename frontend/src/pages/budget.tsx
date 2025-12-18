@@ -242,8 +242,8 @@ const pageStyles = `
   background: rgba(0,0,0,0.35);
   display:flex;
   justify-content:center;
-  align-items:center;
-  padding: 18px;
+  align-items:flex-start;
+  padding: 84px 18px 18px;
   z-index: 999;
 }
 
@@ -258,6 +258,9 @@ const pageStyles = `
   overflow-y: auto;
 }
 
+.balances-modal {
+  max-height: calc(100vh - 140px);
+}
 
 .modal h3 {
   margin: 0 0 12px 0;
@@ -337,24 +340,7 @@ const pageStyles = `
 .cat-chart {
   position: relative;
   width: 100%;
-  overflow-x: auto;
-}
-.cat-tooltip {
-  position: absolute;
-  pointer-events: none;
-  background: rgba(17, 24, 39, 0.92);
-  color: #fff;
-  padding: 10px 12px;
-  border-radius: 12px;
-  font-size: 12px;
-  line-height: 1.2;
-  transform: translate(-50%, -120%);
-  white-space: nowrap;
-}
-.cat-tooltip strong {
-  display: block;
-  font-size: 13px;
-  margin-bottom: 4px;
+  overflow: hidden;
 }
 
 .split-controls {
@@ -389,6 +375,22 @@ const pageStyles = `
   color: #111827;
 }
 
+.balances-panel {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+}
+.balances-title {
+  font-weight: 900;
+  color: #111827;
+  font-size: 18px;
+}
+.balances-items {
+  margin-top: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
 
 @media (max-width: 1024px) {
   .page-grid { grid-template-columns: 1fr; }
@@ -399,7 +401,7 @@ function memberLabel(m: TripMember) {
   return (m.full_name && m.full_name.trim()) || (m.email && m.email.trim()) || `User #${m.id}`;
 }
 
-// ✅ Handles string/number safely
+// ƒo. Handles string/number safely
 function fmt(amount: any) {
   const n = Number(amount);
   if (!Number.isFinite(n)) return "0.00";
@@ -417,14 +419,12 @@ function CategoryBarChart({
   categoryTotals: Record<string, number>;
   maxValue: number;
 }) {
-  const [tip, setTip] = useState<null | { x: number; y: number; cat: string; val: number }>(null);
-
-  const W = 720;
-  const rowH = 34;
-  const topPad = 16;
-  const leftPad = 140;
+  const W = 860;
+  const rowH = 30;
+  const topPad = 12;
+  const leftPad = 130;
   const rightPad = 24;
-  const bottomPad = 38;
+  const bottomPad = 30;
 
   const H = topPad + categoryList.length * rowH + bottomPad;
   const safeMax = maxValue > 0 ? maxValue : 1;
@@ -437,23 +437,11 @@ function CategoryBarChart({
     return leftPad + (Math.max(0, v) / safeMax) * usable;
   };
 
-  const onMove = (e: React.MouseEvent, cat: string, val: number) => {
-    const bounds = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setTip({ x: e.clientX - bounds.left, y: e.clientY - bounds.top, cat, val });
-  };
-
   return (
-    <div className="cat-chart-wrap" onMouseLeave={() => setTip(null)}>
+    <div className="cat-chart-wrap">
       <div className="cat-chart-title">Category Breakdown</div>
 
       <div className="cat-chart" style={{ minWidth: 0 }}>
-        {tip && (
-          <div className="cat-tooltip" style={{ left: tip.x, top: tip.y }}>
-            <strong>{tip.cat}</strong>
-            {currency} {fmt(tip.val)}
-          </div>
-        )}
-
         <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Category breakdown chart">
           {/* grid + ticks */}
           {tickValues.map((tv, i) => {
@@ -482,7 +470,7 @@ function CategoryBarChart({
             const x1 = xScale(val);
 
             return (
-              <g key={cat} onMouseMove={(e) => onMove(e, cat, val)} style={{ cursor: "default" }}>
+              <g key={cat} style={{ cursor: "default" }}>
                 <text x={leftPad - 10} y={y + 22} textAnchor="end" fontSize="14" fill="#4b5563">
                   {cat}
                 </text>
@@ -928,7 +916,7 @@ export default function BudgetPage() {
 
             {expenses.length === 0 ? (
               <div className="caption" style={{ marginTop: 12 }}>
-                No expenses yet. Click “Add Expense”.
+                No expenses yet. Click ƒ?oAdd Expenseƒ??.
               </div>
             ) : (
               expenses.map((e) => {
@@ -1111,7 +1099,6 @@ export default function BudgetPage() {
                   </div>
                 </div>
 
-
                 <div className="field" style={{ gridColumn: "1 / -1" }}>
                   <label>Description (optional)</label>
                   <textarea value={formDescription} onChange={(e) => setFormDescription(e.target.value)} />
@@ -1133,44 +1120,45 @@ export default function BudgetPage() {
         {/* Balances modal */}
         {activeModal === "balances" && (
           <div className="modal-backdrop" onMouseDown={() => setActiveModal(null)}>
-            <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modal balances-modal" onMouseDown={(e) => e.stopPropagation()}>
               <h3>Total Balances ({currency})</h3>
 
-              {expenses.length === 0 ? (
-                <div style={{ color: "#6b7280", fontSize: 13 }}>No expenses yet.</div>
-              ) : (
-                <CategoryBarChart
-                  currency={currency}
-                  categoryList={categoryList}
-                  categoryTotals={categoryTotals}
-                  maxValue={maxCategoryTotal}
-                />
-              )}
-
-              <div style={{ marginTop: 18, fontWeight: 900, color: "#111827", fontSize: 18 }}>
-                Balances by member
+              <div className="balances-panel">
+                {expenses.length === 0 ? (
+                  <div style={{ color: "#6b7280", fontSize: 13 }}>No expenses yet.</div>
+                ) : (
+                  <CategoryBarChart
+                    currency={currency}
+                    categoryList={categoryList}
+                    categoryTotals={categoryTotals}
+                    maxValue={maxCategoryTotal}
+                  />
+                )}
               </div>
 
-              <div style={{ marginTop: 10 }}>
-                {members.map((m) => {
-                  const v = balances[String(m.id)] ?? 0;
-                  return (
-                    <div
-                      key={m.id}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        padding: "10px 0",
-                        borderBottom: "1px solid #eee",
-                      }}
-                    >
-                      <div style={{ fontWeight: 800 }}>{memberLabel(m)}</div>
-                      <div style={{ fontWeight: 900 }}>
-                        {v >= 0 ? "+" : "-"} {currency} {fmt(Math.abs(v))}
+              <div className="balances-panel" style={{ marginTop: 14 }}>
+                <div className="balances-title">Balances by member</div>
+                <div className="balances-items">
+                  {members.map((m) => {
+                    const v = balances[String(m.id)] ?? 0;
+                    return (
+                      <div
+                        key={m.id}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          padding: "10px 0",
+                          borderBottom: "1px solid #eee",
+                        }}
+                      >
+                        <div style={{ fontWeight: 800 }}>{memberLabel(m)}</div>
+                        <div style={{ fontWeight: 900 }}>
+                          {v >= 0 ? "+" : "-"} {currency} {fmt(Math.abs(v))}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="modal-actions">

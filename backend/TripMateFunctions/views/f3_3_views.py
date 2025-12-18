@@ -16,6 +16,7 @@ from ..serializers.f3_3_serializers import (
     F33TravelDocumentSerializer,
 )
 
+
 def get_app_user(request) -> AppUser:
     u = getattr(request, "user", None)
     if not u or not getattr(u, "is_authenticated", False):
@@ -36,6 +37,7 @@ def get_app_user(request) -> AppUser:
     # If you want to support mapping by id, add it here (only if ids match)
     raise exceptions.NotAuthenticated("Cannot resolve AppUser from request.user.")
 
+
 def _user_can_access_trip(user: AppUser, trip: Trip) -> bool:
     if not user:
         return False
@@ -44,9 +46,8 @@ def _user_can_access_trip(user: AppUser, trip: Trip) -> bool:
     return TripCollaborator.objects.filter(
         trip=trip,
         user=user,
-        status=TripCollaborator.Status.ACTIVE,
+        status__in=[TripCollaborator.Status.ACTIVE, TripCollaborator.Status.INVITED],
     ).exists()
-
 
 
 class F33ItineraryItemNoteViewSet(BaseViewSet):
@@ -67,7 +68,6 @@ class F33ItineraryItemNoteViewSet(BaseViewSet):
 
         user = get_app_user(self.request)
         if not isinstance(user, AppUser):
-            # if your app expects login for this page, block it
             raise exceptions.NotAuthenticated("Login required.")
 
         # If item is provided, validate trip access using that item
@@ -100,7 +100,10 @@ class F33ItineraryItemNoteViewSet(BaseViewSet):
                 Q(item__trip__owner_id=user.id)
                 | Q(
                     item__trip__collaborators__user_id=user.id,
-                    item__trip__collaborators__status=TripCollaborator.Status.ACTIVE,
+                    item__trip__collaborators__status__in=[
+                        TripCollaborator.Status.ACTIVE,
+                        TripCollaborator.Status.INVITED,
+                    ],
                 )
             ).distinct()
 
@@ -120,6 +123,7 @@ class F33ItineraryItemNoteViewSet(BaseViewSet):
             raise exceptions.PermissionDenied("No access to this trip.")
 
         serializer.save(user=user)
+
 
 class F33ItineraryItemTagViewSet(BaseViewSet):
     """
@@ -142,7 +146,6 @@ class F33ItineraryItemTagViewSet(BaseViewSet):
         elif trip_id:
             qs = qs.filter(item__trip_id=trip_id)
 
-        # no user field in tag model, but you can restrict via item__trip collaborators later
         return qs.order_by("-created_at")
 
 
@@ -173,3 +176,4 @@ class F33TravelDocumentViewSet(BaseViewSet):
         if not isinstance(user, AppUser):
             raise exceptions.NotAuthenticated("Login required to upload document.")
         serializer.save(user=user)
+

@@ -12,6 +12,7 @@ class F31ExpenseSplitSerializer(serializers.ModelSerializer):
 class F31TripExpenseSerializer(serializers.ModelSerializer):
     # IMPORTANT: read_only so DRF won't try to pass "splits" into objects.create()
     splits = F31ExpenseSplitSerializer(many=True, read_only=True)
+    description = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = TripExpense

@@ -23,5 +23,5 @@ class F32ChecklistSerializer(serializers.ModelSerializer):
             "items",
         ]
         extra_kwargs = {
-            "owner": {"read_only": True},   # ✅ IMPORTANT
+            "owner": {"read_only": True},  # Set in perform_create, not by client
         }
