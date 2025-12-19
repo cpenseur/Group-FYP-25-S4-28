@@ -194,6 +194,10 @@ SUPABASE_JWT_SECRET = env("SUPABASE_JWT_SECRET", default="")
 SEA_LION_API_KEY = env("SEA_LION_API_KEY", default=os.environ.get("SEALION_API_KEY", ""))
 SEA_LION_MODEL = env("SEA_LION_MODEL", default="aisingapore/Llama-SEA-LION-v3-70B-IT")
 
+# Gemini fallback settings
+GEMINI_API_KEY = env("GEMINI_API_KEY", default=os.environ.get("GEMINI_API_KEY", ""))
+GEMINI_MODEL = env("GEMINI_MODEL", default="gemini-1.5-flash")
+
 # Email setting
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
