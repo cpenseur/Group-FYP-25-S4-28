@@ -6,6 +6,9 @@ class F33ItineraryItemNoteSerializer(serializers.ModelSerializer):
     class Meta:
         model = ItineraryItemNote
         fields = ["id", "item", "user", "content", "created_at", "updated_at"]
+        extra_kwargs = {
+            "user": {"read_only": True},  # Set in perform_create, not by client
+        }
 
 
 class F33ItineraryItemTagSerializer(serializers.ModelSerializer):
@@ -28,3 +31,6 @@ class F33TravelDocumentSerializer(serializers.ModelSerializer):
             "uploaded_at",
             "notes",
         ]
+        extra_kwargs = {
+            "user": {"read_only": True},  # Set in perform_create, not by client
+        }

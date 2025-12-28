@@ -1,343 +1,87 @@
-import React, { useMemo, useState } from "react";
+// frontend/src/pages/budget.tsx
+import React, { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
+import { apiFetch } from "../lib/apiClient";
+import TripSubHeader from "../components/TripSubHeader";
 
-interface Expense {
+/**
+ * Backend expectations:
+ * - Budget:
+ *    GET    /f3/budgets/?trip=:tripId
+ *    POST   /f3/budgets/
+ *    PATCH  /f3/budgets/:id/
+ *
+ * - Expenses:
+ *    GET    /f3/expenses/?trip=:tripId
+ *    POST   /f3/expenses/
+ *    PATCH  /f3/expenses/:id/
+ *    DELETE /f3/expenses/:id/
+ *
+ * - Splits:
+ *    POST   /f3/expense-splits/
+ *    DELETE /f3/expense-splits/:id/
+ *
+ * - Trip members:
+ *    GET    /f3/budgets/trip-members/?trip=:tripId
+ *
+ * - FX:
+ *    GET /f3/fx/latest/?base=SGD
+ */
+
+type TripMember = {
+  id: string; // UUID string
+  full_name: string | null;
+  email: string | null;
+};
+
+type ExpenseSplit = {
   id: number;
+  expense: number;
+  user: string; // UUID string
+  amount: number;
+  is_settled: boolean;
+};
+
+type TripExpense = {
+  id: number;
+  trip: number;
+  payer: string; // UUID string
+  description: string;
   category: string;
   amount: number;
   currency: string;
-  payer?: string;
-  date?: string;
-  splitWith?: string[];
-}
+  paid_at: string | null;
+  linked_day: number | null;
+  linked_item: number | null;
+  splits?: ExpenseSplit[];
+};
 
-const pageStyles = `
-.budget-page {
-  padding: 24px 24px 48px;
-  background: #f7f8fb;
-  min-height: 100vh;
-  font-family: "Inter", "Segoe UI", sans-serif;
-  color: #1f1f1f;
-}
+type TripBudget = {
+  id: number;
+  trip: number;
+  currency: string;
+  planned_total: any; // backend may send string
+  actual_total: any;
+};
 
-.page-grid {
-  display: grid;
-  grid-template-columns: 1fr 1.1fr;
-  gap: 28px;
-  align-items: start;
-}
+type ModalType = "budget" | "expense" | "balances" | null;
 
-.budget-panel {
-  background: #f1f1f1;
-  border-radius: 18px;
-  border: 1px solid #e4e4e4;
-  padding: 18px;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.04);
-}
+const currencyOptions = [
+  "SGD",
+  "USD",
+  "EUR",
+  "GBP",
+  "JPY",
+  "AUD",
+  "CAD",
+  "MYR",
+  "THB",
+  "IDR",
+  "CNY",
+  "INR",
+  "KRW",
+];
 
-.budget-panel h2 {
-  margin: 0 0 12px 0;
-  font-size: 24px;
-  font-weight: 800;
-}
-
-.budget-amount {
-  font-size: 42px;
-  font-weight: 800;
-  margin: 0 0 12px 0;
-  color: #1f1f1f;
-}
-
-.budget-caption {
-  margin: 8px 0 16px 0;
-  font-style: italic;
-  color: #403535;
-}
-
-.progress-track {
-  width: 100%;
-  height: 10px;
-  background: #d9d9d9;
-  border-radius: 999px;
-  overflow: hidden;
-  border: 1px solid #c5c5c5;
-}
-
-.progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #9c2c2c, #c65b5b);
-  border-radius: 999px;
-}
-
-.budget-actions {
-  margin-top: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.pill-btn {
-  border: 1px solid #c6c2b9;
-  background: #ddd8cd;
-  border-radius: 999px;
-  padding: 12px 16px;
-  font-weight: 800;
-  font-size: 16px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: #1f1f1f;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
-}
-
-.pill-btn.secondary {
-  background: #e9e6de;
-}
-
-.expenses-panel {
-  background: transparent;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.expenses-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.expenses-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 26px;
-  font-weight: 800;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.add-expense-btn {
-  background: #b09b9f;
-  color: #fff;
-  border: none;
-  border-radius: 999px;
-  padding: 10px 16px;
-  font-weight: 800;
-  cursor: pointer;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
-}
-
-.filter-btn {
-  background: #e3e3e3;
-  border: 1px solid #cfcfcf;
-  border-radius: 999px;
-  padding: 10px 12px;
-  cursor: pointer;
-}
-
-.expense-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.expense-card {
-  background: #f1f1f1;
-  border-radius: 14px;
-  padding: 14px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border: 1px solid #e0e0e0;
-}
-
-.expense-main {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.expense-cat {
-  font-size: 18px;
-  font-weight: 800;
-}
-
-.expense-meta {
-  font-size: 13px;
-  color: #5d6678;
-}
-
-.expense-amt {
-  font-size: 22px;
-  font-weight: 800;
-}
-
-.expense-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.icon-btn {
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 15px;
-  padding: 4px 6px;
-  color: #333;
-}
-
-.muted {
-  color: #8a8f9f;
-}
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(20, 20, 20, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 50;
-  padding: 20px;
-}
-
-.modal-card {
-  background: #fff;
-  border-radius: 18px;
-  padding: 22px;
-  width: min(560px, 95vw);
-  box-shadow: 0 20px 44px rgba(20, 30, 60, 0.2);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.modal-title {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 800;
-}
-
-.close-btn {
-  border: 1px solid #c7c7c7;
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
-  background: #f5f5f5;
-  cursor: pointer;
-  font-size: 16px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.field label {
-  font-weight: 700;
-  color: #1f1f1f;
-}
-
-.field-row {
-  display: grid;
-  grid-template-columns: 0.6fr 1.4fr;
-  gap: 8px;
-}
-
-.input,
-.select {
-  width: 100%;
-  border: 1px solid #c6a5a5;
-  border-radius: 12px;
-  padding: 12px 14px;
-  font-size: 16px;
-  background: #fff;
-}
-
-.select {
-  appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, #555 50%), linear-gradient(135deg, #555 50%, transparent 50%);
-  background-position: calc(100% - 18px) calc(50% - 4px), calc(100% - 13px) calc(50% - 4px);
-  background-size: 8px 8px, 8px 8px;
-  background-repeat: no-repeat;
-}
-
-.inline-row {
-  display: grid;
-  grid-template-columns: 0.35fr 1fr;
-  gap: 8px;
-}
-
-.split-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.split-chip {
-  border: 1px solid #d4d4d4;
-  border-radius: 999px;
-  padding: 8px 12px;
-  background: #f1f1f1;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.split-chip.active {
-  background: #d8c7c9;
-  border-color: #c7a7ab;
-}
-
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 6px;
-}
-
-.ghost-btn {
-  background: transparent;
-  border: 1px solid #c8d6ff;
-  color: #1f3a6f;
-  padding: 10px 16px;
-  border-radius: 10px;
-  cursor: pointer;
-  font-weight: 700;
-}
-
-.primary-btn {
-  background: #b09b9f;
-  color: #fff;
-  border: none;
-  padding: 12px 18px;
-  border-radius: 12px;
-  cursor: pointer;
-  font-weight: 800;
-}
-
-@media (max-width: 1024px) {
-  .page-grid {
-    grid-template-columns: 1fr;
-  }
-}
-`;
-
-const currencyOptions = ["SGD", "USD", "EUR", "GBP", "JPY", "AUD", "CAD", "MYR", "THB", "IDR", "CNY", "INR"];
 const categoryOptions = [
   "Flights",
   "Lodging",
@@ -352,509 +96,1077 @@ const categoryOptions = [
   "Groceries",
   "Other",
 ];
-const defaultCollaborators = ["Ray", "Lena", "Priya", "Marcus", "Mei"];
-const sgdPerUnit: Record<string, number> = {
-  SGD: 1,
-  USD: 1.35,
-  EUR: 1.45,
-  GBP: 1.7,
-  JPY: 0.0093,
-  AUD: 0.88,
-  CAD: 0.99,
-  MYR: 0.29,
-  THB: 0.037,
-  IDR: 0.000089,
-  CNY: 0.19,
-  INR: 0.016,
-};
 
-const convertAmount = (amount: number, from: string, to: string) => {
-  const fromRate = sgdPerUnit[from] ?? 1;
-  const toRate = sgdPerUnit[to] ?? 1;
-  return (amount * fromRate) / toRate;
-};
+const pageStyles = `
+.budget-page {
+  padding: 24px 24px 48px;
+  background: #f7f8fb;
+  min-height: 100vh;
+  font-family: "Inter", "Segoe UI", sans-serif;
+  color: #1f1f1f;
+}
+.warn {
+  max-width: 1200px;
+  margin: 0 auto 18px auto;
+  background: #fff3e5;
+  border: 1px solid #f1d2ac;
+  color: #7a4b17;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+.page-grid {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1.1fr;
+  gap: 28px;
+  align-items: start;
+}
+.panel {
+  background: #ffffff;
+  border-radius: 18px;
+  border: 1px solid #e6e8ef;
+  padding: 18px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.04);
+}
+.panel h2 {
+  margin: 0 0 12px 0;
+  font-size: 24px;
+  font-weight: 800;
+}
+.big-amount {
+  font-size: 44px;
+  font-weight: 900;
+  margin: 6px 0 12px 0;
+}
+.caption {
+  margin: 8px 0 16px 0;
+  font-style: italic;
+  color: #403535;
+}
+.progress-track {
+  width: 100%;
+  height: 10px;
+  background: #e7e7e7;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid #d0d0d0;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #9c2c2c, #c65b5b);
+  border-radius: 999px;
+}
+.row {
+  display:flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  color:#2b2b2b;
+}
+.btn {
+  width: 100%;
+  margin-top: 14px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid #d7d9df;
+  font-weight: 900;
+  cursor: pointer;
+  background: #f3efe6;
+}
+.btn.primary {
+  background: #b09b9f;
+  color: #fff;
+  border: none;
+}
+.exp-header {
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.small-btn {
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: none;
+  font-weight: 900;
+  cursor: pointer;
+  background: #b09b9f;
+  color: #fff;
+}
+.card {
+  margin-top: 14px;
+  background: #f2f2f2;
+  border: 1px solid #dedede;
+  border-radius: 16px;
+  padding: 14px;
+}
+.card-top {
+  display:flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items:flex-start;
+}
+.card-title {
+  font-weight: 900;
+  font-size: 18px;
+}
+.card-meta {
+  color: #6b7280;
+  font-size: 14px;
+  margin-top: 4px;
+}
+.card-right {
+  display:flex;
+  gap: 18px;
+  align-items:center;
+}
+.amount {
+  font-size: 22px;
+  font-weight: 900;
+}
+.mini {
+  font-size: 14px;
+  color: #6b7280;
+  font-weight: 800;
+}
+.link-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-weight: 900;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  display:flex;
+  justify-content:center;
+  align-items:flex-start;
+  padding: 84px 18px 18px;
+  z-index: 999;
+}
+
+.modal {
+  width: min(760px, 96vw);
+  background: #fff;
+  border-radius: 18px;
+  padding: 18px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.2);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.balances-modal {
+  max-height: calc(100vh - 140px);
+}
+
+.modal h3 {
+  margin: 0 0 12px 0;
+  font-size: 20px;
+  font-weight: 900;
+}
+.grid2 {
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.field label {
+  display:block;
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 6px;
+  font-weight: 800;
+}
+.field input, .field select, .field textarea {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #d1d5db;
+  outline: none;
+  font-size: 14px;
+  box-sizing: border-box;
+  background: #fff;
+  color: #111827;
+  font-family: inherit;
+}
+.field textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+.field select[multiple] {
+  min-height: 120px;
+  padding: 8px 10px;
+}
+.modal-actions {
+  display:flex;
+  justify-content:flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+.secondary {
+  background:#f3f4f6;
+  color:#111827;
+  border:1px solid #e5e7eb;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-weight: 900;
+  cursor:pointer;
+}
+.primary {
+  background:#111827;
+  color:#fff;
+  border:none;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-weight: 900;
+  cursor:pointer;
+}
+
+/* --- Category chart (like screenshot #1) --- */
+.cat-chart-wrap {
+  margin-top: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+  padding: 12px;
+}
+.cat-chart-title {
+  font-weight: 900;
+  margin: 0 0 10px 0;
+  color: #111827;
+}
+.cat-chart {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.split-controls {
+  display: flex;
+  gap: 10px;
+  margin: 4px 0 8px;
+}
+.split-controls button {
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+.split-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 140px;
+  overflow-y: auto;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fff;
+}
+.split-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #111827;
+}
+
+.balances-panel {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+}
+.balances-title {
+  font-weight: 900;
+  color: #111827;
+  font-size: 18px;
+}
+.balances-items {
+  margin-top: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+@media (max-width: 1024px) {
+  .page-grid { grid-template-columns: 1fr; }
+}
+`;
+
+function memberLabel(m: TripMember) {
+  return (m.full_name && m.full_name.trim()) || (m.email && m.email.trim()) || `User #${m.id}`;
+}
+
+// ƒo. Handles string/number safely
+function fmt(amount: any) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return "0.00";
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function CategoryBarChart({
+  currency,
+  categoryList,
+  categoryTotals,
+  maxValue,
+}: {
+  currency: string;
+  categoryList: string[];
+  categoryTotals: Record<string, number>;
+  maxValue: number;
+}) {
+  const W = 860;
+  const rowH = 30;
+  const topPad = 12;
+  const leftPad = 130;
+  const rightPad = 24;
+  const bottomPad = 30;
+
+  const H = topPad + categoryList.length * rowH + bottomPad;
+  const safeMax = maxValue > 0 ? maxValue : 1;
+
+  const ticks = 4;
+  const tickValues = Array.from({ length: ticks + 1 }, (_, i) => (safeMax * i) / ticks);
+
+  const xScale = (v: number) => {
+    const usable = W - leftPad - rightPad;
+    return leftPad + (Math.max(0, v) / safeMax) * usable;
+  };
+
+  return (
+    <div className="cat-chart-wrap">
+      <div className="cat-chart-title">Category Breakdown</div>
+
+      <div className="cat-chart" style={{ minWidth: 0 }}>
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Category breakdown chart">
+          {/* grid + ticks */}
+          {tickValues.map((tv, i) => {
+            const x = xScale(tv);
+            return (
+              <g key={i}>
+                <line x1={x} y1={topPad - 6} x2={x} y2={H - bottomPad + 6} stroke="#e5e7eb" />
+                <text x={x} y={H - 12} textAnchor="middle" fontSize="12" fill="#6b7280">
+                  {currency} {fmt(tv)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* x-axis */}
+          <line x1={leftPad} y1={H - bottomPad} x2={W - rightPad} y2={H - bottomPad} stroke="#6b7280" />
+
+          {/* bars + labels */}
+          {categoryList.map((cat, idx) => {
+            const val = categoryTotals[cat] || 0;
+            const y = topPad + idx * rowH;
+            const barY = y + 7;
+            const barH = 20;
+
+            const x0 = leftPad;
+            const x1 = xScale(val);
+
+            return (
+              <g key={cat} style={{ cursor: "default" }}>
+                <text x={leftPad - 10} y={y + 22} textAnchor="end" fontSize="14" fill="#4b5563">
+                  {cat}
+                </text>
+
+                <rect
+                  x={x0}
+                  y={barY}
+                  width={W - rightPad - leftPad}
+                  height={barH}
+                  rx={10}
+                  fill="#f3f4f6"
+                  stroke="#e5e7eb"
+                />
+
+                <rect
+                  x={x0}
+                  y={barY}
+                  width={Math.max(0, x1 - x0)}
+                  height={barH}
+                  rx={10}
+                  fill="#bfc8ff"
+                />
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
 
 export default function BudgetPage() {
-  const [tripName] = useState("Trip to Japan");
-  const [location] = useState("Tokyo - Osaka");
-  const [duration] = useState("7 days - 6 nights");
-  const [currency, setCurrency] = useState("SGD");
+  const params = useParams();
+  const tripId = Number((params as any).tripId || (params as any).id);
 
-  const [budgetPlanned, setBudgetPlanned] = useState(2650);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [collaborators, setCollaborators] = useState<string[]>(defaultCollaborators);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [members, setMembers] = useState<TripMember[]>([]);
+  const [expenses, setExpenses] = useState<TripExpense[]>([]);
+  const [budget, setBudget] = useState<TripBudget | null>(null);
 
-  const [showBudgetModal, setShowBudgetModal] = useState(false);
-  const [showExpenseModal, setShowExpenseModal] = useState(false);
-  const [showTripmateModal, setShowTripmateModal] = useState(false);
-  const [showBalancesModal, setShowBalancesModal] = useState(false);
-  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [currency, setCurrency] = useState<string>("SGD");
 
-  const [formBudget, setFormBudget] = useState(budgetPlanned.toString());
-  const [formCurrency, setFormCurrency] = useState(currency);
+  const [sgdPerUnit, setSgdPerUnit] = useState<Record<string, number>>({ SGD: 1 });
+  const [fxWarning, setFxWarning] = useState<string | null>(null);
 
+  const [activeModal, setActiveModal] = useState<ModalType>(null);
+
+  const [formBudget, setFormBudget] = useState<string>("0");
+  const [formCurrency, setFormCurrency] = useState<string>("SGD");
+
+  const [editingExpense, setEditingExpense] = useState<TripExpense | null>(null);
   const [formCategory, setFormCategory] = useState(categoryOptions[0]);
   const [formAmount, setFormAmount] = useState("");
-  const [formPayer, setFormPayer] = useState(defaultCollaborators[0]);
-  const [formExpenseCurrency, setFormExpenseCurrency] = useState(currency);
+  const [formExpenseCurrency, setFormExpenseCurrency] = useState("SGD");
+  const [formPayerId, setFormPayerId] = useState<string | null>(null);
+  const [formSplitIds, setFormSplitIds] = useState<string[]>([]);
   const [formDate, setFormDate] = useState("");
-  const [formSplitWith, setFormSplitWith] = useState<string[]>([]);
-  const [inviteLink] = useState("https://tripmate.example.com/plan/xyz123");
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [newCollaborator, setNewCollaborator] = useState("");
+  const [formDescription, setFormDescription] = useState("");
+
+  const convertAmount = (amount: number, from: string, to: string) => {
+    const fromRate = sgdPerUnit[from] ?? 1;
+    const toRate = sgdPerUnit[to] ?? 1;
+    return (amount * fromRate) / toRate;
+  };
+
+  const reloadAll = async () => {
+    if (!tripId || Number.isNaN(tripId)) {
+      setErrorMsg("Missing tripId in URL.");
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setErrorMsg(null);
+
+    try {
+      const m: TripMember[] = await apiFetch(`/f3/budgets/trip-members/?trip=${tripId}`);
+      setMembers(Array.isArray(m) ? m : []);
+
+      const budgetList: TripBudget[] = await apiFetch(`/f3/budgets/?trip=${tripId}`);
+      let b = (Array.isArray(budgetList) ? budgetList : [])?.[0] || null;
+
+      if (!b) {
+        b = await apiFetch(`/f3/budgets/`, {
+          method: "POST",
+          body: JSON.stringify({
+            trip: tripId,
+            currency: "SGD",
+            planned_total: 0,
+            actual_total: 0,
+          }),
+        });
+      }
+
+      setBudget(b);
+      setCurrency(b.currency || "SGD");
+      setFormCurrency(b.currency || "SGD");
+      setFormBudget(String(Number(b.planned_total ?? 0)));
+
+      const exps: TripExpense[] = await apiFetch(`/f3/expenses/?trip=${tripId}`);
+      setExpenses(Array.isArray(exps) ? exps : []);
+
+      try {
+        const fx = await apiFetch(`/f3/fx/latest/?base=SGD`);
+        const rates = fx?.sgd_per_unit || fx?.rates || null;
+
+        if (rates && typeof rates === "object") {
+          setSgdPerUnit({ SGD: 1, ...rates });
+          setFxWarning(null);
+        } else {
+          setFxWarning("FX rates endpoint returned unexpected data. Using 1:1 conversion.");
+        }
+      } catch {
+        setFxWarning("FX rates endpoint not available yet. Using 1:1 conversion.");
+      }
+    } catch (e: any) {
+      setErrorMsg(e?.message || "Failed to load budget data.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    reloadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripId]);
+
+  const plannedTotal = Number(budget?.planned_total ?? 0);
 
   const totalSpent = useMemo(() => {
     return expenses.reduce((sum, e) => sum + convertAmount(e.amount, e.currency, currency), 0);
-  }, [expenses, currency]);
+  }, [expenses, currency, sgdPerUnit]);
 
-  const remaining = budgetPlanned - totalSpent;
+  const categoryTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    expenses.forEach((e) => {
+      const cat = e.category && e.category.trim() ? e.category : "Other";
+      totals[cat] = (totals[cat] || 0) + convertAmount(e.amount, e.currency, currency);
+    });
+    return totals;
+  }, [expenses, currency, sgdPerUnit]);
+
+  const categoryList = useMemo(() => {
+    const extras = new Set<string>();
+    expenses.forEach((e) => {
+      if (e.category && e.category.trim()) extras.add(e.category);
+    });
+
+    const merged = [...categoryOptions];
+    extras.forEach((c) => {
+      if (!merged.includes(c)) merged.push(c);
+    });
+    return merged;
+  }, [expenses]);
+
+  const maxCategoryTotal = useMemo(() => {
+    if (!categoryList.length) return 0;
+    return Math.max(0, ...categoryList.map((c) => categoryTotals[c] || 0));
+  }, [categoryList, categoryTotals]);
+
+  const remaining = plannedTotal - totalSpent;
+
+  const memberById = useMemo(() => {
+    const map = new Map<string, TripMember>();
+    members.forEach((m) => map.set(String(m.id), m));
+    return map;
+  }, [members]);
+
+  const balances = useMemo(() => {
+    const bal: Record<string, number> = {};
+    members.forEach((m) => (bal[String(m.id)] = 0));
+
+    for (const exp of expenses) {
+      const expTotalPref = convertAmount(exp.amount, exp.currency, currency);
+      const splits = exp.splits && exp.splits.length ? exp.splits : null;
+
+      if (exp.payer) {
+        bal[String(exp.payer)] = (bal[String(exp.payer)] ?? 0) + expTotalPref;
+      }
+
+      if (splits) {
+        for (const s of splits) {
+          const sharePref = convertAmount(s.amount, exp.currency, currency);
+          bal[String(s.user)] = (bal[String(s.user)] ?? 0) - sharePref;
+        }
+      } else {
+        const ids = members.map((m) => String(m.id));
+        const share = ids.length ? expTotalPref / ids.length : expTotalPref;
+        ids.forEach((uid) => {
+          bal[uid] = (bal[uid] ?? 0) - share;
+        });
+      }
+    }
+
+    return bal;
+  }, [expenses, members, currency, sgdPerUnit]);
+
+  const progressPct = useMemo(() => {
+    if (plannedTotal <= 0) return 0;
+    return Math.min(100, Math.max(0, (totalSpent / plannedTotal) * 100));
+  }, [plannedTotal, totalSpent]);
+
+  const openBudgetModal = () => {
+    setFormBudget(String(Number(budget?.planned_total ?? 0)));
+    setFormCurrency(currency);
+    setActiveModal("budget");
+  };
 
   const resetExpenseForm = () => {
     setEditingExpense(null);
     setFormCategory(categoryOptions[0]);
     setFormAmount("");
-    setFormPayer(collaborators[0] || "");
     setFormExpenseCurrency(currency);
     setFormDate("");
-    setFormSplitWith(collaborators);
+    setFormDescription("");
+
+    setFormPayerId(null);
+    setFormSplitIds(members.map((m) => String(m.id)));
   };
 
-  const toggleSplitWith = (name: string) => {
-    setFormSplitWith((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
-    );
-  };
-
-  const handleBudgetSave = () => {
-    const val = parseFloat(formBudget);
-    if (Number.isNaN(val) || val < 0) return;
-    setBudgetPlanned(val);
-    setCurrency(formCurrency || currency);
-    setShowBudgetModal(false);
-  };
-
-  const handleExpenseSave = () => {
-    const amt = parseFloat(formAmount);
-    if (!formCategory.trim() || Number.isNaN(amt) || amt < 0) return;
-    if (!formPayer) return;
-    const participants = formSplitWith.length ? formSplitWith : collaborators;
-    const normalized = participants.includes(formPayer) ? participants : [...participants, formPayer];
-
-    if (editingExpense) {
-      setExpenses((prev) =>
-        prev.map((e) =>
-          e.id === editingExpense.id
-            ? {
-                ...e,
-                category: formCategory.trim(),
-                amount: amt,
-                currency: formExpenseCurrency,
-                payer: formPayer,
-                date: formDate,
-                splitWith: normalized,
-              }
-            : e
-        )
-      );
-    } else {
-      setExpenses((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          category: formCategory.trim(),
-          amount: amt,
-          currency: formExpenseCurrency,
-          payer: formPayer || undefined,
-          date: formDate || undefined,
-          splitWith: normalized,
-        },
-      ]);
-    }
+  const openNewExpenseModal = () => {
     resetExpenseForm();
-    setShowExpenseModal(false);
+    setActiveModal("expense");
   };
 
-  const handleExpenseDelete = (id: number) => {
-    setExpenses((prev) => prev.filter((e) => e.id !== id));
-    if (editingExpense?.id === id) resetExpenseForm();
-  };
+  const openEditExpenseModal = (e: TripExpense) => {
+    setEditingExpense(e);
+    setFormCategory(e.category || categoryOptions[0]);
+    setFormAmount(String(e.amount ?? ""));
+    setFormExpenseCurrency(e.currency || currency);
+    setFormDate(e.paid_at ? String(e.paid_at).slice(0, 10) : "");
+    setFormDescription(e.description || "");
+    setFormPayerId(e.payer ?? null);
 
-  const balances = useMemo(() => {
-    const initial = collaborators.reduce<Record<string, number>>((acc, name) => {
-      acc[name] = 0;
-      return acc;
-    }, {});
-
-    expenses.forEach((exp) => {
-      const participants = exp.splitWith && exp.splitWith.length ? exp.splitWith : collaborators;
-      const converted = convertAmount(exp.amount, exp.currency, currency);
-      const share = participants.length ? converted / participants.length : converted;
-      if (exp.payer) {
-        initial[exp.payer] = (initial[exp.payer] ?? 0) + converted;
-      }
-      participants.forEach((name) => {
-        initial[name] = (initial[name] ?? 0) - share;
-      });
-    });
-
-    return initial;
-  }, [expenses, collaborators, currency]);
-
-  const handleAddCollaborator = () => {
-    const trimmed = newCollaborator.trim();
-    if (!trimmed) return false;
-    if (collaborators.includes(trimmed)) return false;
-    setCollaborators((prev) => [...prev, trimmed]);
-    setNewCollaborator("");
-    return true;
-  };
-
-  const handleInviteEmail = () => {
-    const email = inviteEmail.trim();
-    if (!email) return false;
-    if (!collaborators.includes(email)) {
-      setCollaborators((prev) => [...prev, email]);
+    if (e.splits && e.splits.length) {
+      setFormSplitIds(e.splits.map((s) => String(s.user)));
+    } else {
+      setFormSplitIds(members.map((m) => String(m.id)));
     }
-    setInviteEmail("");
-    return true;
+
+    setActiveModal("expense");
   };
 
-  const handleCopyLink = async () => {
+  const saveBudget = async () => {
+    if (!budget) return;
+
+    const planned = Number(formBudget);
+    if (!Number.isFinite(planned) || planned < 0) {
+      alert("Invalid budget amount.");
+      return;
+    }
+
+    const newCurrency = formCurrency;
+
     try {
-      await navigator.clipboard.writeText(inviteLink);
-    } catch {
-      // noop if clipboard is unavailable
+      const updated: TripBudget = await apiFetch(`/f3/budgets/${budget.id}/`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          planned_total: planned,
+          currency: newCurrency,
+        }),
+      });
+
+      setBudget(updated);
+      setCurrency(updated.currency || newCurrency);
+      setFormBudget(String(Number(updated.planned_total ?? planned)));
+      setFormCurrency(updated.currency || newCurrency);
+      setActiveModal(null);
+    } catch (e: any) {
+      alert(e?.message || "Failed to save budget.");
     }
   };
+
+  const saveExpense = async () => {
+    if (!tripId) return;
+
+    const amt = Number(formAmount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      alert("Invalid expense amount.");
+      return;
+    }
+    if (!formPayerId) {
+      alert("Please select who paid for this expense.");
+      return;
+    }
+    if (!formSplitIds.length) {
+      alert("Please select at least one participant.");
+      return;
+    }
+
+    const payload = {
+      trip: tripId,
+      payer: formPayerId,
+      description: formDescription || "",
+      category: formCategory,
+      amount: amt,
+      currency: formExpenseCurrency,
+      paid_at: formDate ? formDate : null,
+      linked_day: null,
+      linked_item: null,
+    };
+
+    try {
+      let saved: TripExpense;
+
+      if (editingExpense) {
+        if (editingExpense.splits && editingExpense.splits.length > 0) {
+          await Promise.all(
+            editingExpense.splits.map((split) =>
+              apiFetch(`/f3/expense-splits/${split.id}/`, {
+                method: "DELETE",
+              })
+            )
+          );
+        }
+
+        saved = await apiFetch(`/f3/expenses/${editingExpense.id}/`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        saved = await apiFetch(`/f3/expenses/`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+
+      const share = Math.round((amt / formSplitIds.length) * 100) / 100;
+
+      for (const uid of formSplitIds) {
+        try {
+          await apiFetch(`/f3/expense-splits/`, {
+            method: "POST",
+            body: JSON.stringify({
+              expense: saved.id,
+              user: uid,
+              amount: share,
+              is_settled: false,
+            }),
+          });
+        } catch (splitError: any) {
+          console.error(`Failed to create split for user ${uid}:`, splitError);
+        }
+      }
+
+      setActiveModal(null);
+      await reloadAll();
+    } catch (e: any) {
+      alert(e?.message || "Failed to save expense.");
+    }
+  };
+
+  const deleteExpense = async (e: TripExpense) => {
+    if (!confirm("Delete this expense?")) return;
+    try {
+      await apiFetch(`/f3/expenses/${e.id}/`, { method: "DELETE" });
+      await reloadAll();
+    } catch (err: any) {
+      alert(err?.message || "Failed to delete expense.");
+    }
+  };
+
+  if (loading) {
+    return (
+      <>
+        <style>{pageStyles}</style>
+        <TripSubHeader />
+        <div className="budget-page">
+          <div style={{ maxWidth: 1200, margin: "0 auto", color: "#6b7280", fontSize: 14 }}>
+            Loading budget...
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (errorMsg) {
+    return (
+      <>
+        <style>{pageStyles}</style>
+        <TripSubHeader />
+        <div className="budget-page">
+          <div className="warn">{errorMsg}</div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
       <style>{pageStyles}</style>
+      <TripSubHeader />
+
       <div className="budget-page">
+        {fxWarning && <div className="warn">{fxWarning}</div>}
+
         <div className="page-grid">
-          <section className="budget-panel">
+          {/* LEFT */}
+          <div className="panel">
             <h2>Budgeting</h2>
-            <div className="budget-amount">
-              {currency} {totalSpent.toLocaleString()}
+
+            <div className="big-amount">
+              {currency} {fmt(totalSpent)}
             </div>
+
             <div className="progress-track">
-              <div
-                className="progress-fill"
-                style={{ width: `${Math.min(100, (totalSpent / Math.max(budgetPlanned, 1)) * 100)}%` }}
-              />
-            </div>
-            <div className="budget-caption">
-              Budget: {currency} {budgetPlanned.toLocaleString()}
-            </div>
-            <div className="budget-caption">
-              Remaining: {currency} {remaining.toLocaleString()}
+              <div className="progress-fill" style={{ width: `${progressPct}%` }} />
             </div>
 
-            <div className="budget-actions">
-              <button className="pill-btn" onClick={() => {
-                setFormBudget(budgetPlanned.toString());
-                setFormCurrency(currency);
-                setShowBudgetModal(true);
-              }}>
-                Edit Budget
-              </button>
-              <button className="pill-btn secondary" onClick={() => setShowTripmateModal(true)}>Add Tripmate</button>
-              <button className="pill-btn secondary" onClick={() => setShowBalancesModal(true)}>Total Balances</button>
-              <button className="pill-btn secondary">Settings</button>
-            </div>
-          </section>
-
-          <section className="expenses-panel">
-            <div className="expenses-header">
-              <div className="expenses-title">Expenses</div>
-              <div className="header-actions">
-                <button
-                  className="add-expense-btn"
-                  onClick={() => {
-                    resetExpenseForm();
-                    setShowExpenseModal(true);
-                  }}
-                >
-                  + Add Expense
-                </button>
-                <button className="filter-btn" title="Filters">
-                  Filters
-                </button>
+            <div className="row">
+              <div style={{ fontStyle: "italic" }}>Budget:</div>
+              <div style={{ fontWeight: 900 }}>
+                {currency} {fmt(plannedTotal)}
               </div>
             </div>
 
-            <div className="expense-list">
-              {expenses.map((e) => (
-                <div key={e.id} className="expense-card">
-                  <div className="expense-main">
-                    <div className="expense-cat">{e.category}</div>
-                    {e.payer && <div className="expense-meta">Paid by {e.payer}</div>}
-                    {e.splitWith && e.splitWith.length > 0 && (
-                      <div className="expense-meta">Split with: {e.splitWith.join(", ")}</div>
-                    )}
-                  </div>
-                  <div className="expense-actions">
-                    <div className="expense-amt">
-                      {e.currency} {e.amount.toLocaleString()} ({currency} {convertAmount(e.amount, e.currency, currency).toLocaleString()})
-                    </div>
-                    <button
-                      className="icon-btn"
-                      onClick={() => {
-                        setEditingExpense(e);
-                        setFormCategory(e.category);
-                        setFormAmount(e.amount.toString());
-                        setFormExpenseCurrency(e.currency);
-                        setFormPayer(e.payer || collaborators[0] || "");
-                        setFormDate(e.date || "");
-                        setFormSplitWith(e.splitWith || []);
-                        setShowExpenseModal(true);
-                      }}
-                    >
-                      Edit
-                    </button>
-                    <button className="icon-btn" onClick={() => handleExpenseDelete(e.id)}>
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {expenses.length === 0 && <div className="muted">No expenses yet.</div>}
+            <div className="row">
+              <div style={{ fontStyle: "italic" }}>Remaining:</div>
+              <div style={{ fontWeight: 900 }}>
+                {currency} {fmt(remaining)}
+              </div>
             </div>
-          </section>
-        </div>
 
-        {(showBudgetModal || showExpenseModal || showTripmateModal || showBalancesModal) && (
-          <div className="modal-overlay" onClick={() => {
-            setShowBudgetModal(false);
-            setShowExpenseModal(false);
-            setShowTripmateModal(false);
-            setShowBalancesModal(false);
-          }}>
-            <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-              {showTripmateModal && (
-                <>
-                  <div className="modal-header">
-                    <h3 className="modal-title">Invite tripmates</h3>
-                    <button className="close-btn" onClick={() => setShowTripmateModal(false)}>X</button>
-                  </div>
-                  <div className="field">
-                    <label>Share link</label>
-                    <div className="inline-row">
-                      <input className="input" type="text" value={inviteLink} readOnly />
-                      <button className="primary-btn" type="button" onClick={handleCopyLink}>
-                        Copy link
-                      </button>
-                    </div>
-                  </div>
-                  <div className="field">
-                    <label>Invite by email or user</label>
-                    <div className="inline-row">
-                      <input
-                        className="input"
-                        type="email"
-                        value={inviteEmail}
-                        onChange={(e) => setInviteEmail(e.target.value)}
-                        placeholder="email@example.com"
-                      />
-                      <button className="primary-btn" type="button" onClick={handleInviteEmail}>
-                        Invite
-                      </button>
-                    </div>
-                  </div>
-                  <div className="field">
-                    <label>Manage tripmates</label>
-                    <div className="split-list">
-                      {collaborators.map((name) => (
-                        <div key={name} className="split-chip active">{name}</div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
+            <button className="btn" onClick={openBudgetModal}>
+              Edit Budget
+            </button>
 
-              {showBudgetModal && (
-                <>
-                  <div className="modal-header">
-                    <h3 className="modal-title">Set Budget</h3>
-                    <button className="close-btn" onClick={() => setShowBudgetModal(false)}>X</button>
-                  </div>
-                  <div className="inline-row">
-                    <select
-                      className="select"
-                      value={formCurrency}
-                      onChange={(e) => setFormCurrency(e.target.value)}
-                    >
-                      {currencyOptions.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                    <input
-                      className="input"
-                      type="number"
-                      value={formBudget}
-                      onChange={(e) => setFormBudget(e.target.value)}
-                      min="0"
-                    />
-                  </div>
-                  <div className="modal-actions">
-                    <button className="ghost-btn" onClick={() => setShowBudgetModal(false)}>
-                      Cancel
-                    </button>
-                    <button className="primary-btn" onClick={handleBudgetSave}>
-                      Save
-                    </button>
-                  </div>
-                </>
-              )}
+            <button className="btn" onClick={() => setActiveModal("balances")}>
+              Total Balances
+            </button>
+          </div>
 
-              {showExpenseModal && (
-                <>
-                  <div className="modal-header">
-                    <h3 className="modal-title">{editingExpense ? "Edit Expense" : "Add Expense"}</h3>
-                    <button className="close-btn" onClick={() => setShowExpenseModal(false)}>X</button>
-                  </div>
-                  <div className="inline-row">
-                    <select
-                      className="select"
-                      value={formExpenseCurrency}
-                      onChange={(e) => setFormExpenseCurrency(e.target.value)}
-                    >
-                      {currencyOptions.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                    <input
-                      className="input"
-                      type="number"
-                      value={formAmount}
-                      onChange={(e) => setFormAmount(e.target.value)}
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div className="field">
-                    <label>Select Category</label>
-                    <select
-                      className="select"
-                      value={formCategory}
-                      onChange={(e) => setFormCategory(e.target.value)}
-                    >
-                      {categoryOptions.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label>Paid By</label>
-                    <select
-                      className="select"
-                      value={formPayer}
-                      onChange={(e) => setFormPayer(e.target.value)}
-                    >
-                      {collaborators.map((p) => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label>Split with</label>
-                    <div className="split-list">
-                      <button
-                        type="button"
-                        className={`split-chip ${formSplitWith.length === collaborators.length ? "active" : ""}`}
-                        onClick={() => setFormSplitWith(collaborators)}
-                      >
-                        Split with everyone
-                      </button>
-                      <button
-                        type="button"
-                        className={`split-chip ${formSplitWith.length === 1 && formSplitWith[0] === formPayer ? "active" : ""}`}
-                        onClick={() => setFormSplitWith(formPayer ? [formPayer] : [])}
-                      >
-                        No split
-                      </button>
-                      {collaborators.map((name) => (
-                        <button
-                          key={name}
-                          type="button"
-                          className={`split-chip ${formSplitWith.includes(name) ? "active" : ""}`}
-                          onClick={() => toggleSplitWith(name)}
-                        >
-                          {name}
+          {/* RIGHT */}
+          <div className="panel">
+            <div className="exp-header">
+              <h2 style={{ margin: 0 }}>Expenses</h2>
+              <button className="small-btn" onClick={openNewExpenseModal}>
+                + Add Expense
+              </button>
+            </div>
+
+            {expenses.length === 0 ? (
+              <div className="caption" style={{ marginTop: 12 }}>
+                No expenses yet. Click "+ Add Expense".
+              </div>
+            ) : (
+              expenses.map((e) => {
+                const payer = memberById.get(String(e.payer));
+                const payerName = payer ? memberLabel(payer) : `User #${e.payer}`;
+                const converted = convertAmount(e.amount, e.currency, currency);
+
+                const splitNames =
+                  e.splits && e.splits.length
+                    ? e.splits
+                      .map((s) => memberById.get(String(s.user)))
+                      .filter(Boolean)
+                      .map((u) => memberLabel(u as TripMember))
+                      .join(", ")
+                    : "Everyone";
+
+                return (
+                  <div key={e.id} className="card">
+                    <div className="card-top">
+                      <div>
+                        <div className="card-title">{e.category}</div>
+                        <div className="card-meta">
+                          Paid by <b>{payerName}</b>
+                        </div>
+                        <div className="card-meta">Split with {splitNames}</div>
+                        {e.description ? <div className="card-meta">{e.description}</div> : null}
+                      </div>
+
+                      <div className="card-right">
+                        <div style={{ textAlign: "right" }}>
+                          <div className="amount">
+                            {currency} {fmt(converted)}
+                          </div>
+                          <div className="mini">
+                            ({e.currency} {fmt(e.amount)})
+                          </div>
+                        </div>
+
+                        <button className="link-btn" onClick={() => openEditExpenseModal(e)}>
+                          Edit
                         </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="field">
-                    <label>Date (optional)</label>
-                    <input
-                      className="input"
-                      type="date"
-                      value={formDate}
-                      onChange={(e) => setFormDate(e.target.value)}
-                    />
-                  </div>
-                  <div className="modal-actions">
-                    <button className="ghost-btn" onClick={() => setShowExpenseModal(false)}>
-                      Cancel
-                    </button>
-                    <button className="primary-btn" onClick={handleExpenseSave}>
-                      Save
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-            {showTripmateModal && (
-              <>
-                <div className="modal-header">
-                  <h3 className="modal-title">Add Tripmate</h3>
-                  <button className="close-btn" onClick={() => setShowTripmateModal(false)}>X</button>
-                </div>
-                <div className="field">
-                  <label>Name</label>
-                  <input
-                    className="input"
-                    type="text"
-                    value={newCollaborator}
-                    onChange={(e) => setNewCollaborator(e.target.value)}
-                    placeholder="Enter name"
-                  />
-                </div>
-                <div className="modal-actions">
-                  <button className="ghost-btn" onClick={() => setShowTripmateModal(false)}>
-                    Cancel
-                  </button>
-                  <button className="primary-btn" onClick={() => {
-                    const added = handleAddCollaborator();
-                    if (added) setShowTripmateModal(false);
-                  }}>
-                    Add
-                  </button>
-                </div>
-              </>
-            )}
-
-            {showBalancesModal && (
-              <>
-                <div className="modal-header">
-                  <h3 className="modal-title">Total Balances</h3>
-                  <button className="close-btn" onClick={() => setShowBalancesModal(false)}>X</button>
-                </div>
-                <div className="expense-list">
-                  {collaborators.map((name) => (
-                    <div key={name} className="expense-card">
-                      <div className="expense-cat">{name}</div>
-                      <div className="expense-amt">
-                        {currency} {Math.abs(balances[name] || 0).toLocaleString()} {balances[name] >= 0 ? "owed to them" : "they owe"}
+                        <button className="link-btn" onClick={() => deleteExpense(e)}>
+                          Delete
+                        </button>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </>
+                  </div>
+                );
+              })
             )}
+          </div>
+        </div>
+
+        {/* Budget modal */}
+        {activeModal === "budget" && (
+          <div className="modal-backdrop" onMouseDown={() => setActiveModal(null)}>
+            <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+              <h3>Edit Budget</h3>
+
+              <div className="grid2">
+                <div className="field">
+                  <label>Budget amount</label>
+                  <input value={formBudget} onChange={(e) => setFormBudget(e.target.value)} />
+                </div>
+
+                <div className="field">
+                  <label>Budget currency</label>
+                  <select value={formCurrency} onChange={(e) => setFormCurrency(e.target.value)}>
+                    {currencyOptions.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="modal-actions">
+                <button className="secondary" onClick={() => setActiveModal(null)}>
+                  Cancel
+                </button>
+                <button className="primary" onClick={saveBudget}>
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Expense modal */}
+        {activeModal === "expense" && (
+          <div className="modal-backdrop" onMouseDown={() => setActiveModal(null)}>
+            <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+              <h3>{editingExpense ? "Edit Expense" : "Add Expense"}</h3>
+
+              <div className="grid2">
+                <div className="field">
+                  <label>Category</label>
+                  <select value={formCategory} onChange={(e) => setFormCategory(e.target.value)}>
+                    {categoryList.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label>Amount</label>
+                  <input value={formAmount} onChange={(e) => setFormAmount(e.target.value)} />
+                </div>
+
+                <div className="field">
+                  <label>Currency</label>
+                  <select
+                    value={formExpenseCurrency}
+                    onChange={(e) => setFormExpenseCurrency(e.target.value)}
+                  >
+                    {currencyOptions.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label>Date</label>
+                  <input type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} />
+                </div>
+
+                <div className="field">
+                  <label>Payer</label>
+                  <select
+                    value={formPayerId ?? ""}
+                    onChange={(e) => setFormPayerId(e.target.value ? e.target.value : null)}
+                  >
+                    <option value="">Select payer</option>
+                    {members.length === 0 && <option disabled>No members found</option>}
+                    {members.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {memberLabel(m)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label>Participants (split with)</label>
+
+                  <div className="split-controls">
+                    <button
+                      type="button"
+                      onClick={() => setFormSplitIds(members.map((m) => m.id))}
+                    >
+                      Select all
+                    </button>
+                    <button type="button" onClick={() => setFormSplitIds([])}>
+                      Clear
+                    </button>
+                  </div>
+
+                  <div className="split-options">
+                    {members.map((m) => (
+                      <label key={m.id} className="split-option">
+                        <input
+                          type="checkbox"
+                          checked={formSplitIds.includes(m.id)}
+                          onChange={() => {
+                            setFormSplitIds((prev) =>
+                              prev.includes(m.id)
+                                ? prev.filter((id) => id !== m.id)
+                                : [...prev, m.id]
+                            );
+                          }}
+                        />
+                        <span>{memberLabel(m)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="field" style={{ gridColumn: "1 / -1" }}>
+                  <label>Description (optional)</label>
+                  <textarea value={formDescription} onChange={(e) => setFormDescription(e.target.value)} />
+                </div>
+              </div>
+
+              <div className="modal-actions">
+                <button className="secondary" onClick={() => setActiveModal(null)}>
+                  Cancel
+                </button>
+                <button className="primary" onClick={saveExpense}>
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Balances modal */}
+        {activeModal === "balances" && (
+          <div className="modal-backdrop" onMouseDown={() => setActiveModal(null)}>
+            <div className="modal balances-modal" onMouseDown={(e) => e.stopPropagation()}>
+              <h3>Total Balances ({currency})</h3>
+
+              <div className="balances-panel">
+                {expenses.length === 0 ? (
+                  <div style={{ color: "#6b7280", fontSize: 13 }}>No expenses yet.</div>
+                ) : (
+                  <CategoryBarChart
+                    currency={currency}
+                    categoryList={categoryList}
+                    categoryTotals={categoryTotals}
+                    maxValue={maxCategoryTotal}
+                  />
+                )}
+              </div>
+
+              <div className="balances-panel" style={{ marginTop: 14 }}>
+                <div className="balances-title">Balances by member</div>
+                <div className="balances-items">
+                  {members.map((m) => {
+                    const v = balances[String(m.id)] ?? 0;
+                    return (
+                      <div
+                        key={m.id}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          padding: "10px 0",
+                          borderBottom: "1px solid #eee",
+                        }}
+                      >
+                        <div style={{ fontWeight: 800 }}>{memberLabel(m)}</div>
+                        <div style={{ fontWeight: 900 }}>
+                          {v >= 0 ? "+" : "-"} {currency} {fmt(Math.abs(v))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="modal-actions">
+                <button className="primary" onClick={() => setActiveModal(null)}>
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
