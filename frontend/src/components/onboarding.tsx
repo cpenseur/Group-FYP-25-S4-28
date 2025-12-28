@@ -285,7 +285,7 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
     try {
       if (step === 1) {
         await savePartial({
-          name: Name || null,
+          name: name || null,
           location: location || null,
         });
         setStep(2);
