@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import tripmateLogo from "../assets/tripmate_logo.png";
+import { apiFetch } from "../lib/apiClient"; // Import apiFetch for API calls
 
 type ChipValue = string;
 
@@ -52,15 +52,20 @@ export default function GroupTripGeneratorPage() {
   const navigate = useNavigate();  
 
   /* -------------------- STATES -------------------- */
+  
+  // Date states for the calendar
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
 
+  // Calendar navigation states
   const [calendarMonth, setCalendarMonth] = useState(0);
   const [calendarYear, setCalendarYear] = useState(2025);
 
+  // Trip duration in days
   const [durationDays, setDurationDays] = useState(3);
 
+  // Destination type options and selections
   const destinationOptions: ChipValue[] = [
     "Tropical",
     "Mountains",
@@ -73,6 +78,7 @@ export default function GroupTripGeneratorPage() {
     "Countryside",
   ]);
 
+  // Activity options and selections
   const activityOptions: ChipValue[] = [
     "Luxury/Shopping",
     "Adventure",
@@ -86,17 +92,21 @@ export default function GroupTripGeneratorPage() {
     "Cultural Immersion",
   ]);
 
+  // Budget and additional info
   const [budgetMin, setBudgetMin] = useState("");
   const [budgetMax, setBudgetMax] = useState("");
   const [additionalInfo, setAdditionalInfo] = useState("");
 
-  /* -------------------- CHIP TOGGLE -------------------- */
+  /* -------------------- CHIP TOGGLE HANDLERS -------------------- */
+  
+  // Toggle destination selection
   const toggleDestination = (opt: ChipValue) => {
     setSelectedDestinations((prev) =>
       prev.includes(opt) ? prev.filter((x) => x !== opt) : [...prev, opt]
     );
   };
 
+  // Toggle activity selection
   const toggleActivity = (opt: ChipValue) => {
     setSelectedActivities((prev) =>
       prev.includes(opt) ? prev.filter((x) => x !== opt) : [...prev, opt]
@@ -272,29 +282,21 @@ export default function GroupTripGeneratorPage() {
       resize: "vertical",
     },
 
-
-/* done button */
+    /* Done button */
     doneButton: {
       marginTop: "20px",
       padding: "10px 26px",
       borderRadius: "999px",
-
       background: "linear-gradient(135deg, #8b7cff 0%, #6b5cff 100%)",
-
       color: "#ffffff",
       border: "none",
       cursor: "pointer",
-
       fontSize: "15px",
       fontWeight: 600,
-
       boxShadow: "0 6px 16px rgba(124, 92, 255, 0.35)",
-
       alignSelf: "flex-end",
-
       transition: "transform 0.15s ease, box-shadow 0.15s ease",
     },
-
 
     /* Calendar Popup */
     calendarPopup: {
@@ -329,18 +331,22 @@ export default function GroupTripGeneratorPage() {
                       CALENDAR LOGIC
   ---------------------------------------------------- */
 
+  // Handle day click in calendar
   const handleDayClick = (date: Date) => {
+    // If no start date or both dates are set, set this as start
     if (!startDate || (startDate && endDate)) {
       setStartDate(date);
       setEndDate(null);
       return;
     }
 
+    // If clicked date is before start, make it the new start
     if (startOfDay(date) < startOfDay(startDate)) {
       setStartDate(date);
       return;
     }
 
+    // Otherwise, set as end date and close calendar
     setEndDate(date);
 
     setTimeout(() => {
@@ -348,28 +354,34 @@ export default function GroupTripGeneratorPage() {
     }, 200);
   };
 
+  // Render a single month grid in the calendar
   const renderMonthGrid = (offset: number) => {
+    // Calculate the actual month and year based on offset
     const month = calendarMonth + offset;
     const yearOffset = Math.floor(month / 12);
     const effMonth = ((month % 12) + 12) % 12;
     const year = calendarYear + yearOffset;
 
+    // Get first day of month (0=Sunday, 1=Monday, etc.)
     const firstDay = new Date(year, effMonth, 1).getDay();
     const days = getDaysInMonth(year, effMonth);
 
+    // Calculate blank cells before the first day (adjust for Monday start)
     const blanks = firstDay === 0 ? 6 : firstDay - 1;
 
+    // Build array of cells (nulls for blanks, Dates for actual days)
     const cells: (Date | null)[] = [];
     for (let i = 0; i < blanks; i++) cells.push(null);
     cells.push(...days);
 
+    // Fill remaining cells to complete the last week
     while (cells.length % 7 !== 0) cells.push(null);
 
     const weekdayLabels = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
     return (
       <div style={{ flex: 1 }}>
-        {/* Header */}
+        {/* Month/Year Header with navigation */}
         <div
           style={{
             display: "flex",
@@ -380,6 +392,7 @@ export default function GroupTripGeneratorPage() {
             fontSize: "14px",
           }}
         >
+          {/* Previous month button (only on first month) */}
           {offset === 0 ? (
             <button
               onClick={() => {
@@ -405,6 +418,7 @@ export default function GroupTripGeneratorPage() {
             <div style={{ width: "20px" }} />
           )}
 
+          {/* Month and year display */}
           <div>
             {new Date(year, effMonth, 1).toLocaleDateString("en-US", {
               month: "long",
@@ -412,6 +426,7 @@ export default function GroupTripGeneratorPage() {
             })}
           </div>
 
+          {/* Next month button (only on second month) */}
           {offset === 1 ? (
             <button
               onClick={() => {
@@ -438,7 +453,7 @@ export default function GroupTripGeneratorPage() {
           )}
         </div>
 
-        {/* Weekday Row */}
+        {/* Weekday labels row */}
         <div
           style={{
             display: "grid",
@@ -455,7 +470,7 @@ export default function GroupTripGeneratorPage() {
           ))}
         </div>
 
-        {/* Day Cells */}
+        {/* Day cells grid */}
         <div
           style={{
             display: "grid",
@@ -464,13 +479,16 @@ export default function GroupTripGeneratorPage() {
           }}
         >
           {cells.map((date, idx) => {
+            // Empty cell for blanks
             if (!date) return <div key={idx} />;
 
+            // Check if this date is start, end, or in range
             const isStart = startDate && isSameDay(date, startDate);
             const isEnd = endDate && isSameDay(date, endDate);
             const inRange =
               startDate && endDate && isBetween(date, startDate, endDate);
 
+            // Determine styling based on date status
             let bg = "transparent";
             let color = "#333";
 
@@ -517,17 +535,18 @@ export default function GroupTripGeneratorPage() {
   /* ----------------------------------------------------
                         SUBMIT HANDLER
   ---------------------------------------------------- */
-    // ---------- BUILD PREFERENCES (3.2) ----------
+  
+  // Build preferences array from selected options
   const buildPreferencesArray = () => {
     const prefs: string[] = [];
 
-    // activities
+    // Add selected activities
     selectedActivities.forEach((a) => prefs.push(a));
 
-    // destination types
+    // Add selected destination types
     selectedDestinations.forEach((d) => prefs.push(d));
 
-    // additional info
+    // Add additional info as a note if provided
     if (additionalInfo.trim()) {
       prefs.push(`Note: ${additionalInfo.trim()}`);
     }
@@ -535,41 +554,56 @@ export default function GroupTripGeneratorPage() {
     return prefs;
   };
 
-
-    const handleDone = async () => {
+  // Handle Done button click - create trip using working endpoint
+  const handleDone = async () => {
     const preferences = buildPreferencesArray();
 
-    const tripId = 1;   // demo
-    const userId = 1;   // demo
+    // Basic validation
+    if (selectedActivities.length < 2) {
+      alert("Please select at least two Activities & Interests.");
+      return;
+    }
+    if (selectedDestinations.length < 2) {
+      alert("Please select at least two Destination Types.");
+      return;
+    }
 
     try {
-      await fetch(`http://127.0.0.1:8000/api/f1/trips/${tripId}/preferences/`, {
+      console.log("Creating group trip...");
+      
+      // Build payload matching solo trip format (which works)
+      const payload = {
+        start_date: startDate ? startDate.toISOString().split("T")[0] : null,
+        end_date: endDate ? endDate.toISOString().split("T")[0] : null,
+        duration_days: durationDays,
+        
+        activities: selectedActivities,
+        destination_types: selectedDestinations,
+        
+        budget_min: budgetMin ? Number(budgetMin) : null,
+        budget_max: budgetMax ? Number(budgetMax) : null,
+        
+        additional_info: additionalInfo.trim() || "",
+      };
+
+      // Use the same working endpoint as solo trip
+      const tripData = await apiFetch("/f1/ai-solo-trip/", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          preferences: preferences,
-          start_date: startDate
-            ? startDate.toISOString().split("T")[0]
-            : null,
-          end_date: endDate
-            ? endDate.toISOString().split("T")[0]
-            : null,
-          budget_max: budgetMax ? Number(budgetMax) : null,
-        }),
+        body: JSON.stringify(payload),
       });
 
-      // go to waiting page
-      navigate("/group-wait-for-friends");
-    } catch (err) {
-      console.error("Failed to save preferences", err);
-      alert("Failed to save preferences. Please try again.");
+      // Note: the response has trip_id, not id
+      const tripId = tripData.trip_id;
+      console.log("Trip created successfully with ID:", tripId);
+
+      // Navigate to waiting page with tripId
+      navigate(`/group-wait-for-friends/${tripId}`);
+      
+    } catch (err: any) {
+      console.error("Error creating trip:", err);
+      alert(`Failed to create trip: ${err.message || 'Please check console for details.'}`);
     }
   };
-
-
 
   /* =======================================================
                            RENDER
@@ -577,25 +611,6 @@ export default function GroupTripGeneratorPage() {
 
   return (
     <div style={styles.page}>
-      {/* NAVBAR */}
-      <div style={styles.navOuter}>
-        <div style={styles.navInner}>
-          <img
-            src={tripmateLogo}
-            alt="TripMate"
-            style={{ height: "150px", objectFit: "contain" }}
-          />
-
-          <div style={styles.navRight}>
-            <span style={{ cursor: "pointer" }}onClick={() => navigate("/dashboard")}>Dashboard</span>
-            <span>Trips</span>
-            <span>Explore</span>
-            <span>Profile</span>
-            <button style={styles.logoutBtn}>Log Out</button>
-          </div>
-        </div>
-      </div>
-
       {/* MAIN CONTENT */}
       <div style={styles.container}>
         <div style={styles.pageSub}>Share your preferences</div>
@@ -608,6 +623,7 @@ export default function GroupTripGeneratorPage() {
           </div>
 
           <div style={styles.row}>
+            {/* Start date box */}
             <div style={styles.dateBox} onClick={() => setCalendarOpen(true)}>
               <div style={{ fontSize: "11px", color: "#8c8ca0" }}>Start</div>
               <div style={{ fontSize: "15px", fontWeight: 500 }}>
@@ -615,6 +631,7 @@ export default function GroupTripGeneratorPage() {
               </div>
             </div>
 
+            {/* End date box */}
             <div style={styles.dateBox} onClick={() => setCalendarOpen(true)}>
               <div style={{ fontSize: "11px", color: "#8c8ca0" }}>End</div>
               <div style={{ fontSize: "15px", fontWeight: 500 }}>
@@ -634,6 +651,7 @@ export default function GroupTripGeneratorPage() {
               ×
             </button>
 
+            {/* Render two months side by side */}
             {renderMonthGrid(0)}
             {renderMonthGrid(1)}
           </div>
@@ -734,7 +752,7 @@ export default function GroupTripGeneratorPage() {
             >
               <div style={styles.sectionTitle}>Budget</div>
 
-              {/* info icon */}
+              {/* Info icon */}
               <div
                 style={{
                   width: "18px",
@@ -753,9 +771,9 @@ export default function GroupTripGeneratorPage() {
               </div>
             </div>
 
-            {/* two small rectangular input boxes */}
+            {/* Budget input boxes */}
             <div style={{ display: "flex", gap: "20px", marginTop: "6px" }}>
-              {/* Min box */}
+              {/* Min budget box */}
               <div
                 style={{
                   flex: 1,
@@ -789,7 +807,7 @@ export default function GroupTripGeneratorPage() {
                 />
               </div>
 
-              {/* Max box */}
+              {/* Max budget box */}
               <div
                 style={{
                   flex: 1,
@@ -826,9 +844,6 @@ export default function GroupTripGeneratorPage() {
           </div>
         </div>
 
-        {/* 4. (AI Preferences Hidden) */}
-        {/* <div style={styles.card}>...</div> */}
-
         {/* 5. ADDITIONAL INFORMATION */}
         <div
           style={{
@@ -859,7 +874,7 @@ export default function GroupTripGeneratorPage() {
             </div>
           </div>
 
-          {/* Textarea */}
+          {/* Textarea for additional info */}
           <textarea
             style={{
               width: "100%",
@@ -890,7 +905,7 @@ export default function GroupTripGeneratorPage() {
             onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
             onClick={handleDone}
           >
-          ✨<span>Done</span>
+            ✨<span>Done</span>
           </button>
         </div>
       </div>

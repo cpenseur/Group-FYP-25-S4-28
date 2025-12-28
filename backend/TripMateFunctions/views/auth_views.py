@@ -12,14 +12,14 @@ class WhoAmIView(APIView):
 
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, *args, **kwargs):
-        user = request.user  # comes from Supabase JWT auth
+    def get(self, request):
+        user = getattr(request, "app_user", None) or request.user
 
-        return Response(
-            {
-                "id": user.id,
-                "email": user.email,
-                "username": user.username,
-                "supabase_uid": getattr(user, "supabase_uid", None),
+        return Response({
+            "id": str(getattr(user, "id", "")),
+            "email": getattr(user, "email", ""),
+            "full_name": getattr(user, "full_name", ""),
+            "is_staff": getattr(user, "is_staff", False),
+            "is_superuser": getattr(user, "is_superuser", False),
             }
         )
