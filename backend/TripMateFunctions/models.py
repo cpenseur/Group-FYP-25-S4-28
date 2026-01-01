@@ -1,5 +1,6 @@
 # models.py
 from django.db import models
+from django.contrib.postgres.fields import ArrayField
 from django.utils import timezone as django_timezone
 import secrets
 import uuid
@@ -50,30 +51,35 @@ class AppUser(models.Model):
         return self.email or f"User {self.pk}"
 
 
-class UserProfile(models.Model):
-    user = models.OneToOneField(
-        AppUser,
-        on_delete=models.CASCADE,
-        related_name="profile",
-    )
+class Profile(models.Model):
+    id = models.UUIDField(primary_key=True)
 
-    avatar_url = models.URLField(blank=True, null=True)
-    bio = models.TextField(blank=True, null=True)
-    home_country = models.CharField(max_length=255, blank=True, null=True)
-    home_city = models.CharField(max_length=255, blank=True, null=True)
-    preferred_currency = models.CharField(max_length=3, blank=True, null=True)
-    date_of_birth = models.DateField(blank=True, null=True)
+    dob_day = models.TextField(blank=True, null=True)
+    dob_month = models.TextField(blank=True, null=True)
+    dob_year = models.TextField(blank=True, null=True)
 
-    created_at = models.DateTimeField(default=django_timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
+    phone = models.TextField(blank=True, null=True)
+    nationality = models.TextField(blank=True, null=True)
+    address1 = models.TextField(blank=True, null=True)
+    address2 = models.TextField(blank=True, null=True)
+
+    updated_at = models.DateTimeField(blank=True, null=True)
+    location = models.TextField(blank=True, null=True)
+
+    interests = ArrayField(models.TextField(), blank=True, null=True)
+
+    travel_pace = models.TextField(blank=True, null=True)
+    budget_level = models.TextField(blank=True, null=True)
+    diet_preference = models.TextField(blank=True, null=True)
+    mobility_needs = models.TextField(blank=True, null=True)
+
+    onboarding_completed = models.BooleanField(default=False)
+    name = models.TextField(blank=True, null=True)
 
     class Meta:
-        db_table = "user_profile"
-
-    def __str__(self):
-        return f"Profile of {self.user_id}"
-
-
+        db_table = "profiles"
+        managed = False 
+        
 # --------------------------------------------------
 # DESTINATION & LOCALE
 # --------------------------------------------------

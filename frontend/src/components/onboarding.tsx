@@ -5,17 +5,8 @@ import { supabase } from "../lib/supabaseClient";
 
 /**
  * Onboarding modal wizard (Step 1/2/3)
- * - Reuses the same Overlay/Modal pattern as your login modal :contentReference[oaicite:0]{index=0}
- * - Saves to public.profiles (upsert) and sets onboarding_completed=true when finished
- *
- * Assumes you added these columns to public.profiles:
- *  location text,
- *  interests text[],
- *  travel_pace text,
- *  budget_level text,
- *  diet_preference text,
- *  mobility_needs text,
- *  onboarding_completed boolean default false
+ * ✅ FIXED: Skip for now now sets onboarding_completed=true
+ * ✅ Also: clicking overlay / X will behave like Skip (optional but recommended)
  */
 
 type Props = {
@@ -211,6 +202,8 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
 
     (async () => {
       setStatus("");
+      setStep(1); // ✅ reset wizard each time it opens
+
       const { data: authData, error: authErr } = await supabase.auth.getUser();
       if (authErr || !authData.user) {
         setStatus("Please log in again.");
@@ -219,22 +212,26 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
 
       const { data: profile, error } = await supabase
         .from("profiles")
-        .select(
-          "name, location, interests, travel_pace, budget_level, onboarding_completed"
-        )
+        .select("name, location, interests, travel_pace, budget_level, onboarding_completed")
         .eq("id", authData.user.id)
         .maybeSingle();
 
-      if (error) {
-        // Not fatal; user can still proceed
-        return;
-      }
+      if (error) return;
 
       if (profile?.name) setName(profile.name);
+      else setName("");
+
       if (profile?.location) setLocation(profile.location);
+      else setLocation("");
+
       if (Array.isArray(profile?.interests)) setInterests(profile.interests);
+      else setInterests([]);
+
       if (profile?.travel_pace) setTravelPace(profile.travel_pace as TravelPace);
+      else setTravelPace("");
+
       if (profile?.budget_level) setBudgetLevel(profile.budget_level as BudgetLevel);
+      else setBudgetLevel("");
 
       // If already completed, just close
       if (profile?.onboarding_completed) {
@@ -244,26 +241,14 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  const canContinueStep1 = useMemo(() => {
-    // Step 1 is optional in the screenshot style; allow continue even if empty
-    return true;
-  }, []);
-
-  const canContinueStep2 = useMemo(() => {
-    // Allow empty selection if you want; most apps allow 1+
-    return true;
-  }, []);
-
-  const canComplete = useMemo(() => {
-    return travelPace !== "" && budgetLevel !== "";
-  }, [travelPace, budgetLevel]);
+  const canContinueStep1 = useMemo(() => true, []);
+  const canContinueStep2 = useMemo(() => true, []);
+  const canComplete = useMemo(() => travelPace !== "" && budgetLevel !== "", [travelPace, budgetLevel]);
 
   if (!isOpen) return null;
 
   const toggleInterest = (key: string) => {
-    setInterests((prev) =>
-      prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]
-    );
+    setInterests((prev) => (prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]));
   };
 
   const savePartial = async (payload: Record<string, any>) => {
@@ -307,20 +292,21 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
     setStep((prev) => (prev === 3 ? 2 : 1));
   };
 
+  // ✅ Skip should mark completed so it never shows again
   const handleSkip = async () => {
     if (!allowSkip) return;
     setStatus("");
     setLoading(true);
     try {
-      // Save what we have so far but keep onboarding_completed=false
       await savePartial({
         name: name || null,
         location: location || null,
         interests,
         travel_pace: travelPace || null,
         budget_level: budgetLevel || null,
-        onboarding_completed: false,
+        onboarding_completed: true, // ✅ IMPORTANT FIX
       });
+
       onClose();
     } catch (e: any) {
       setStatus(e?.message ?? "Could not skip right now.");
@@ -371,13 +357,20 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
   const done1 = step > 1;
   const done2 = step > 2;
 
+  // ✅ If user clicks outside (overlay) or X, treat as skip (so it won't come back)
+  const closeAsSkip = async () => {
+    if (allowSkip) return handleSkip();
+    onClose();
+  };
+
   return (
-    <Overlay onClick={onClose}>
+    <Overlay onClick={closeAsSkip}>
       <Modal onClick={(e) => e.stopPropagation()}>
         {/* Close button */}
         <button
           type="button"
-          onClick={onClose}
+          onClick={closeAsSkip}
+          disabled={loading}
           style={{
             position: "absolute",
             top: "0.9rem",
@@ -415,20 +408,12 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
             <Grid>
               <div>
                 <FieldLabel>What’s your name?</FieldLabel>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Enter your name"
-                />
+                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter your name" />
               </div>
 
               <div>
                 <FieldLabel>Where are you based?</FieldLabel>
-                <Input
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="City, Country"
-                />
+                <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="City, Country" />
               </div>
             </Grid>
           </Section>
@@ -448,9 +433,7 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
                     onClick={() => toggleInterest(i.key)}
                     aria-pressed={selected}
                   >
-                    <div style={{ fontSize: "1.2rem", marginBottom: "0.35rem" }}>
-                      {i.emoji}
-                    </div>
+                    <div style={{ fontSize: "1.2rem", marginBottom: "0.35rem" }}>{i.emoji}</div>
                     <div style={{ fontSize: "0.95rem" }}>{i.label}</div>
                   </CardButton>
                 );
@@ -472,12 +455,7 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
                     { key: "packed", label: "Packed" },
                   ] as const
                 ).map((p) => (
-                  <CardButton
-                    key={p.key}
-                    type="button"
-                    $selected={travelPace === p.key}
-                    onClick={() => setTravelPace(p.key)}
-                  >
+                  <CardButton key={p.key} type="button" $selected={travelPace === p.key} onClick={() => setTravelPace(p.key)}>
                     {p.label}
                   </CardButton>
                 ))}
@@ -494,12 +472,7 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
                     { key: "luxury", label: "Luxury" },
                   ] as const
                 ).map((b) => (
-                  <CardButton
-                    key={b.key}
-                    type="button"
-                    $selected={budgetLevel === b.key}
-                    onClick={() => setBudgetLevel(b.key)}
-                  >
+                  <CardButton key={b.key} type="button" $selected={budgetLevel === b.key} onClick={() => setBudgetLevel(b.key)}>
                     {b.label}
                   </CardButton>
                 ))}
@@ -533,11 +506,7 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
               Continue →
             </PrimaryButton>
           ) : (
-            <PrimaryButton
-              type="button"
-              onClick={handleComplete}
-              disabled={loading || !canComplete}
-            >
+            <PrimaryButton type="button" onClick={handleComplete} disabled={loading || !canComplete}>
               Complete Setup ✓
             </PrimaryButton>
           )}
