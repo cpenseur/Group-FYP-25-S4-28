@@ -199,7 +199,7 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
 
-  const [firstName, setFirstName] = useState("");
+  const [name, setName] = useState("");
   const [location, setLocation] = useState("");
   const [interests, setInterests] = useState<string[]>([]);
   const [travelPace, setTravelPace] = useState<TravelPace>("");
@@ -220,7 +220,7 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
       const { data: profile, error } = await supabase
         .from("profiles")
         .select(
-          "first_name, location, interests, travel_pace, budget_level, onboarding_completed"
+          "name, location, interests, travel_pace, budget_level, onboarding_completed"
         )
         .eq("id", authData.user.id)
         .maybeSingle();
@@ -230,7 +230,7 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
         return;
       }
 
-      if (profile?.first_name) setFirstName(profile.first_name);
+      if (profile?.name) setName(profile.name);
       if (profile?.location) setLocation(profile.location);
       if (Array.isArray(profile?.interests)) setInterests(profile.interests);
       if (profile?.travel_pace) setTravelPace(profile.travel_pace as TravelPace);
@@ -285,7 +285,7 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
     try {
       if (step === 1) {
         await savePartial({
-          first_name: firstName || null,
+          name: name || null,
           location: location || null,
         });
         setStep(2);
@@ -314,7 +314,7 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
     try {
       // Save what we have so far but keep onboarding_completed=false
       await savePartial({
-        first_name: firstName || null,
+        name: name || null,
         location: location || null,
         interests,
         travel_pace: travelPace || null,
@@ -334,7 +334,7 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
     setLoading(true);
     try {
       await savePartial({
-        first_name: firstName || null,
+        name: name || null,
         location: location || null,
         interests,
         travel_pace: travelPace,
@@ -416,8 +416,8 @@ export default function Onboarding({ isOpen, onClose, allowSkip = true }: Props)
               <div>
                 <FieldLabel>What’s your name?</FieldLabel>
                 <Input
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
                   placeholder="Enter your name"
                 />
               </div>
