@@ -1,4 +1,4 @@
-// src/pages/adminDashboard.tsx (or wherever yours lives)
+// src/pages/adminDashboard.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
@@ -8,13 +8,6 @@ import AdminSidebar from "../components/adminSidebar";
 import { exportPDF as ExportPDF } from "../components/exportPDF";
 
 // --- mock data --------------------------------------------------------------
-const initialUsers = [
-  { name: "Sarah Owen", email: "sarah@dreamplanner.com", status: "Active", date: "2023-06-11" },
-  { name: "Liam Park", email: "liam@exploreinc.com", status: "Pending", date: "2023-05-22" },
-  { name: "Vince Gomez", email: "vince@backpacker.io", status: "Manager", date: "2023-03-30" },
-  { name: "Emma Thompson", email: "emma@blueskyapp.com", status: "Suspended", date: "2022-12-09" },
-];
-
 const initialModerationItems = [
   {
     title: 'Itinerary: "Tokyo Nightlife Guide"',
@@ -51,8 +44,39 @@ const securityEvents = [
   { time: "Yesterday", text: "Password reset requested by john@demo.com" },
 ];
 
+type StatDelta = {
+  direction: "up" | "down" | "flat";
+  percent: number;
+  diff: number;
+  label: string;
+};
+
+type AdminStats = {
+  totalUsers: number;
+  activeUsers: number;
+  itinerariesCreated: number;
+  pendingVerifications: number;
+
+  totalUsersDelta: StatDelta;
+  activeUsersDelta: StatDelta;
+  itinerariesDelta: StatDelta;
+  pendingDelta: StatDelta;
+};
+
+type AdminUserRow = {
+  id: string;
+  name: string | null;
+  email: string;
+  status: string | null;
+  created_at: string;
+};
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
+
+  const [users, setUsers] = useState<AdminUserRow[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [search, setSearch] = useState("");
 
   const [activeSidebarItem, setActiveSidebarItem] = useState("dashboard");
   const [activeTab, setActiveTab] = useState<"users" | "moderation">("moderation");
@@ -61,13 +85,227 @@ export default function AdminDashboard() {
   const [reviewClicked, setReviewClicked] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  // controls Export PDF modal
   const [pdfOpen, setPdfOpen] = useState(false);
-
-  // optional: show logged-in admin email on the UI pill
   const [userEmail, setUserEmail] = useState("");
 
-  // ✅ IMPORTANT: Protect the page (no URL bypass)
+  const emptyDelta: StatDelta = { direction: "flat", percent: 0, diff: 0, label: "" };
+
+  const [stats, setStats] = useState<AdminStats>({
+    totalUsers: 0,
+    activeUsers: 0,
+    itinerariesCreated: 0,
+    pendingVerifications: 0,
+    totalUsersDelta: emptyDelta,
+    activeUsersDelta: emptyDelta,
+    itinerariesDelta: emptyDelta,
+    pendingDelta: emptyDelta,
+  });
+
+  const [statsLoading, setStatsLoading] = useState(false);
+
+  // Define "active" window
+  const ACTIVE_DAYS = 30;
+  const ACTIVE_COLUMN = "last_active_at";
+
+  function calcDelta(current: number, previous: number): StatDelta {
+    const diff = current - previous;
+
+    const direction: StatDelta["direction"] = diff > 0 ? "up" : diff < 0 ? "down" : "flat";
+    const arrow = direction === "up" ? "↑" : direction === "down" ? "↓" : "→";
+
+    // if last week is 0, don't show fake 100%
+    if (previous === 0) {
+      if (current === 0) {
+        return { direction: "flat", percent: 0, diff: 0, label: `${arrow} no change from last week` };
+      }
+      return { direction: "up", percent: 0, diff, label: `${arrow} new from last week (+${current})` };
+    }
+
+    const percentRaw = (diff / previous) * 100;
+    const percent = Math.round(Math.abs(percentRaw) * 10) / 10;
+
+    let label = "";
+    if (direction === "flat") label = `${arrow} no change from last week`;
+    else label = `${arrow} ${percent}% ${direction === "up" ? "increase" : "decrease"} from last week`;
+
+    return { direction, percent, diff, label };
+  }
+
+  const fetchUsers = async () => {
+    setUsersLoading(true);
+    try {
+      let q = supabase
+        .from("app_user")
+        .select("id, full_name, email, role, status, created_at")
+        .order("created_at", { ascending: false });
+
+      if (search.trim()) {
+        const s = search.trim();
+        q = q.or(`full_name.ilike.%${s}%,email.ilike.%${s}%`);
+      }
+
+      const { data, error } = await q;
+
+      console.log("users data:", data);
+      console.log("users error:", error);
+
+      if (error) {
+        console.error("fetchUsers error:", error);
+        setUsers([]);
+        return;
+      }
+
+      const mapped: AdminUserRow[] = (data ?? []).map((u: any) => ({
+        id: u.id,
+        name: u.full_name,
+        email: u.email,
+        status: u.status ?? u.role ?? "active",
+        created_at: u.created_at,
+      }));
+
+      setUsers(mapped);
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const fetchAdminStats = async () => {
+    setStatsLoading(true);
+    try {
+      const now = new Date();
+
+      const startThisWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const startLastWeek = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
+
+      const activeThisWeekReq = supabase
+        .from("app_user")
+        .select("id", { count: "exact", head: true })
+        .not("auth_user_id", "is", null)
+        .gte(ACTIVE_COLUMN, startThisWeek);
+
+      const activeLastWeekReq = supabase
+        .from("app_user")
+        .select("id", { count: "exact", head: true })
+        .not("auth_user_id", "is", null)
+        .gte(ACTIVE_COLUMN, startLastWeek)
+        .lt(ACTIVE_COLUMN, startThisWeek);
+
+      const activeCutoffNow = new Date(now.getTime() - ACTIVE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+      const totalUsersReq = supabase.from("app_user").select("id", { count: "exact", head: true });
+
+      const usersThisWeekReq = supabase
+        .from("app_user")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", startThisWeek);
+
+      const usersLastWeekReq = supabase
+        .from("app_user")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", startLastWeek)
+        .lt("created_at", startThisWeek);
+
+      const pendingTotalReq = supabase
+        .from("app_user")
+        .select("id", { count: "exact", head: true })
+        .is("auth_user_id", null);
+
+      const pendingThisWeekReq = supabase
+        .from("app_user")
+        .select("id", { count: "exact", head: true })
+        .is("auth_user_id", null)
+        .gte("created_at", startThisWeek);
+
+      const pendingLastWeekReq = supabase
+        .from("app_user")
+        .select("id", { count: "exact", head: true })
+        .is("auth_user_id", null)
+        .gte("created_at", startLastWeek)
+        .lt("created_at", startThisWeek);
+
+      const activeNowReq = supabase
+        .from("app_user")
+        .select("id", { count: "exact", head: true })
+        .not("auth_user_id", "is", null)
+        .gte(ACTIVE_COLUMN, activeCutoffNow);
+
+      const tripsTotalReq = supabase.rpc("admin_trip_count");
+      const tripsThisWeekReq = supabase.rpc("admin_trip_count_range", { start_ts: startThisWeek, end_ts: null });
+      const tripsLastWeekReq = supabase.rpc("admin_trip_count_range", { start_ts: startLastWeek, end_ts: startThisWeek });
+
+      const [
+        totalUsersRes,
+        usersThisWeekRes,
+        usersLastWeekRes,
+        pendingTotalRes,
+        pendingThisWeekRes,
+        pendingLastWeekRes,
+        activeNowRes,
+        activeThisWeekRes,
+        activeLastWeekRes,
+        tripsTotalRes,
+        tripsThisWeekRes,
+        tripsLastWeekRes,
+      ] = await Promise.all([
+        totalUsersReq,
+        usersThisWeekReq,
+        usersLastWeekReq,
+        pendingTotalReq,
+        pendingThisWeekReq,
+        pendingLastWeekReq,
+        activeNowReq,
+        activeThisWeekReq,
+        activeLastWeekReq,
+        tripsTotalReq,
+        tripsThisWeekReq,
+        tripsLastWeekReq,
+      ]);
+
+      [
+        totalUsersRes,
+        usersThisWeekRes,
+        usersLastWeekRes,
+        pendingTotalRes,
+        pendingThisWeekRes,
+        pendingLastWeekRes,
+        activeNowRes,
+        tripsTotalRes,
+        tripsThisWeekRes,
+        tripsLastWeekRes,
+      ].forEach((r: any) => r?.error && console.error(r.error));
+
+      const activeThisWeek = activeThisWeekRes.count ?? 0;
+      const activeLastWeek = activeLastWeekRes.count ?? 0;
+
+      const totalUsers = totalUsersRes.count ?? 0;
+      const pendingTotal = pendingTotalRes.count ?? 0;
+      const activeUsers = activeNowRes.count ?? 0;
+      const tripsTotal = Number(tripsTotalRes.data ?? 0);
+
+      const usersThisWeek = usersThisWeekRes.count ?? 0;
+      const usersLastWeek = usersLastWeekRes.count ?? 0;
+
+      const pendingThisWeek = pendingThisWeekRes.count ?? 0;
+      const pendingLastWeek = pendingLastWeekRes.count ?? 0;
+
+      const tripsThisWeek = Number(tripsThisWeekRes.data ?? 0);
+      const tripsLastWeek = Number(tripsLastWeekRes.data ?? 0);
+
+      setStats({
+        totalUsers,
+        activeUsers,
+        itinerariesCreated: tripsTotal,
+        pendingVerifications: pendingTotal,
+        totalUsersDelta: calcDelta(usersThisWeek, usersLastWeek),
+        activeUsersDelta: calcDelta(activeThisWeek, activeLastWeek),
+        itinerariesDelta: calcDelta(tripsThisWeek, tripsLastWeek),
+        pendingDelta: calcDelta(pendingThisWeek, pendingLastWeek),
+      });
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
 
@@ -75,7 +313,6 @@ export default function AdminDashboard() {
       const { data, error } = await supabase.auth.getSession();
       if (!mounted) return;
 
-      // if session read fails, treat as not authorized
       if (error) {
         navigate("/login", { replace: true });
         return;
@@ -83,41 +320,35 @@ export default function AdminDashboard() {
 
       const email = (data.session?.user?.email ?? "").toLowerCase();
 
-      // not logged in OR not admin => kick out
       if (!data.session || !isAdminEmail(email)) {
         navigate("/login", { replace: true });
         return;
       }
 
       setUserEmail(email);
+
+      await fetchAdminStats();
+      await fetchUsers();
     })();
 
     return () => {
       mounted = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate]);
 
   const filteredModerationItems = useMemo(() => {
-    return showPendingOnly
-      ? moderationItems.filter((item) => item.state === "pending")
-      : moderationItems;
+    return showPendingOnly ? moderationItems.filter((item) => item.state === "pending") : moderationItems;
   }, [showPendingOnly, moderationItems]);
 
-  const users = initialUsers;
-
   const handleApprove = (index: number) => {
-    setModerationItems((items) =>
-      items.map((item, i) => (i === index ? { ...item, state: "approved" } : item))
-    );
+    setModerationItems((items) => items.map((item, i) => (i === index ? { ...item, state: "approved" } : item)));
   };
 
   const handleReject = (index: number) => {
-    setModerationItems((items) =>
-      items.map((item, i) => (i === index ? { ...item, state: "rejected" } : item))
-    );
+    setModerationItems((items) => items.map((item, i) => (i === index ? { ...item, state: "rejected" } : item)));
   };
 
-  // what actually happens when user confirms "Export to PDF"
   const handleExportPDF = async () => {
     setPdfOpen(false);
     requestAnimationFrame(() => {
@@ -150,29 +381,32 @@ export default function AdminDashboard() {
         {/* MAIN */}
         <main className="admin-main">
           <div id="print-area">
-            {/* HEADER – ONLY ON DASHBOARD */}
             {activeSidebarItem === "dashboard" && (
               <header className="admin-header">
                 <div>
                   <h1>Admin Dashboard</h1>
-                  <p>
-                    User Account Management, Destination Data, System Monitoring & Content Moderation
-                  </p>
+                  <p>User Account Management, Destination Data, System Monitoring & Content Moderation</p>
                 </div>
 
                 <div className="header-actions">
                   <button className="btn btn-outline" onClick={() => setPdfOpen(true)}>
                     Export Reports
                   </button>
-                  <button className="btn btn-primary">↻ Refresh</button>
+
+                  <button
+                    className="btn btn-primary"
+                    onClick={fetchAdminStats}
+                    disabled={statsLoading}
+                    title="Refresh dashboard stats"
+                  >
+                    ↻ {statsLoading ? "Refreshing..." : "Refresh"}
+                  </button>
 
                   <div className="admin-user-pill">
                     <span className="avatar">AD</span>
                     <div>
                       <span className="pill-label">Admin User</span>
-                      <span className="pill-name">
-                        {userEmail ? userEmail : "Administrator"}
-                      </span>
+                      <span className="pill-name">{userEmail ? userEmail : "Administrator"}</span>
                     </div>
                   </div>
                 </div>
@@ -187,8 +421,39 @@ export default function AdminDashboard() {
                     <span className="stat-label">TOTAL USERS</span>
                     <span className="stat-icon">👥</span>
                   </div>
-                  <div className="stat-value">2,847</div>
-                  <div className="stat-meta stat-meta--up">↑ 12.5% increase</div>
+                  <div className="stat-value">{stats.totalUsers.toLocaleString()}</div>
+                  <div
+                    className={
+                      "stat-meta " +
+                      (stats.totalUsersDelta.direction === "up"
+                        ? "stat-meta--up"
+                        : stats.totalUsersDelta.direction === "down"
+                        ? "stat-meta--down"
+                        : "")
+                    }
+                  >
+                    {stats.totalUsersDelta.label}
+                  </div>
+                </div>
+
+                <div className="stat-card">
+                  <div className="stat-header">
+                    <span className="stat-label">ACTIVE USERS</span>
+                    <span className="stat-icon">✅</span>
+                  </div>
+                  <div className="stat-value">{stats.activeUsers.toLocaleString()}</div>
+                  <div
+                    className={
+                      "stat-meta " +
+                      (stats.activeUsersDelta.direction === "up"
+                        ? "stat-meta--up"
+                        : stats.activeUsersDelta.direction === "down"
+                        ? "stat-meta--down"
+                        : "")
+                    }
+                  >
+                    {stats.activeUsersDelta.label}
+                  </div>
                 </div>
 
                 <div className="stat-card">
@@ -196,8 +461,19 @@ export default function AdminDashboard() {
                     <span className="stat-label">ITINERARIES CREATED</span>
                     <span className="stat-icon stat-icon--pink">🧳</span>
                   </div>
-                  <div className="stat-value">5,632</div>
-                  <div className="stat-meta stat-meta--up">↑ 8.3% increase</div>
+                  <div className="stat-value">{stats.itinerariesCreated.toLocaleString()}</div>
+                  <div
+                    className={
+                      "stat-meta " +
+                      (stats.itinerariesDelta.direction === "up"
+                        ? "stat-meta--up"
+                        : stats.itinerariesDelta.direction === "down"
+                        ? "stat-meta--down"
+                        : "")
+                    }
+                  >
+                    {stats.itinerariesDelta.label}
+                  </div>
                 </div>
 
                 <div className="stat-card">
@@ -205,17 +481,19 @@ export default function AdminDashboard() {
                     <span className="stat-label">PENDING VERIFICATIONS</span>
                     <span className="stat-icon stat-icon--red">⚠️</span>
                   </div>
-                  <div className="stat-value">24</div>
-                  <div className="stat-meta stat-meta--down">↑ 3 new today</div>
-                </div>
-
-                <div className="stat-card">
-                  <div className="stat-header">
-                    <span className="stat-label">DESTINATIONS</span>
-                    <span className="stat-icon stat-icon--yellow">📍</span>
+                  <div className="stat-value">{stats.pendingVerifications.toLocaleString()}</div>
+                  <div
+                    className={
+                      "stat-meta " +
+                      (stats.pendingDelta.direction === "up"
+                        ? "stat-meta--up"
+                        : stats.pendingDelta.direction === "down"
+                        ? "stat-meta--down"
+                        : "")
+                    }
+                  >
+                    {stats.pendingDelta.label}
                   </div>
-                  <div className="stat-value">187</div>
-                  <div className="stat-meta stat-meta--up">↑ 5.7% increase</div>
                 </div>
               </section>
             )}
@@ -225,19 +503,16 @@ export default function AdminDashboard() {
               {/* DASHBOARD VIEW */}
               {activeSidebarItem === "dashboard" && (
                 <>
+                  {/* LEFT COLUMN */}
                   <div className="card card-moderation">
                     <div className="card-header card-header--space">
                       <div>
-                        <h2>
-                          {activeTab === "moderation" ? "Content Moderation" : "User Accounts"}
-                        </h2>
+                        <h2>{activeTab === "moderation" ? "Content Moderation" : "User Accounts"}</h2>
                       </div>
 
                       {activeTab === "moderation" && (
                         <button
-                          className={
-                            "btn btn-outline btn-small " + (showPendingOnly ? "btn-filter-active" : "")
-                          }
+                          className={"btn btn-outline btn-small " + (showPendingOnly ? "btn-filter-active" : "")}
                           onClick={() => setShowPendingOnly((prev) => !prev)}
                         >
                           ⌕ Filter
@@ -253,9 +528,7 @@ export default function AdminDashboard() {
                         User Management
                       </button>
                       <button
-                        className={
-                          "tab " + (activeTab === "moderation" ? "tab--underline-active" : "")
-                        }
+                        className={"tab " + (activeTab === "moderation" ? "tab--underline-active" : "")}
                         onClick={() => setActiveTab("moderation")}
                       >
                         Content Moderation
@@ -296,14 +569,10 @@ export default function AdminDashboard() {
                                       <span className="moderation-tag moderation-tag--orange">•</span>
                                     )}
                                     {isApproved && (
-                                      <span className="moderation-tag moderation-tag--approved">
-                                        Approved
-                                      </span>
+                                      <span className="moderation-tag moderation-tag--approved">Approved</span>
                                     )}
                                     {isRejected && (
-                                      <span className="moderation-tag moderation-tag--rejected">
-                                        Rejected
-                                      </span>
+                                      <span className="moderation-tag moderation-tag--rejected">Rejected</span>
                                     )}
                                   </div>
 
@@ -313,18 +582,10 @@ export default function AdminDashboard() {
                                 </div>
 
                                 <div className="moderation-actions">
-                                  <button
-                                    className="btn btn-approve"
-                                    onClick={() => handleApprove(idx)}
-                                    disabled={!isPending}
-                                  >
+                                  <button className="btn btn-approve" onClick={() => handleApprove(idx)} disabled={!isPending}>
                                     ✓ Approve
                                   </button>
-                                  <button
-                                    className="btn btn-reject"
-                                    onClick={() => handleReject(idx)}
-                                    disabled={!isPending}
-                                  >
+                                  <button className="btn btn-reject" onClick={() => handleReject(idx)} disabled={!isPending}>
                                     ✕ Reject
                                   </button>
                                 </div>
@@ -334,59 +595,132 @@ export default function AdminDashboard() {
                         )}
                       </div>
                     ) : (
-                      <div className="user-table-wrapper">
-                        <div className="table-toolbar">
-                          <div className="input-wrapper">
-                            <input placeholder="Search by name, email..." className="search-input" />
+                      <div className="users-card">
+                        {/* header */}
+                        <div className="users-top">
+                          <div>
+                            <h2 className="users-title">User Accounts</h2>
                           </div>
-                          <button className="btn btn-outline">Search</button>
+
+                          <button className="btn btn-primary users-add">+ Add User</button>
                         </div>
 
-                        <table className="user-table">
-                          <thead>
-                            <tr>
-                              <th>User</th>
-                              <th>Email</th>
-                              <th>Status</th>
-                              <th>Joined</th>
-                              <th>Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {users.map((user) => (
-                              <tr key={user.email}>
-                                <td>
-                                  <div className="user-cell">
-                                    <span className="avatar avatar--small">{user.name[0]}</span>
-                                    <span>{user.name}</span>
-                                  </div>
-                                </td>
-                                <td>{user.email}</td>
-                                <td>
-                                  <span
-                                    className={
-                                      "status-pill status-pill--" + user.status.toLowerCase()
-                                    }
-                                  >
-                                    {user.status}
-                                  </span>
-                                </td>
-                                <td>{user.date}</td>
-                                <td>
-                                  <div className="row-actions">
-                                    <button className="link-button">View</button>
-                                    <button className="link-button">Edit</button>
-                                  </div>
-                                </td>
+                        {/* search */}
+                        <div className="users-search-row">
+                          <input
+                            placeholder="Search users by name, email..."
+                            className="users-search-input"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                          />
+                          <button className="btn btn-outline users-search-btn" onClick={fetchUsers} disabled={usersLoading}>
+                            <span className="users-search-icon">🔍</span>
+                            {usersLoading ? "Searching..." : "Search"}
+                          </button>
+                        </div>
+
+                        {/* table */}
+                        <div className="users-table-wrap">
+                          <table className="users-table">
+                            <thead>
+                              <tr>
+                                <th>User</th>
+                                <th>Email</th>
+                                <th>Status</th>
+                                <th>Joined</th>
+                                <th style={{ textAlign: "right" }}>Actions</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+
+                            <tbody>
+                              {usersLoading ? (
+                                <tr>
+                                  <td colSpan={5} className="users-empty">
+                                    Loading...
+                                  </td>
+                                </tr>
+                              ) : users.length === 0 ? (
+                                <tr>
+                                  <td colSpan={5} className="users-empty">
+                                    No users found
+                                  </td>
+                                </tr>
+                              ) : (
+                                users.map((u) => {
+                                  const initials =
+                                    (u.name?.trim()?.split(/\s+/).map((p) => p[0]).slice(0, 2).join("") ||
+                                      u.email?.[0] ||
+                                      "?").toUpperCase();
+
+                                  const status = (u.status ?? "active").toLowerCase();
+                                  const joined = new Date(u.created_at);
+                                  const joinedTop = joined.toISOString().slice(0, 4);
+                                  const joinedBottom = joined.toISOString().slice(5, 10);
+
+                                  const isPending = status === "pending";
+                                  const isSuspended = status === "suspended";
+
+                                  return (
+                                    <tr key={u.id}>
+                                      <td>
+                                        <div className="users-usercell">
+                                          <div className="users-avatar">{initials}</div>
+                                          <div className="users-name">{u.name ?? "-"}</div>
+                                        </div>
+                                      </td>
+
+                                      <td className="users-email">{u.email}</td>
+
+                                      <td>
+                                        <span className={"users-status users-status--" + status}>
+                                          {status.charAt(0).toUpperCase() + status.slice(1)}
+                                        </span>
+                                      </td>
+
+                                      <td>
+                                        <div className="users-joined">
+                                          <div>{joinedTop}</div>
+                                          <div>{joinedBottom}</div>
+                                        </div>
+                                      </td>
+
+                                      <td>
+                                        <div className="users-actions">
+                                          <button className="users-action-btn" title="View">
+                                            👁️
+                                          </button>
+
+                                          {isPending ? (
+                                            <button className="users-action-btn users-action-btn--success" title="Approve">
+                                              ✓
+                                            </button>
+                                          ) : isSuspended ? (
+                                            <button className="users-action-btn users-action-btn--lock" title="Locked">
+                                              🔒
+                                            </button>
+                                          ) : (
+                                            <button className="users-action-btn" title="Disable">
+                                              ⛔
+                                            </button>
+                                          )}
+
+                                          <button className="users-action-btn users-action-btn--danger" title="Delete">
+                                            🗑️
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
                   </div>
 
-                  {/* RIGHT: PENDING ACTIONS */}
+                  {/* RIGHT COLUMN (always present on dashboard so grid stays valid) */}
                   <aside className="card card-side">
                     <h2>Pending Actions</h2>
 
@@ -395,21 +729,16 @@ export default function AdminDashboard() {
                         <div>
                           <span className="side-title">User Verifications</span>
                           <p className="side-sub">
-                            24 new users
+                            {stats.pendingVerifications.toLocaleString()} new users
                             <br />
                             awaiting approval
                           </p>
                         </div>
-                        <button
-                          className="btn btn-primary btn-small"
-                          onClick={() => setReviewClicked(true)}
-                        >
+                        <button className="btn btn-primary btn-small" onClick={() => setReviewClicked(true)}>
                           Review
                         </button>
                       </div>
-                      {reviewClicked && (
-                        <p className="side-note">Opened verification queue (demo behavior).</p>
-                      )}
+                      {reviewClicked && <p className="side-note">Opened verification queue (demo behavior).</p>}
                     </div>
                   </aside>
                 </>
@@ -456,59 +785,121 @@ export default function AdminDashboard() {
               {/* USER MANAGEMENT VIEW */}
               {activeSidebarItem === "users" && (
                 <>
-                  <div className="card">
-                    <div className="card-header">
+                  <div className="card users-card">
+                    <div className="users-top">
                       <div>
-                        <h2>User Accounts</h2>
-                        <p>Search, filter and manage admin-level users.</p>
+                        <h2 className="users-title">User Accounts</h2>
                       </div>
-                      <button className="btn btn-primary">+ Add user</button>
+
+                      <button className="btn btn-primary users-add">+ Add User</button>
                     </div>
 
-                    <div className="user-table-wrapper">
-                      <div className="table-toolbar">
-                        <div className="input-wrapper">
-                          <input placeholder="Search by name, email..." className="search-input" />
-                        </div>
-                        <button className="btn btn-outline">Search</button>
-                      </div>
+                    <div className="users-search-row">
+                      <input
+                        placeholder="Search users by name, email..."
+                        className="users-search-input"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                      />
+                      <button className="btn btn-outline users-search-btn" onClick={fetchUsers} disabled={usersLoading}>
+                        <span className="users-search-icon">🔍</span>
+                        {usersLoading ? "Searching..." : "Search"}
+                      </button>
+                    </div>
 
-                      <table className="user-table">
+                    <div className="users-table-wrap">
+                      <table className="users-table">
                         <thead>
                           <tr>
                             <th>User</th>
                             <th>Email</th>
                             <th>Status</th>
                             <th>Joined</th>
-                            <th>Actions</th>
+                            <th style={{ textAlign: "right" }}>Actions</th>
                           </tr>
                         </thead>
+
                         <tbody>
-                          {users.map((user) => (
-                            <tr key={user.email}>
-                              <td>
-                                <div className="user-cell">
-                                  <span className="avatar avatar--small">{user.name[0]}</span>
-                                  <span>{user.name}</span>
-                                </div>
-                              </td>
-                              <td>{user.email}</td>
-                              <td>
-                                <span
-                                  className={"status-pill status-pill--" + user.status.toLowerCase()}
-                                >
-                                  {user.status}
-                                </span>
-                              </td>
-                              <td>{user.date}</td>
-                              <td>
-                                <div className="row-actions">
-                                  <button className="link-button">View</button>
-                                  <button className="link-button">Edit</button>
-                                </div>
+                          {usersLoading ? (
+                            <tr>
+                              <td colSpan={5} className="users-empty">
+                                Loading...
                               </td>
                             </tr>
-                          ))}
+                          ) : users.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="users-empty">
+                                No users found
+                              </td>
+                            </tr>
+                          ) : (
+                            users.map((u) => {
+                              const initials =
+                                (u.name?.trim()?.split(/\s+/).map((p) => p[0]).slice(0, 2).join("") ||
+                                  u.email?.[0] ||
+                                  "?").toUpperCase();
+
+                              const status = (u.status ?? "active").toLowerCase();
+                              const joined = new Date(u.created_at);
+                              const joinedTop = joined.toISOString().slice(0, 4);
+                              const joinedBottom = joined.toISOString().slice(5, 10);
+
+                              const isPending = status === "pending";
+                              const isSuspended = status === "suspended";
+
+                              return (
+                                <tr key={u.id}>
+                                  <td>
+                                    <div className="users-usercell">
+                                      <div className="users-avatar">{initials}</div>
+                                      <div className="users-name">{u.name ?? "-"}</div>
+                                    </div>
+                                  </td>
+
+                                  <td className="users-email">{u.email}</td>
+
+                                  <td>
+                                    <span className={"users-status users-status--" + status}>
+                                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                                    </span>
+                                  </td>
+
+                                  <td>
+                                    <div className="users-joined">
+                                      <div>{joinedTop}</div>
+                                      <div>{joinedBottom}</div>
+                                    </div>
+                                  </td>
+
+                                  <td>
+                                    <div className="users-actions">
+                                      <button className="users-action-btn" title="View">
+                                        👁️
+                                      </button>
+
+                                      {isPending ? (
+                                        <button className="users-action-btn users-action-btn--success" title="Approve">
+                                          ✓
+                                        </button>
+                                      ) : isSuspended ? (
+                                        <button className="users-action-btn users-action-btn--lock" title="Locked">
+                                          🔒
+                                        </button>
+                                      ) : (
+                                        <button className="users-action-btn" title="Disable">
+                                          ⛔
+                                        </button>
+                                      )}
+
+                                      <button className="users-action-btn users-action-btn--danger" title="Delete">
+                                        🗑️
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
                         </tbody>
                       </table>
                     </div>
@@ -517,9 +908,9 @@ export default function AdminDashboard() {
                   <aside className="card card-side">
                     <h2>Roles Summary</h2>
                     <ul className="simple-list">
-                      <li>3 Admins</li>
-                      <li>12 Managers</li>
-                      <li>245 Regular Users</li>
+                      <li>Admins</li>
+                      <li>Managers</li>
+                      <li>Regular Users</li>
                     </ul>
                   </aside>
                 </>
@@ -562,14 +953,10 @@ export default function AdminDashboard() {
                                   <span className="moderation-tag moderation-tag--orange">•</span>
                                 )}
                                 {isApproved && (
-                                  <span className="moderation-tag moderation-tag--approved">
-                                    Approved
-                                  </span>
+                                  <span className="moderation-tag moderation-tag--approved">Approved</span>
                                 )}
                                 {isRejected && (
-                                  <span className="moderation-tag moderation-tag--rejected">
-                                    Rejected
-                                  </span>
+                                  <span className="moderation-tag moderation-tag--rejected">Rejected</span>
                                 )}
                               </div>
                               <p className="moderation-sub">
@@ -578,18 +965,10 @@ export default function AdminDashboard() {
                             </div>
 
                             <div className="moderation-actions">
-                              <button
-                                className="btn btn-approve"
-                                onClick={() => handleApprove(idx)}
-                                disabled={!isPending}
-                              >
+                              <button className="btn btn-approve" onClick={() => handleApprove(idx)} disabled={!isPending}>
                                 ✓ Approve
                               </button>
-                              <button
-                                className="btn btn-reject"
-                                onClick={() => handleReject(idx)}
-                                disabled={!isPending}
-                              >
+                              <button className="btn btn-reject" onClick={() => handleReject(idx)} disabled={!isPending}>
                                 ✕ Reject
                               </button>
                             </div>
@@ -617,20 +996,13 @@ export default function AdminDashboard() {
                     <div className="reports-topbar">
                       <div>
                         <h2>Reports</h2>
-                        <p className="reports-subtitle">
-                          Overview of generated and scheduled admin reports.
-                        </p>
+                        <p className="reports-subtitle">Overview of generated and scheduled admin reports.</p>
                       </div>
 
                       <div className="reports-actions">
                         <button className="btn btn-outline btn-small">⚙ Filters</button>
-                        <button className="btn btn-outline btn-small">
-                          Jan 01, 2025 – Feb 09, 2025
-                        </button>
-                        <button
-                          className="btn btn-primary btn-small"
-                          onClick={() => setPdfOpen(true)}
-                        >
+                        <button className="btn btn-outline btn-small">Jan 01, 2025 – Feb 09, 2025</button>
+                        <button className="btn btn-primary btn-small" onClick={() => setPdfOpen(true)}>
                           Generate Report
                         </button>
                       </div>
@@ -768,13 +1140,10 @@ export default function AdminDashboard() {
         </main>
       </div>
 
-      {/* PDF MODAL (always mounted; returns null if open=false) */}
       <ExportPDF open={pdfOpen} onClose={() => setPdfOpen(false)} onExport={handleExportPDF} />
 
       {/* CSS INLINE */}
       <style>{`
-        /* (KEEP YOUR EXISTING CSS EXACTLY AS-IS) */
-        ${""}
         :root {
           --bg: #f3f5fb;
           --sidebar-bg: #ffffff;
@@ -791,8 +1160,7 @@ export default function AdminDashboard() {
           --danger: #ef4444;
           --success: #16a34a;
           --warning: #f59e0b;
-          font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
-            sans-serif;
+          font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
         }
 
         body {
@@ -800,7 +1168,6 @@ export default function AdminDashboard() {
           background: #e5e7eb;
         }
 
-        /* LAYOUT */
         .admin-shell {
           display: flex;
           min-height: 100vh;
@@ -809,7 +1176,6 @@ export default function AdminDashboard() {
           box-sizing: border-box;
         }
 
-        /* SIDEBAR */
         .admin-sidebar {
           width: 220px;
           background: var(--sidebar-bg);
@@ -889,13 +1255,11 @@ export default function AdminDashboard() {
           color: #ffffff;
         }
 
-        /* Collapsible sidebar */
         .admin-sidebar--collapsed {
           width: 76px;
           padding: 1.25rem 0.8rem;
         }
 
-        /* top row */
         .sidebar-top {
           display: flex;
           align-items: center;
@@ -917,7 +1281,6 @@ export default function AdminDashboard() {
           cursor: pointer;
         }
 
-        /* hide labels + section headers when collapsed */
         .admin-sidebar--collapsed .nav-label {
           display: none;
         }
@@ -927,7 +1290,6 @@ export default function AdminDashboard() {
           display: none;
         }
 
-        /* center icons when collapsed */
         .admin-sidebar--collapsed .nav-item {
           justify-content: center;
           padding: 0.55rem 0.4rem;
@@ -940,7 +1302,6 @@ export default function AdminDashboard() {
           color: #111827;
         }
 
-        /* MAIN */
         .admin-main {
           flex: 1;
           background: var(--bg);
@@ -951,7 +1312,6 @@ export default function AdminDashboard() {
           flex-direction: column;
         }
 
-        /* HEADER */
         .admin-header {
           display: flex;
           justify-content: space-between;
@@ -976,7 +1336,6 @@ export default function AdminDashboard() {
           gap: 0.75rem;
         }
 
-        /* BUTTONS */
         .btn {
           border-radius: var(--radius-pill);
           padding: 0.45rem 0.95rem;
@@ -1024,7 +1383,6 @@ export default function AdminDashboard() {
           color: var(--accent);
         }
 
-        /* USER PILL */
         .admin-user-pill {
           display: flex;
           align-items: center;
@@ -1046,7 +1404,6 @@ export default function AdminDashboard() {
           font-weight: 600;
         }
 
-        /* AVATAR */
         .avatar {
           width: 32px;
           height: 32px;
@@ -1064,7 +1421,6 @@ export default function AdminDashboard() {
           height: 26px;
         }
 
-        /* STATS */
         .stats-row {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
@@ -1111,10 +1467,6 @@ export default function AdminDashboard() {
           background: #fee2e2;
         }
 
-        .stat-icon--yellow {
-          background: #fef3c7;
-        }
-
         .stat-value {
           font-size: 1.6rem;
           font-weight: 700;
@@ -1134,7 +1486,6 @@ export default function AdminDashboard() {
           color: var(--danger);
         }
 
-        /* GRID BELOW */
         .content-grid {
           display: grid;
           grid-template-columns: 2fr 1fr;
@@ -1142,7 +1493,6 @@ export default function AdminDashboard() {
           align-items: flex-start;
         }
 
-        /* CARDS */
         .card {
           background: var(--card-bg);
           border-radius: var(--radius-md);
@@ -1171,7 +1521,6 @@ export default function AdminDashboard() {
           color: var(--text-muted);
         }
 
-        /* TABS (underline style) */
         .tabs--underline {
           display: flex;
           gap: 1.5rem;
@@ -1193,7 +1542,6 @@ export default function AdminDashboard() {
           border-bottom: 2px solid var(--accent);
         }
 
-        /* MODERATION LIST */
         .moderation-list {
           margin-top: 0.8rem;
           display: flex;
@@ -1281,11 +1629,6 @@ export default function AdminDashboard() {
           margin-top: 0.6rem;
         }
 
-        /* USER TABLE */
-        .user-table-wrapper {
-          margin-top: 0.7rem;
-        }
-
         .table-toolbar {
           display: flex;
           gap: 0.75rem;
@@ -1305,27 +1648,178 @@ export default function AdminDashboard() {
           font-size: 0.85rem;
         }
 
-        .user-table {
+        .users-card {
+          padding: 1.25rem 1.3rem;
+        }
+
+        .users-top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 1rem;
+        }
+
+        .users-title {
+          margin: 0;
+          font-size: 1.1rem;
+        }
+
+        .users-add {
+          padding: 0.45rem 1rem;
+        }
+
+        .users-search-row {
+          display: flex;
+          gap: 0.8rem;
+          align-items: center;
+          margin-bottom: 0.9rem;
+        }
+
+        .users-search-input {
+          flex: 1;
+          padding: 0.65rem 1rem;
+          border-radius: 14px;
+          border: 1px solid var(--border-subtle);
+          font-size: 0.9rem;
+          background: #fff;
+          outline: none;
+        }
+
+        .users-search-btn {
+          display: flex;
+          align-items: center;
+          gap: 0.45rem;
+          border-color: #c7d2fe;
+          padding: 0.6rem 1rem;
+        }
+
+        .users-search-icon {
+          font-size: 0.95rem;
+        }
+
+        .users-table-wrap {
+          margin-top: 0.25rem;
+        }
+
+        .users-table {
           width: 100%;
           border-collapse: collapse;
         }
 
-        .user-table th {
-          font-size: 0.8rem;
+        .users-table th {
+          font-size: 0.85rem;
           color: var(--text-muted);
           text-align: left;
+          padding: 0.7rem 0.4rem;
           border-bottom: 1px solid var(--border-subtle);
-          padding-bottom: 0.5rem;
         }
 
-        .user-table td {
-          padding: 0.6rem 0.3rem;
+        .users-table td {
+          padding: 0.85rem 0.4rem;
+          border-bottom: 1px solid #eef2f7;
+          vertical-align: middle;
         }
 
-        .user-cell {
+        .users-empty {
+          text-align: left;
+          color: var(--text-muted);
+          padding: 1.2rem 0.4rem;
+        }
+
+        .users-usercell {
           display: flex;
           align-items: center;
+          gap: 0.75rem;
+        }
+
+        .users-avatar {
+          width: 38px;
+          height: 38px;
+          border-radius: 999px;
+          background: #1d4ed8;
+          color: #fff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 700;
+          font-size: 0.85rem;
+        }
+
+        .users-name {
+          font-weight: 600;
+          color: var(--text-main);
+        }
+
+        .users-email {
+          color: #374151;
+        }
+
+        .users-status {
+          display: inline-flex;
+          padding: 0.28rem 0.65rem;
+          border-radius: 999px;
+          font-size: 0.78rem;
+          font-weight: 600;
+        }
+
+        .users-status--active {
+          background: rgba(16, 185, 129, 0.14);
+          color: #059669;
+        }
+        .users-status--verified {
+          background: rgba(16, 185, 129, 0.14);
+          color: #059669;
+        }
+        .users-status--pending {
+          background: rgba(245, 158, 11, 0.16);
+          color: #b45309;
+        }
+        .users-status--suspended {
+          background: rgba(239, 68, 68, 0.14);
+          color: #dc2626;
+        }
+
+        .users-joined {
+          display: flex;
+          flex-direction: column;
+          line-height: 1.05;
+          color: #111827;
+          font-weight: 600;
+        }
+
+        .users-actions {
+          display: flex;
+          justify-content: flex-end;
           gap: 0.5rem;
+        }
+
+        .users-action-btn {
+          width: 38px;
+          height: 34px;
+          border-radius: 10px;
+          border: 2px solid #c7d2fe;
+          background: #fff;
+          cursor: pointer;
+          font-size: 0.95rem;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .users-action-btn--success {
+          border-color: transparent;
+          background: #10b981;
+          color: #fff;
+        }
+
+        .users-action-btn--lock {
+          border-color: transparent;
+          background: #10b981;
+          color: #fff;
+        }
+
+        .users-action-btn--danger {
+          border-color: #c7d2fe;
         }
 
         .status-pill {
@@ -1367,7 +1861,6 @@ export default function AdminDashboard() {
           font-size: 0.8rem;
         }
 
-        /* RIGHT PANEL */
         .card-side h2 {
           margin-top: 0;
           font-size: 1rem;
@@ -1409,7 +1902,6 @@ export default function AdminDashboard() {
           color: #1d4ed8;
         }
 
-        /* ANALYTICS VIEW */
         .card-analytics {
           min-height: 180px;
         }
@@ -1454,7 +1946,6 @@ export default function AdminDashboard() {
           background: linear-gradient(90deg, #bbf7d0, #16a34a);
         }
 
-        /* Simple lists */
         .simple-list {
           list-style: none;
           padding-left: 0;
@@ -1467,7 +1958,6 @@ export default function AdminDashboard() {
           margin-top: 0.35rem;
         }
 
-        /* Reports – analytics-style layout */
         .reports-main-card {
           display: flex;
           flex-direction: column;
@@ -1512,7 +2002,6 @@ export default function AdminDashboard() {
           color: #ffffff;
         }
 
-        /* stat row in reports */
         .report-stats-row {
           display: grid;
           grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1552,7 +2041,6 @@ export default function AdminDashboard() {
           color: var(--danger);
         }
 
-        /* main chart card */
         .chart-card {
           border-radius: 14px;
           border: 1px solid var(--border-subtle);
@@ -1596,7 +2084,6 @@ export default function AdminDashboard() {
           color: #2563eb;
         }
 
-        /* fake chart area */
         .chart-area {
           display: flex;
           margin-top: 0.4rem;
@@ -1637,7 +2124,6 @@ export default function AdminDashboard() {
           text-align: center;
         }
 
-        /* bottom report list inside reports */
         .report-list {
           margin-top: 0.8rem;
           display: flex;
@@ -1667,7 +2153,6 @@ export default function AdminDashboard() {
           color: var(--text-muted);
         }
 
-        /* Security */
         .security-log-list {
           list-style: none;
           padding-left: 0;
@@ -1695,7 +2180,6 @@ export default function AdminDashboard() {
           flex: 1;
         }
 
-        /* RESPONSIVE */
         @media (max-width: 1024px) {
           .admin-shell {
             padding: 1rem;
@@ -1723,19 +2207,16 @@ export default function AdminDashboard() {
           body * {
             visibility: hidden !important;
           }
-
           #print-area,
           #print-area * {
             visibility: visible !important;
           }
-
           #print-area {
             position: absolute;
             left: 0;
             top: 0;
             width: 100%;
           }
-
           .admin-shell {
             background: #fff !important;
             padding: 0 !important;
