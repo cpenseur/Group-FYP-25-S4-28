@@ -267,7 +267,7 @@ export default function DashboardPage() {
   const today = new Date();
 
   const upcomingTrips = useMemo(() => {
-    const arr = trips.filter((t) => isUpcoming(t, today));
+    const arr = trips.filter((t) => isUpcoming(t, today) && t.travel_type !== "group_ai_pending");
     return arr.sort((a, b) => {
       const ad = a.start_date ? parseISO(a.start_date).getTime() : 0;
       const bd = b.start_date ? parseISO(b.start_date).getTime() : 0;

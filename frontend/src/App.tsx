@@ -38,6 +38,9 @@ import GroupItinerarySummary from "./pages/groupItinerarySummary";
 import ItineraryRecommendation from "./pages/itineraryRecommendation";
 import AiTripGeneratorGroup from "./pages/GroupTripGeneratorPage";
 import MediaHighlights from "./pages/mediaHighlights";
+import TripInvitationAccept from "./pages/TripInvitationAccept";
+import GroupAITripGeneratorWait from "./pages/groupAITripGeneratorWait";
+
 
 // Su
 import NotesAndChecklistPage from "./pages/notesAndChecklistPage";
@@ -103,6 +106,8 @@ export default function App() {
         <Route path="/ai-trip-generator-group" element={<AiTripGeneratorGroup />} />
         <Route path="/trip/:tripId/recommendations" element={<ItineraryRecommendation />} />
         <Route path="/trip/:tripId/media" element={<MediaHighlights />} />
+        <Route path="/trip-invitation/:token" element={<TripInvitationAccept />} />
+        <Route path="/group-ai-wait/:tripId" element={<GroupAITripGeneratorWait />} />
 
         {/* Su */}
         <Route path="/trip/:tripId/notes" element={<NotesAndChecklistPage />} />

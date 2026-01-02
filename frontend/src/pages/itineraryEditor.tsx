@@ -213,23 +213,34 @@ function formatDayHeader(day: TripDayResponse): string {
   return `Day ${day.day_index}  ${weekDay}, ${dateStr}`;
 }
 
+// ✅ FIXED: Extract time directly from ISO string without timezone conversion
+function formatTime(datetimeStr: string | null | undefined): string {
+  if (!datetimeStr) return "";
+  
+  try {
+    // Extract time from "2026-01-19T08:00:00" without any Date parsing
+    // This avoids the +8 hour timezone offset completely
+    const match = datetimeStr.match(/T(\d{2}:\d{2})/);
+    if (match) {
+      return match[1];  // Returns "08:00" directly
+    }
+    return "";
+  } catch (error) {
+    console.error("Error formatting time:", error);
+    return "";
+  }
+}
+
 function formatTimeRange(item: ItineraryItem): string {
   if (!item.start_time && !item.end_time) return "";
 
-  const fmt = (t: string | null | undefined) =>
-    t
-      ? new Date(t).toLocaleTimeString(undefined, {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : "";
-
-  const start = fmt(item.start_time);
-  const end = fmt(item.end_time);
+  const start = formatTime(item.start_time);
+  const end = formatTime(item.end_time);
 
   if (start && !end) return start;
   if (!start && end) return end;
-  return `${start} – ${end}`;
+  if (start && end) return `${start} – ${end}`;
+  return "";
 }
 
 function getItemThumbnail(item: ItineraryItem): string | null {
