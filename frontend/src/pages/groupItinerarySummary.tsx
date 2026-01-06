@@ -101,6 +101,10 @@ function getDestinationImage(destination: string): string {
     "Ho Chi Minh": "https://images.unsplash.com/photo-1583417319070-4a69db38a482?w=1600&h=900&fit=crop",
     "Malaysia": "https://images.unsplash.com/photo-1596422846543-75c6fc197f07?w=1600&h=900&fit=crop",
     "Kuala Lumpur": "https://images.unsplash.com/photo-1596422846543-75c6fc197f07?w=1600&h=900&fit=crop",
+    "KL": "https://images.unsplash.com/photo-1596422846543-75c6fc197f07?w=1600&h=900&fit=crop",
+    "Penang": "https://images.unsplash.com/photo-1559564484-e48bf7aa3d39?w=1600&h=900&fit=crop",
+    "Malacca": "https://images.unsplash.com/photo-1542401886-65d6c61db217?w=1600&h=900&fit=crop",
+    "Langkawi": "https://images.unsplash.com/photo-1559628376-f3fe5f782a2e?w=1600&h=900&fit=crop",
     "Philippines": "https://images.unsplash.com/photo-1542259009477-d625272157b7?w=1600&h=900&fit=crop",
     "Manila": "https://images.unsplash.com/photo-1542259009477-d625272157b7?w=1600&h=900&fit=crop",
     "Cambodia": "https://images.unsplash.com/photo-1557128398-9583d2a72334?w=1600&h=900&fit=crop",
@@ -238,6 +242,12 @@ function getDestinationImage(destination: string): string {
       console.log(`✅ Matched "${destination}" to "${key}":`, url);
       return url;
     }
+  }
+
+  // If destination is still default/empty, return a beautiful generic travel image
+  if (destination === "Your Dream Destination" || !destination || destination.trim() === "") {
+    console.log(`⚠️ No specific destination set, using beautiful generic travel image`);
+    return "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=1600&h=900&fit=crop"; // Beautiful world travel montage
   }
 
   // Fallback: Use Unsplash dynamic image based on destination
@@ -1019,20 +1029,6 @@ export default function GroupItinerarySummary() {
       color: "#1e1e2f",
     },
 
-    detailsBtn: {
-      marginLeft: "auto",
-      padding: "12px 24px",
-      borderRadius: "999px",
-      background: "linear-gradient(135deg, #a78bfa 0%, #c084fc 100%)",
-      border: "2px solid rgba(139, 92, 246, 0.3)",
-      color: "#ffffff",
-      cursor: "pointer",
-      fontSize: "14px",
-      fontWeight: 600,
-      transition: "all 0.3s ease",
-      boxShadow: "0 4px 16px rgba(167, 139, 250, 0.3)",
-    },
-
     actionRow: {
       display: "flex",
       justifyContent: "flex-end",
@@ -1534,21 +1530,6 @@ export default function GroupItinerarySummary() {
                               </div>
                               <div style={styles.itemSub}>{item.location}</div>
                             </div>
-
-                            <button
-                              style={{
-                                ...styles.detailsBtn,
-                                ...(hoveredCard === `details-${day.day}-${idx}` ? {
-                                  transform: 'translateY(-4px) scale(1.05)',
-                                  boxShadow: '0 8px 24px rgba(167, 139, 250, 0.5)',
-                                } : {})
-                              }}
-                              onClick={() => navigate("/discovery-local")}
-                              onMouseEnter={() => setHoveredCard(`details-${day.day}-${idx}`)}
-                              onMouseLeave={() => setHoveredCard(null)}
-                            >
-                              View Details
-                            </button>
                           </div>
                         ))
                       )}
