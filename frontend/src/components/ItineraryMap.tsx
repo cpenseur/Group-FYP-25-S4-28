@@ -190,7 +190,9 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items }) => {
 export default ItineraryMap;
 */
 // frontend/src/components/ItineraryMap.tsx
-import React, { useEffect, useRef } from "react";
+// frontend/src/components/ItineraryMap.tsx
+// frontend/src/components/ItineraryMap.tsx
+import React, { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -205,8 +207,19 @@ export type MapItineraryItem = {
   stop_index?: number | null; // stop number within that day
 };
 
+// NEW: Photo marker type
+export type PhotoMarker = {
+  id: number;
+  lat: number;
+  lon: number;
+  file_url: string;
+  caption?: string;
+  itinerary_item?: number;
+};
+
 type ItineraryMapProps = {
   items: MapItineraryItem[];
+  photos?: PhotoMarker[]; // NEW: Optional photo markers
 };
 
 const mapDayColorPalette = [
@@ -228,11 +241,15 @@ function getMapDayColor(dayIndex: number | null | undefined): string {
 
 const ROUTE_ID = "itinerary-route";
 
-const ItineraryMap: React.FC<ItineraryMapProps> = ({ items }) => {
+const ItineraryMap: React.FC<ItineraryMapProps> = ({ items, photos = [] }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
+  const photoMarkersRef = useRef<maplibregl.Marker[]>([]); // NEW: Photo markers
   const styleReadyRef = useRef(false);
+
+  // NEW: Photo preview state
+  const [selectedPhoto, setSelectedPhoto] = useState<PhotoMarker | null>(null);
 
   // Init map once
   useEffect(() => {
@@ -255,7 +272,6 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items }) => {
       console.error("MapLibre error:", (e as any).error);
     });
 
-    // ✅ Mark style ready only after "load"
     map.on("load", () => {
       styleReadyRef.current = true;
     });
@@ -273,20 +289,15 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items }) => {
     };
   }, []);
 
-  // Update markers + route when items change
+  // Update stop markers + route when items change
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    // If style isn't ready yet, wait then rerun
     if (!styleReadyRef.current || !map.isStyleLoaded()) {
       const onLoad = () => {
         styleReadyRef.current = true;
-        // Trigger a re-render of this effect by doing nothing;
-        // we can just call the same logic again by calling setTimeout
-        setTimeout(() => {
-          // nothing; effect will run next items change anyway
-        }, 0);
+        setTimeout(() => {}, 0);
       };
       map.once("load", onLoad);
       return () => {
@@ -294,7 +305,7 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items }) => {
       };
     }
 
-    // ---- clear old markers ----
+    // Clear old stop markers
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
 
@@ -348,7 +359,7 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items }) => {
       coords.push([item.lon, item.lat]);
     });
 
-    // ---- fit bounds ----
+    // Fit bounds
     if (coords.length) {
       const bounds = coords.reduce(
         (b, c) => b.extend(c as any),
@@ -361,7 +372,7 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items }) => {
       }
     }
 
-    // ---- route layer/source ----
+    // Route layer/source
     const removeRoute = () => {
       if (map.getLayer(ROUTE_ID)) map.removeLayer(ROUTE_ID);
       if (map.getSource(ROUTE_ID)) map.removeSource(ROUTE_ID);
@@ -393,18 +404,118 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items }) => {
     } else {
       removeRoute();
     }
-
-    return () => {
-      // cleanup route on unmount/refresh
-      // (don’t remove markers here because we already remove them at top)
-    };
   }, [items]);
 
+  // NEW: Add photo markers when photos change
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Clear old photo markers
+    photoMarkersRef.current.forEach((m) => m.remove());
+    photoMarkersRef.current = [];
+
+    if (!photos || photos.length === 0) return;
+
+    photos.forEach((photo) => {
+      if (!photo.lat || !photo.lon) return;
+
+      // Create photo marker element (square thumbnail)
+      const el = document.createElement("div");
+      el.style.width = "50px";
+      el.style.height = "50px";
+      el.style.borderRadius = "8px";
+      el.style.border = "3px solid white";
+      el.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)";
+      el.style.cursor = "pointer";
+      el.style.overflow = "hidden";
+      el.style.backgroundImage = `url(${photo.file_url})`;
+      el.style.backgroundSize = "cover";
+      el.style.backgroundPosition = "center";
+      el.style.transition = "transform 0.2s ease";
+
+      // Hover effect
+      el.addEventListener("mouseenter", () => {
+        el.style.transform = "scale(1.1)";
+      });
+
+      el.addEventListener("mouseleave", () => {
+        el.style.transform = "scale(1)";
+      });
+
+      // Click to preview
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setSelectedPhoto(photo);
+      });
+
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([photo.lon, photo.lat])
+        .addTo(map);
+
+      photoMarkersRef.current.push(marker);
+    });
+  }, [photos]);
+
   return (
-    <div
-      ref={mapContainerRef}
-      style={{ width: "100%", height: "100%", minHeight: "520px" }}
-    />
+    <>
+      <div
+        ref={mapContainerRef}
+        style={{ width: "100%", height: "100%", minHeight: "520px" }}
+      />
+
+      {/* NEW: Photo preview modal */}
+      {selectedPhoto && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            backgroundColor: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: "20px",
+          }}
+          onClick={() => setSelectedPhoto(null)}
+        >
+          <div
+            style={{
+              maxWidth: "90%",
+              maxHeight: "90%",
+              background: "white",
+              borderRadius: "16px",
+              overflow: "hidden",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={selectedPhoto.file_url}
+              alt={selectedPhoto.caption || "Trip photo"}
+              style={{
+                width: "100%",
+                height: "auto",
+                maxHeight: "70vh",
+                objectFit: "contain",
+              }}
+            />
+            {selectedPhoto.caption && (
+              <div
+                style={{
+                  padding: "16px",
+                  fontSize: "14px",
+                  color: "#111827",
+                  fontWeight: 600,
+                }}
+              >
+                {selectedPhoto.caption}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

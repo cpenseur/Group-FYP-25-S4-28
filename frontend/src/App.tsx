@@ -1,5 +1,5 @@
 // frontend/src/App.tsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import TopBar from "./components/TopBar";
@@ -38,6 +38,7 @@ import GroupItinerarySummary from "./pages/groupItinerarySummary";
 import ItineraryRecommendation from "./pages/itineraryRecommendation";
 import AiTripGeneratorGroup from "./pages/GroupTripGeneratorPage";
 import MediaHighlights from "./pages/mediaHighlights";
+import VideoPlayer from "./pages/VideoPlayer"; 
 import TripInvitationAccept from "./pages/TripInvitationAccept";
 import GroupAITripGeneratorWait from "./pages/groupAITripGeneratorWait";
 
@@ -60,6 +61,14 @@ export default function App() {
 
   const closeLogin = () => setShowLogin(false);  
   console.log("Sealion Key Loaded:", import.meta.env.VITE_SEALION_API_KEY);
+
+  // Get CSRF token on app load
+  useEffect(() => {
+    fetch('http://127.0.0.1:8000/api/f1/csrf/', {
+      credentials: 'include'
+    }).catch(err => console.error('Failed to get CSRF token:', err));
+  }, []);
+
 
 
   return (
@@ -106,6 +115,7 @@ export default function App() {
         <Route path="/ai-trip-generator-group" element={<AiTripGeneratorGroup />} />
         <Route path="/trip/:tripId/recommendations" element={<ItineraryRecommendation />} />
         <Route path="/trip/:tripId/media" element={<MediaHighlights />} />
+        <Route path="/trip/:tripId/highlight/:highlightId" element={<VideoPlayer />} />
         <Route path="/trip-invitation/:token" element={<TripInvitationAccept />} />
         <Route path="/group-ai-wait/:tripId" element={<GroupAITripGeneratorWait />} />
 

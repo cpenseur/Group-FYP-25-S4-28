@@ -357,6 +357,9 @@ export default function ItineraryEditor() {
 
   const [isOptimisingFull, setIsOptimisingFull] = useState(false);
 
+  // NEW: Photos for map display
+  const [photos, setPhotos] = useState<any[]>([]);
+
   /* -------------------- Apply updated items after optimisation -------------------- */
   const applyUpdatedItems = (
     updated: Array<{ id: number; day: number | null; sort_order: number }>
@@ -511,28 +514,49 @@ export default function ItineraryEditor() {
   /* ------------------ Load Trip ------------------ */
   
   const loadTrip = async () => {
-      setIsLoading(true);
-      setErrorMsg(null);
+    setIsLoading(true);
+    setErrorMsg(null);
+    try {
+      const data: TripResponse = await apiFetch(`/f1/trips/${tripId}/`);
+      setTrip(data);
+
+      const sortedItems = [...(data.items || [])].sort(
+        (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+      );
+      setItems(sortedItems);
+
+      const sortedDays = [...(data.days || [])].sort(
+        (a, b) => a.day_index - b.day_index
+      );
+      setDays(sortedDays);
+
+      // NEW: Load photos with geotags for map display
       try {
-        const data: TripResponse = await apiFetch(`/f1/trips/${tripId}/`);
-        setTrip(data);
-
-        const sortedItems = [...(data.items || [])].sort(
-          (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+        const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { 
+          method: "GET" 
+        });
+        const photosList = Array.isArray(photosData) 
+          ? photosData 
+          : photosData?.results || [];
+        
+        // Only include photos that have lat/lon coordinates
+        const geotaggedPhotos = photosList.filter(
+          (p: any) => p.lat != null && p.lon != null
         );
-        setItems(sortedItems);
-
-        const sortedDays = [...(data.days || [])].sort(
-          (a, b) => a.day_index - b.day_index
-        );
-        setDays(sortedDays);
-      } catch (err: any) {
-        console.error("Failed to load trip:", err);
-        setErrorMsg("Failed to load trip itinerary.");
-      } finally {
-        setIsLoading(false);
+        setPhotos(geotaggedPhotos);
+        
+        console.log(`Loaded ${geotaggedPhotos.length} geotagged photos for map`);
+      } catch (photoErr) {
+        console.warn("Could not load photos for map:", photoErr);
+        setPhotos([]); // Don't fail the whole page if photos fail
       }
-    };
+    } catch (err: any) {
+      console.error("Failed to load trip:", err);
+      setErrorMsg("Failed to load trip itinerary.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!tripId) return;
@@ -988,7 +1012,7 @@ export default function ItineraryEditor() {
               boxShadow: "none",
             }}
           >
-            <ItineraryMap items={mapItems} />
+            <ItineraryMap items={mapItems} photos={photos} />
           </div>
 
           {/* MIDDLE: Optimise + Itinerary Planner (this scrolls) */}
