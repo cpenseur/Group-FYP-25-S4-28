@@ -14,6 +14,9 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 import environ
+import ssl
+
+ssl._create_default_https_context = ssl._create_unverified_context
 
 load_dotenv()
 
@@ -96,7 +99,17 @@ DATABASES = {
 }
 # Supabase requires SSL; enforce if not already in the URL
 DATABASES["default"].setdefault("OPTIONS", {})
-DATABASES["default"]["OPTIONS"].setdefault("sslmode", "require")
+DATABASES["default"]["OPTIONS"].update({
+    "sslmode": "require",
+    "connect_timeout": 10,        
+    "keepalives": 1,              
+    "keepalives_idle": 30,       
+    "keepalives_interval": 10,    
+    "keepalives_count": 5,      
+})
+
+DATABASES["default"]["CONN_MAX_AGE"] = 300         
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True  
 
 
 # Password validation
@@ -153,6 +166,14 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 
+# Cookie settings for CSRF
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF cookie
+CSRF_COOKIE_SECURE = False    # MUST be False in development (no HTTPS)
+CSRF_COOKIE_DOMAIN = None     # Let Django auto-detect the domain
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = False  # Must be False in development
+
 # Allow Vite frontend (localhost:5173) to POST (CSRF Origin check)
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
@@ -206,3 +227,9 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = "tripmatebyfyp25s428@gmail.com"
 EMAIL_HOST_PASSWORD = "woha tkax mbzc vqof"
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+INVITATION_EMAIL_HOST = "smtp.gmail.com"
+INVITATION_EMAIL_PORT = 587
+INVITATION_EMAIL_USE_TLS = True
+INVITATION_EMAIL_USER = "tripmatebyfyp25s428@gmail.com"
+INVITATION_EMAIL_PASSWORD = "tmsb ntgs ogvh bffy"

@@ -3,7 +3,7 @@
 // PURPOSE: Handle trip invitation acceptance via email link
 // ==============================================================================
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
 import { supabase } from "../lib/supabaseClient";
@@ -15,8 +15,13 @@ const TripInvitationAccept: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tripInfo, setTripInfo] = useState<any>(null);
+  const hasRun = useRef(false); // Prevent double execution in StrictMode
 
   useEffect(() => {
+    // Prevent double execution in React StrictMode
+    if (hasRun.current) return;
+    hasRun.current = true;
+    
     acceptInvitation();
   }, []);
 
@@ -32,20 +37,50 @@ const TripInvitationAccept: React.FC = () => {
         return;
       }
 
-      // User is logged in - verify and accept invitation
+      // Step 1: First GET the invitation to set CSRF cookie and validate token
+      let invitePreview;
+      try {
+        invitePreview = await apiFetch(`/f1/trip-invitation/${token}/accept/`, {
+          method: "GET",
+        });
+      } catch (err: any) {
+        console.error("Error fetching invitation preview:", err);
+        setError(err.message || "Invalid or expired invitation");
+        setLoading(false);
+        return;
+      }
+
+      console.log("Invitation preview:", invitePreview);
+
+      // Step 2: Now POST to accept the invitation (CSRF cookie is now set)
       const response = await apiFetch(`/f1/trip-invitation/${token}/accept/`, {
         method: "POST",
       });
 
-      if (response.success) {
-        setTripInfo(response.trip);
+      console.log("Backend response:", response);
+
+      // Check if response has error field (error case)
+      if (response.error) {
+        setError(response.error);
+        return;
+      }
+
+      // Success case - response contains trip_id, trip_title, message, etc.
+      if (response.trip_id) {
+        setTripInfo({
+          id: response.trip_id,
+          title: response.trip_title,
+          role: response.role,
+          already_accepted: response.already_accepted
+        });
         
         // Success - redirect to trip page after 2 seconds
         setTimeout(() => {
-          navigate(`/ai-trip-generator-group?tripId=${response.trip.id}`);
+          navigate(`/ai-trip-generator-group?tripId=${response.trip_id}`);
         }, 2000);
       } else {
-        setError(response.error || "Failed to accept invitation");
+        // Unexpected response format
+        setError("Failed to accept invitation");
       }
       
     } catch (err: any) {
@@ -121,9 +156,17 @@ const TripInvitationAccept: React.FC = () => {
         {!loading && tripInfo && (
           <>
             <div style={styles.icon}>✅</div>
-            <div style={styles.title}>Welcome to {tripInfo.title}!</div>
+            <div style={styles.title}>
+              {tripInfo.already_accepted 
+                ? `You're already part of ${tripInfo.title}!`
+                : `Welcome to ${tripInfo.title}!`
+              }
+            </div>
             <div style={styles.message}>
-              You've successfully joined the trip. Redirecting...
+              {tripInfo.already_accepted
+                ? "Redirecting to your trip..."
+                : "You've successfully joined the trip. Redirecting..."
+              }
             </div>
           </>
         )}

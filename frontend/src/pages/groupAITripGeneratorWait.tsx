@@ -44,7 +44,6 @@ export default function GroupAITripGeneratorWait() {
   const navigate = useNavigate();
   const { tripId } = useParams<{ tripId: string }>();
 
-  const startedRef = useRef(false);
   const navigatedRef = useRef(false);
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -52,48 +51,57 @@ export default function GroupAITripGeneratorWait() {
   const [isExiting, setIsExiting] = useState(false);
   const [keywords, setKeywords] = useState<string[]>([]);
   
-  // ✅ Progress tracking
   const [elapsed, setElapsed] = useState(0);
   const estimatedTime = 90; // seconds
 
   const goToSummary = (tripId: string) => {
+    if (navigatedRef.current) return;
+    navigatedRef.current = true;
+    
+    console.log("✅ Navigating to summary page...");
     setIsExiting(true);
+    
     window.setTimeout(() => {
       navigate(`/group-trip/${tripId}/summary`, { replace: true });
     }, 420);
   };
 
-  // Fetch preferences
+  // Fetch preferences for keywords
   useEffect(() => {
     if (!tripId) return;
 
     const fetchPreferences = async () => {
       try {
-        const prefs = await apiFetch(`/f2/trips/${tripId}/preferences/`, {
-          method: "GET",
-        });
+        console.log("📋 Fetching preferences for keywords...");
+        const prefs = await apiFetch(`/f2/trips/${tripId}/preferences/`);
 
         const allKeywords: string[] = [];
         prefs.forEach((pref: any) => {
           if (pref.preferences) {
             const p = pref.preferences;
-            if (p.country) allKeywords.push(p.country);
-            if (Array.isArray(p.activities)) allKeywords.push(...p.activities);
-            if (Array.isArray(p.destination_types)) allKeywords.push(...p.destination_types);
+            // Extract keywords from preferences array
+            p.forEach((item: any) => {
+              if (typeof item === 'object' && item.value) {
+                allKeywords.push(item.value);
+              } else if (typeof item === 'string') {
+                allKeywords.push(item);
+              }
+            });
           }
         });
 
         const unique = Array.from(new Set(allKeywords)).slice(0, 20);
+        console.log("✅ Keywords loaded:", unique);
         setKeywords(unique);
       } catch (error) {
-        console.error("Failed to fetch preferences:", error);
+        console.error("❌ Failed to fetch preferences:", error);
       }
     };
 
     fetchPreferences();
   }, [tripId]);
 
-  // ✅ Timer for elapsed time
+  // Timer for elapsed time
   useEffect(() => {
     const timer = setInterval(() => {
       setElapsed(prev => prev + 1);
@@ -114,45 +122,14 @@ export default function GroupAITripGeneratorWait() {
     };
   }, []);
 
-  // Kick off generation
-  useEffect(() => {
-    if (!tripId) {
-      setErrorMsg("Missing trip ID. Please go back and try again.");
-      return;
-    }
-
-    if (startedRef.current) return;
-    startedRef.current = true;
-
-    (async () => {
-      try {
-        console.log("🚀 Starting AI generation for group trip:", tripId);
-
-        const res = await apiFetch(`/f2/trips/${tripId}/generate-group-itinerary/`, {
-          method: "POST",
-        });
-
-        console.log("✅ AI generation completed:", res);
-
-        if (navigatedRef.current) return;
-        navigatedRef.current = true;
-
-        goToSummary(tripId);
-      } catch (e: any) {
-        console.error("❌ AI generation failed:", e);
-        setErrorMsg(e?.message || "Failed to generate group itinerary.");
-      }
-    })();
-  }, [tripId]);
-
-  // ✅ Poll for completion
+  // Poll for completion
   useEffect(() => {
     if (!tripId || navigatedRef.current) return;
 
-    console.log("Starting completion polling...");
+    console.log("🔄 Starting completion polling...");
 
     let pollCount = 0;
-    const maxPolls = 60;
+    const maxPolls = 60; // 3 minutes max
 
     const pollInterval = setInterval(async () => {
       pollCount++;
@@ -160,33 +137,37 @@ export default function GroupAITripGeneratorWait() {
       if (pollCount > maxPolls) {
         console.log("⏱️ Polling timeout");
         clearInterval(pollInterval);
-        setErrorMsg("Generation is taking longer than expected. Please try again.");
+        setErrorMsg("Generation is taking longer than expected. Please refresh the page.");
         return;
       }
 
       try {
-        const tripData = await apiFetch(`/f1/trips/${tripId}/`, {
-          method: "GET",
-        });
+        console.log(`🔄 Polling... (${pollCount * 3}s)`);
+        
+        const tripData = await apiFetch(`/f1/trips/${tripId}/`);
+        
+        console.log(`📊 Status: ${tripData.travel_type}`);
 
-        console.log(`Polling... (${pollCount * 3}s) Status: ${tripData.travel_type}`);
-
+        // Check if generation is complete
         if (tripData.travel_type === "group_ai") {
-          console.log("✅ Generation complete! Redirecting...");
+          console.log("✅ AI generation completed!");
           clearInterval(pollInterval);
-          
-          if (!navigatedRef.current) {
-            navigatedRef.current = true;
-            goToSummary(tripId);
-          }
+          goToSummary(tripId);
+        } else if (tripData.travel_type === "group") {
+          // Generation failed or was reverted
+          console.log("❌ Generation failed or was cancelled");
+          clearInterval(pollInterval);
+          setErrorMsg("AI generation failed. Please try again.");
         }
+        // If still "group_generating", continue polling
       } catch (error) {
-        console.error("Polling error:", error);
+        console.error("❌ Polling error:", error);
+        // Continue polling on error
       }
-    }, 3000);
+    }, 3000); // Poll every 3 seconds
 
     return () => {
-      console.log("Stopping completion polling");
+      console.log("🛑 Stopping completion polling");
       clearInterval(pollInterval);
     };
   }, [tripId]);
@@ -270,7 +251,6 @@ export default function GroupAITripGeneratorWait() {
     return "Adding final details…";
   }, [errorMsg, phase]);
 
-  // ✅ Calculate progress
   const progress = Math.min((elapsed / estimatedTime) * 100, 95);
 
   const routeSvg = (top: string, height: number): React.CSSProperties => ({
@@ -361,7 +341,6 @@ export default function GroupAITripGeneratorWait() {
       marginTop: "4px",
     },
 
-    // ✅ Progress bar styles
     progressContainer: {
       width: "100%",
       height: "6px",
@@ -710,7 +689,6 @@ export default function GroupAITripGeneratorWait() {
             </div>
           </div>
 
-          {/* ✅ Progress bar */}
           {!errorMsg && (
             <>
               <div style={styles.progressContainer}>

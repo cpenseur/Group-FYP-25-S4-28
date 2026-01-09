@@ -1,8 +1,4 @@
-// ==============================================================================
-// SUPER OBVIOUS TEST VERSION - 超级明显测试版
-// 用鲜艳的颜色，超快的动画，你绝对能看到！
-// ==============================================================================
-
+// frontend/src/pages/aiTripGeneratorStep1.tsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
@@ -62,6 +58,9 @@ const AiTripGeneratorStep1: React.FC = () => {
     setError("");
 
     try {
+      console.log("🚀 Creating group trip...");
+      
+      // Create trip
       const tripResponse = await apiFetch("/f1/trips/", {
         method: "POST",
         body: JSON.stringify({
@@ -72,18 +71,28 @@ const AiTripGeneratorStep1: React.FC = () => {
       });
 
       const tripId = tripResponse.id;
+      console.log("✅ Trip created:", tripId);
 
-      await apiFetch(`/f1/trips/${tripId}/invite/`, {
-        method: "POST",
-        body: JSON.stringify({
-          emails: groupMembers,
-        }),
-      });
+      console.log("📧 Sending invitations...");
+      
+      // ✅ FIXED: Use correct /invite/ endpoint
+      for (const email of groupMembers) {
+        await apiFetch(`/f1/trips/${tripId}/invite/`, {
+          method: "POST",
+          body: JSON.stringify({
+            email: email,
+            role: "editor",
+          }),
+        });
+        console.log(`✅ Invited ${email}`);
+      }
+      
+      console.log("✅ All invitations sent successfully!");
 
       navigate(`/ai-trip-generator-group?tripId=${tripId}`);
       
     } catch (err: any) {
-      console.error("Failed to create group trip:", err);
+      console.error("❌ Failed to create group trip:", err);
       setError(err.message || "Failed to send invitations. Please try again.");
       setSendingInvites(false);
     }
@@ -118,7 +127,6 @@ const AiTripGeneratorStep1: React.FC = () => {
       overflowX: "hidden",
       margin: 0,
       padding: 0,
-      // 超明显的渐变变化
       background: "linear-gradient(135deg, #fef3c7 0%, #fce7f3 50%, #dbeafe 100%)",
       backgroundSize: "300% 300%",
       animation: "colorShift 20s ease infinite",
@@ -362,9 +370,6 @@ const AiTripGeneratorStep1: React.FC = () => {
     },
   };
 
-  // ========================================
-  // CSS animations - 超快速动画
-  // ========================================
   React.useEffect(() => {
     const styleSheet = document.createElement("style");
     styleSheet.textContent = `

@@ -817,23 +817,27 @@ class LegalDocument(models.Model):
         return f"{self.doc_type} v{self.version or '1.0'}"
     
 class GroupPreference(models.Model):
+    """
+    Stores individual user preferences for group trips.
+    Multiple users can save their preferences for the same trip.
+    """
     trip = models.ForeignKey(
-        "Trip",
+        Trip,
         on_delete=models.CASCADE,
         related_name="group_preferences"
     )
     user = models.ForeignKey(
-        "AppUser",
+        AppUser,
         on_delete=models.CASCADE,
         related_name="group_preferences"
     )
-    preferences = models.JSONField(default=list)
-
-    created_at = models.DateTimeField(default=django_timezone.now)
+    preferences = models.JSONField(default=list)  # Stores array of preference objects
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "group_preference"
-        unique_together = ("trip", "user")
+        unique_together = [["trip", "user"]]  # One preference per user per trip
 
     def __str__(self):
-        return f"Preference: Trip {self.trip_id}, User {self.user_id}"
+        return f"Preferences for {self.user.email} on Trip {self.trip.id}"

@@ -1,6 +1,7 @@
 // frontend/src/App.tsx
 import { useState, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
+import { supabase } from "./lib/supabaseClient";
 import Home from "./pages/Home";
 import TopBar from "./components/TopBar";
 
@@ -42,14 +43,15 @@ import VideoPlayer from "./pages/VideoPlayer";
 import TripInvitationAccept from "./pages/TripInvitationAccept";
 import GroupAITripGeneratorWait from "./pages/groupAITripGeneratorWait";
 
-
 // Su
 import NotesAndChecklistPage from "./pages/notesAndChecklistPage";
 import BudgetPage from "./pages/budget";
 
 export default function App() {
   const [showLogin, setShowLogin] = useState(false);
-  const [authMode, setAuthMode] = useState<"login" | "signup">("login");  const openLogin = () => {
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+
+  const openLogin = () => {
     setShowLogin(true);
     setAuthMode("login");
   };
@@ -59,17 +61,33 @@ export default function App() {
     setAuthMode("signup");
   };
 
-  const closeLogin = () => setShowLogin(false);  
-  console.log("Sealion Key Loaded:", import.meta.env.VITE_SEALION_API_KEY);
+  const closeLogin = () => setShowLogin(false);
 
-  // Get CSRF token on app load
+  // Get CSRF token on app load and after authentication changes
   useEffect(() => {
-    fetch('http://127.0.0.1:8000/api/f1/csrf/', {
-      credentials: 'include'
-    }).catch(err => console.error('Failed to get CSRF token:', err));
+    const getCSRF = () => {
+      fetch('http://localhost:8000/api/f1/csrf/', {
+        credentials: 'include'
+      })
+        .then(() => console.log('✅ CSRF token fetched'))
+        .catch(err => console.error('❌ Failed to get CSRF token:', err));
+    };
+
+    // Get CSRF token immediately
+    getCSRF();
+
+    // Also get CSRF token after login/logout
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
+        console.log(`User ${event}, refreshing CSRF token`);
+        getCSRF();
+      }
+    });
+
+    return () => {
+      authListener?.subscription.unsubscribe();
+    };
   }, []);
-
-
 
   return (
     <>
@@ -89,7 +107,6 @@ export default function App() {
         <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />
         <Route path="/reset-password" element={<ResetPassword />} />
         
-        
         {/* Vania */}
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/ai-trip-generator-step-1" element={<AiTripGeneratorStep1 />} />
@@ -99,7 +116,6 @@ export default function App() {
         <Route path="/trip/:tripId/chatbot" element={<PlanbotPage />} />
         <Route path="/trips" element={<Trips />} />
         <Route path="/ai-trip-generator/wait" element={<AITripGeneratorWait />} />
-
 
         {/* KK */}
         <Route path="/discovery-local" element={<DiscoveryLocal />} />
@@ -123,11 +139,12 @@ export default function App() {
         <Route path="/trip/:tripId/notes" element={<NotesAndChecklistPage />} />
         <Route path="/trip/:tripId/budget" element={<BudgetPage />} />
       </Routes>
-    <Login
-      isOpen={showLogin}
-      onClose={closeLogin}
-      defaultMode={authMode}
-    />    
-  </>  
+
+      <Login
+        isOpen={showLogin}
+        onClose={closeLogin}
+        defaultMode={authMode}
+      />    
+    </>  
   );
 }

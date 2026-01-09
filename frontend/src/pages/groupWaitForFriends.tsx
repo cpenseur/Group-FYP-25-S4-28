@@ -1,9 +1,5 @@
-// ==============================================================================
-// FILE: frontend/src/pages/groupWaitForFriends.tsx
-// PURPOSE: Waiting page with REAL-TIME updates + Beautiful animated background
-// ==============================================================================
-
-import React, { useState, useEffect } from "react";
+// frontend/src/pages/groupWaitForFriends.tsx
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
 import { supabase } from "../lib/supabaseClient";
@@ -21,34 +17,50 @@ export default function GroupWaitForFriends() {
 
   const [friends, setFriends] = useState<Collaborator[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isStarting, setIsStarting] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
+  const hasInitialized = useRef(false);
 
-  // ✅ Fetch collaborators
-  const fetchCollaborators = async (showLoading = true) => {
+  // Fetch collaborators and their status
+  const fetchCollaboratorStatus = async () => {
     if (!tripId) return;
 
     try {
-      if (showLoading) setLoading(true);
-
+      // Get current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         navigate("/signin");
         return;
       }
 
-      const tripData = await apiFetch(`/f1/trips/${tripId}/`, {
-        method: "GET",
-      });
+      // Fetch trip details with collaborators
+      const tripData = await apiFetch(`/f1/trips/${tripId}/`);
 
+      // Check if trip has been generated
+      console.log("Trip travel_type:", tripData.travel_type);
+      
+      if (tripData.travel_type === "group_ai") {
+        console.log("✅ Trip already generated! Navigating to summary...");
+        navigate(`/group-trip/${tripId}/summary`);
+        return;
+      }
+      
+      if (tripData.travel_type === "group_generating") {
+        console.log("🔄 Trip is generating! Navigating to wait page...");
+        navigate(`/group-ai-wait/${tripId}`);
+        return;
+      }
+
+      // Fetch all group preferences for this trip
       let preferencesData: any[] = [];
       try {
-        preferencesData = await apiFetch(`/f1/trips/${tripId}/group-preferences/`, {
-          method: "GET",
-        });
+        preferencesData = await apiFetch(`/f2/trips/${tripId}/preferences/`);
+        console.log("Preferences data:", preferencesData);
       } catch (prefError) {
         console.error("Failed to fetch preferences:", prefError);
       }
 
+      // Check if current user is the owner
       const currentUserIsOwner = tripData.collaborators?.some(
         (collab: any) => 
           collab.user_id === user.id && 
@@ -56,7 +68,9 @@ export default function GroupWaitForFriends() {
       );
       setIsOwner(currentUserIsOwner || false);
 
+      // Map collaborators to include preference status
       const collaboratorList: Collaborator[] = (tripData.collaborators || []).map((collab: any) => {
+        // Check if this collaborator has saved preferences
         const hasPreferences = preferencesData.some(
           (pref: any) => pref.user_id === (collab.user_id || collab.user?.id)
         );
@@ -69,60 +83,49 @@ export default function GroupWaitForFriends() {
         };
       });
 
+      console.log("Updated collaborator list:", collaboratorList);
       setFriends(collaboratorList);
-      if (showLoading) setLoading(false);
+      setLoading(false);
+      hasInitialized.current = true;
+
     } catch (error) {
       console.error("Failed to fetch collaborators:", error);
-      if (showLoading) setLoading(false);
+      setLoading(false);
     }
   };
 
+  // Initial fetch
   useEffect(() => {
-    fetchCollaborators();
+    fetchCollaboratorStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId]);
 
-  // ✅ POLL 1: Update collaborator statuses
+  // Poll for status updates every 3 seconds
   useEffect(() => {
     if (!tripId || loading) return;
 
-    const statusPoll = setInterval(async () => {
-      await fetchCollaborators(false);
+    console.log("Starting status polling...");
+
+    const pollInterval = setInterval(() => {
+      console.log("Polling for updates...");
+      fetchCollaboratorStatus();
     }, 3000);
 
-    return () => clearInterval(statusPoll);
+    return () => {
+      console.log("Stopping status polling");
+      clearInterval(pollInterval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId, loading]);
 
-  // ✅ POLL 2: Check for trip generation status
-  useEffect(() => {
-    if (!tripId || isOwner || loading) return;
-
-    const generationPoll = setInterval(async () => {
-      try {
-        const tripData = await apiFetch(`/f1/trips/${tripId}/`, {
-          method: "GET",
-        });
-
-        if (tripData.travel_type === "group_generating") {
-          clearInterval(generationPoll);
-          navigate(`/group-ai-wait/${tripId}`);
-        } else if (tripData.travel_type === "group_ai") {
-          clearInterval(generationPoll);
-          navigate(`/group-trip/${tripId}/summary`);
-        }
-      } catch (error) {
-        console.error("Polling error:", error);
-      }
-    }, 3000);
-
-    return () => clearInterval(generationPoll);
-  }, [tripId, isOwner, loading]);
-
+  // Remove a pending friend from the list
   const removeFriend = async (email: string) => {
     if (!window.confirm(`Remove ${email} from this trip?`)) {
       return;
     }
 
     try {
+      // TODO: Call API to remove collaborator
       setFriends((prev) => prev.filter((f) => f.email !== email));
     } catch (error) {
       console.error("Failed to remove friend:", error);
@@ -130,7 +133,8 @@ export default function GroupWaitForFriends() {
     }
   };
 
-  const handleStartSearch = () => {
+  // Handle "Start the search" button click
+  const handleStartSearch = async () => {
     if (!tripId) {
       alert("No trip ID found. Cannot proceed.");
       return;
@@ -141,6 +145,7 @@ export default function GroupWaitForFriends() {
       return;
     }
 
+    // Check if all friends have confirmed
     const allConfirmed = friends.every((f) => f.status === "confirmed");
     if (!allConfirmed) {
       const proceed = window.confirm(
@@ -149,26 +154,27 @@ export default function GroupWaitForFriends() {
       if (!proceed) return;
     }
 
-    navigate(`/group-ai-wait/${tripId}`);
-  };
+    setIsStarting(true);
 
-  // ✅ Add CSS animations
-  React.useEffect(() => {
-    const styleSheet = document.createElement("style");
-    styleSheet.textContent = `
-      @keyframes gradientShift {
-        0% { background-position: 0% 50%; }
-        25% { background-position: 25% 50%; }
-        50% { background-position: 50% 50%; }
-        75% { background-position: 75% 50%; }
-        100% { background-position: 0% 50%; }
-      }
-    `;
-    document.head.appendChild(styleSheet);
-    return () => {
-      document.head.removeChild(styleSheet);
-    };
-  }, []);
+    try {
+      console.log("🚀 Starting AI trip generation for group trip:", tripId);
+
+      // Call F2.2 endpoint to generate trip based on everyone's preferences
+      const aiResponse = await apiFetch(`/f2/trips/${tripId}/generate-group-itinerary/`, {
+        method: "POST",
+      });
+
+      console.log("✅ AI generation started:", aiResponse);
+
+      // Navigate to AI generation wait page
+      navigate(`/group-ai-wait/${tripId}`);
+      
+    } catch (error: any) {
+      console.error("❌ Failed to start search:", error);
+      alert(`Failed to generate trip: ${error.message || "Please try again."}`);
+      setIsStarting(false);
+    }
+  };
 
   return (
     <div
@@ -179,15 +185,14 @@ export default function GroupWaitForFriends() {
         right: 0,
         bottom: 0,
         overflow: "hidden",
-        background: "linear-gradient(135deg, #e0f2fe 0%, #ddd6fe 20%, #fce7f3 40%, #fed7aa 60%, #fef3c7 80%, #e0f2fe 100%)",
-        backgroundSize: "400% 400%",
-        animation: "gradientShift 15s ease infinite",
+        background: "linear-gradient(180deg, #eff3ff 0%, #ede8ff 45%, #d5e7ff 100%)",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
       }}
     >
+      {/* Main Title */}
       <h1
         style={{
           fontSize: "48px",
@@ -200,6 +205,7 @@ export default function GroupWaitForFriends() {
         <span style={{ color: "#7C5CFF" }}>friends.</span>
       </h1>
 
+      {/* Subtitle */}
       <p
         style={{
           fontSize: "16px",
@@ -210,6 +216,7 @@ export default function GroupWaitForFriends() {
         {loading ? "Loading..." : isOwner ? "You can start when ready!" : "Waiting for trip owner to start..."}
       </p>
 
+      {/* Friend tags row */}
       <div
         style={{
           display: "flex",
@@ -248,6 +255,7 @@ export default function GroupWaitForFriends() {
                 transition: "all 0.3s ease",
               }}
             >
+              {/* Friend email */}
               <span
                 style={{
                   fontSize: "14px",
@@ -260,6 +268,7 @@ export default function GroupWaitForFriends() {
                 {f.is_owner && " (Owner)"}
               </span>
 
+              {/* Confirmed: Purple check circle */}
               {f.status === "confirmed" && (
                 <span
                   style={{
@@ -285,6 +294,7 @@ export default function GroupWaitForFriends() {
                 </span>
               )}
 
+              {/* Pending: X button to remove (only owner can remove) */}
               {f.status === "pending" && isOwner && (
                 <button
                   onClick={() => removeFriend(f.email)}
@@ -307,28 +317,31 @@ export default function GroupWaitForFriends() {
         )}
       </div>
 
+      {/* Start the search button - ONLY VISIBLE FOR OWNER */}
       {isOwner && (
         <button
           style={{
             padding: "18px 60px",
-            background: loading ? "#9CA3AF" : "#A78BFA",
+            background: isStarting 
+              ? "#9CA3AF" 
+              : "#A78BFA",
             color: "white",
             border: "none",
             borderRadius: "40px",
             fontSize: "18px",
             fontWeight: 700,
-            cursor: loading ? "not-allowed" : "pointer",
+            cursor: isStarting || loading ? "not-allowed" : "pointer",
             display: "flex",
             alignItems: "center",
             gap: "10px",
-            opacity: loading ? 0.7 : 1,
+            opacity: isStarting || loading ? 0.7 : 1,
             boxShadow: "0px 4px 12px rgba(139, 92, 246, 0.25)",
             transition: "all 0.3s ease",
           }}
           onClick={handleStartSearch}
-          disabled={loading}
+          disabled={isStarting || loading}
           onMouseEnter={(e) => {
-            if (!loading) {
+            if (!isStarting && !loading) {
               e.currentTarget.style.transform = "scale(1.05)";
               e.currentTarget.style.boxShadow = "0px 6px 16px rgba(139, 92, 246, 0.35)";
             }
@@ -339,7 +352,7 @@ export default function GroupWaitForFriends() {
           }}
         >
           <span style={{ fontSize: "18px" }}>✨</span>
-          Start the search
+          {isStarting ? "Starting generation..." : "Start the search"}
         </button>
       )}
     </div>

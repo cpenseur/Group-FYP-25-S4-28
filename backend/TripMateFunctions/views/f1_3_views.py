@@ -545,3 +545,340 @@ Return JSON in this format:
             F13SoloTripGenerateResponseSerializer({"trip_id": trip.id}).data,
             status=status.HTTP_201_CREATED,
         )
+    
+class F13GroupPreferencesListView(APIView):
+    """
+    GET /api/f1/trips/{trip_id}/group-preferences/
+    Returns all group preferences for a trip
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, trip_id, *args, **kwargs):
+        try:
+            trip = Trip.objects.get(id=trip_id)
+        except Trip.DoesNotExist:
+            return Response({"error": "Trip not found"}, status=404)
+
+        # Get all group preferences for this trip
+        preferences = GroupPreference.objects.filter(trip=trip).select_related('user')
+        
+        # Format response
+        result = []
+        for pref in preferences:
+            result.append({
+                "user_id": str(pref.user.id),
+                "email": pref.user.email,
+                "preferences": pref.preferences,
+                "created_at": pref.created_at.isoformat(),
+            })
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class F13GenerateGroupItineraryView(APIView):
+    """
+    POST /api/f1/trips/{trip_id}/generate-group-itinerary/
+    Generates AI itinerary based on all collaborators' preferences
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, trip_id, *args, **kwargs):
+        try:
+            trip = Trip.objects.get(id=trip_id)
+        except Trip.DoesNotExist:
+            return Response({"error": "Trip not found"}, status=404)
+        
+        # Get current authenticated user
+        current_user = request.user
+        
+        # Check if user is authenticated
+        if not current_user or not current_user.is_authenticated:
+            return Response(
+                {"error": "Authentication required"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Check if user is the trip owner
+        if str(trip.owner_id) != str(current_user.id):
+            return Response(
+                {"error": "Only trip owner can generate itinerary"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Get all group preferences for this trip
+        preferences = GroupPreference.objects.filter(trip=trip).select_related('user')
+        
+        if preferences.count() == 0:
+            return Response(
+                {"error": "No preferences found. Please save preferences first."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ========== MERGE GROUP PREFERENCES ==========
+        
+        # Collect all preferences from all users
+        all_activities = []
+        all_destinations = []
+        budget_min_vals = []
+        budget_max_vals = []
+        
+        for pref in preferences:
+            prefs_data = pref.preferences or []
+            
+            # Extract data from each user's preferences
+            for item in prefs_data:
+                if isinstance(item, dict):
+                    item_type = item.get("type", "")
+                    item_value = item.get("value", "")
+                    
+                    if item_type == "activity" and item_value:
+                        all_activities.append(item_value)
+                    elif item_type == "destination" and item_value:
+                        all_destinations.append(item_value)
+                    elif item_type == "budget_min":
+                        try:
+                            budget_min_vals.append(float(item_value))
+                        except (ValueError, TypeError):
+                            pass
+                    elif item_type == "budget_max":
+                        try:
+                            budget_max_vals.append(float(item_value))
+                        except (ValueError, TypeError):
+                            pass
+        
+        # Get most common preferences using Counter
+        from collections import Counter
+        
+        top_activities = [act for act, _ in Counter(all_activities).most_common(5)] if all_activities else ["Sightseeing", "Food"]
+        top_destinations = [dest for dest, _ in Counter(all_destinations).most_common(3)] if all_destinations else ["Urban", "Cultural"]
+        
+        avg_budget_min = sum(budget_min_vals) / len(budget_min_vals) if budget_min_vals else 1000
+        avg_budget_max = sum(budget_max_vals) / len(budget_max_vals) if budget_max_vals else 5000
+        
+        # Calculate trip duration from dates
+        if trip.start_date and trip.end_date:
+            duration = (trip.end_date - trip.start_date).days + 1
+            if duration < 1:
+                duration = 3
+        else:
+            duration = 3
+        
+        # ========== BUILD AI PROMPT ==========
+        
+        user_emails = [pref.user.email for pref in preferences[:5]]
+        user_list = ", ".join(user_emails)
+        
+        system_prompt = (
+            "You are a travel planning AI. "
+            "Return ONLY valid JSON. No markdown. No commentary."
+        )
+        
+        user_prompt = f"""
+Create a GROUP travel itinerary for {preferences.count()} travelers.
+
+Group members: {user_list}
+
+Trip duration: {duration} days
+Preferred activities (from group): {", ".join(top_activities)}
+Preferred destination types: {", ".join(top_destinations)}
+Average budget range: ${int(avg_budget_min)} - ${int(avg_budget_max)}
+
+Requirements:
+- Plan 3-4 activities per day
+- Include a mix of all group preferences
+- Suggest real places and attractions
+- Include morning (09:00-12:00), afternoon (14:00-17:00), and evening (19:00-22:00) activities
+
+Return JSON in this exact format:
+{{
+  "title": "Descriptive trip title",
+  "main_city": "City name",
+  "main_country": "Country name",
+  "days": {duration},
+  "stops": [
+    {{
+      "day_index": 1,
+      "title": "Activity name",
+      "description": "Brief description",
+      "item_type": "activity",
+      "start_time": "09:00",
+      "end_time": "11:00",
+      "address": "Full address",
+      "lat": 1.23456,
+      "lon": 103.12345
+    }},
+    {{
+      "day_index": 1,
+      "title": "Lunch spot",
+      "description": "Brief description",
+      "item_type": "food",
+      "start_time": "12:00",
+      "end_time": "13:30",
+      "address": "Full address",
+      "lat": 1.23456,
+      "lon": 103.12345
+    }}
+  ]
+}}
+""".strip()
+
+        # ========== CALL AI ==========
+        
+        print(f"Calling AI with prompt for trip {trip_id}...")
+        
+        ai_content, provider, primary_error, fallback_error = _generate_with_fallback(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.4,
+            max_tokens=1500,
+            timeout=60,
+        )
+
+        if not ai_content:
+            print(f"AI generation failed: primary={primary_error}, fallback={fallback_error}")
+            return Response(
+                {"detail": "AI service unavailable. Please try again later."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        print(f"AI response received from {provider}")
+
+        # Clean AI response
+        cleaned_ai_content = ai_content.strip()
+        if cleaned_ai_content.startswith("```"):
+            cleaned_ai_content = cleaned_ai_content.strip("`")
+            if cleaned_ai_content.startswith("json"):
+                cleaned_ai_content = cleaned_ai_content[4:].strip()
+
+        try:
+            itinerary = json.loads(cleaned_ai_content)
+        except Exception as e:
+            print(f"Failed to parse AI JSON: {str(e)}")
+            print(f"Raw AI response: {cleaned_ai_content[:500]}")
+            return Response(
+                {"detail": f"AI returned invalid JSON: {str(e)}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        # ========== UPDATE DATABASE ==========
+        
+        print(f"Creating itinerary in database...")
+        
+        with transaction.atomic():
+            # Update trip metadata
+            trip.title = itinerary.get("title", f"Group Trip - {trip.id}")
+            trip.main_city = itinerary.get("main_city", "Unspecified")
+            trip.main_country = itinerary.get("main_country", "")
+            trip.travel_type = "group_ai"  # Update status from group_ai_pending
+            trip.save()
+            
+            print(f"Updated trip: {trip.title}")
+            
+            # Delete existing days/items if any
+            TripDay.objects.filter(trip=trip).delete()
+            ItineraryItem.objects.filter(trip=trip).delete()
+            
+            # Create TripDays
+            trip_days = []
+            for i in range(duration):
+                day_date = None
+                if trip.start_date:
+                    from datetime import timedelta
+                    day_date = trip.start_date + timedelta(days=i)
+                
+                trip_days.append(
+                    TripDay(trip=trip, day_index=i + 1, date=day_date)
+                )
+            
+            TripDay.objects.bulk_create(trip_days)
+            print(f"Created {len(trip_days)} trip days")
+            
+            # Create day map
+            day_map = {d.day_index: d for d in TripDay.objects.filter(trip=trip)}
+            
+            # Create ItineraryItems
+            items = []
+            sort_order = 1
+            
+            for stop in itinerary.get("stops", []):
+                day_index = int(stop.get("day_index", 1) or 1)
+                if day_index < 1:
+                    day_index = 1
+                if day_index > duration:
+                    day_index = duration
+                
+                day = day_map.get(day_index)
+                
+                # Parse times and convert to datetime objects
+                start_time_str = stop.get("start_time", "09:00")
+                end_time_str = stop.get("end_time", "10:00")
+                
+                start_datetime = None
+                end_datetime = None
+                
+                if day and day.date and start_time_str:
+                    try:
+                        from datetime import datetime
+                        start_datetime = datetime.combine(
+                            day.date, 
+                            datetime.strptime(start_time_str, "%H:%M").time()
+                        )
+                    except (ValueError, AttributeError):
+                        pass
+                
+                if day and day.date and end_time_str:
+                    try:
+                        from datetime import datetime
+                        end_datetime = datetime.combine(
+                            day.date, 
+                            datetime.strptime(end_time_str, "%H:%M").time()
+                        )
+                    except (ValueError, AttributeError):
+                        pass
+                
+                items.append(
+                    ItineraryItem(
+                        trip=trip,
+                        day=day,
+                        title=stop.get("title") or "Untitled Activity",
+                        item_type=stop.get("item_type", "activity"),
+                        notes_summary=stop.get("description", ""),
+                        address=stop.get("address", ""),
+                        lat=stop.get("lat"),
+                        lon=stop.get("lon"),
+                        start_time=start_datetime,
+                        end_time=end_datetime,
+                        sort_order=sort_order,
+                    )
+                )
+                sort_order += 1
+            
+            if items:
+                ItineraryItem.objects.bulk_create(items)
+                print(f"Created {len(items)} itinerary items")
+            
+            # Update budget
+            if avg_budget_max:
+                TripBudget.objects.update_or_create(
+                    trip=trip,
+                    defaults={
+                        "currency": "USD",
+                        "planned_total": avg_budget_max,
+                    },
+                )
+                print(f"Updated budget: ${avg_budget_max}")
+
+        print(f"✅ Successfully generated group itinerary for trip {trip_id}")
+
+        return Response(
+            {
+                "message": "Group itinerary generated successfully",
+                "trip_id": trip_id,
+                "title": trip.title,
+                "days": duration,
+                "items_created": len(items),
+            },
+            status=status.HTTP_200_OK
+        )

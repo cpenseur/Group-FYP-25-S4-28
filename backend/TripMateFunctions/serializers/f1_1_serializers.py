@@ -43,6 +43,29 @@ class ItineraryItemSerializer(serializers.ModelSerializer):
             "sort_order",
         ]
 
+class TripCollaboratorSerializer(serializers.ModelSerializer):
+    user_id = serializers.SerializerMethodField()
+    invited_email = serializers.EmailField(allow_null=True, allow_blank=True)
+    user = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TripCollaborator
+        fields = ["id", "user_id", "user", "invited_email", "role", "status", "invited_at", "accepted_at"]
+    
+    def get_user_id(self, obj):
+        if obj.user_id:
+            return str(obj.user_id)
+        return None
+    
+    def get_user(self, obj):
+        if obj.user:
+            return {
+                "id": str(obj.user.id),
+                "email": obj.user.email,
+                "full_name": obj.user.full_name or "",
+            }
+        return None
+
 
 class TripSerializer(serializers.ModelSerializer):
     """
@@ -53,7 +76,7 @@ class TripSerializer(serializers.ModelSerializer):
     owner = serializers.PrimaryKeyRelatedField(read_only=True)
     days = TripDaySerializer(many=True, read_only=True)
     items = ItineraryItemSerializer(many=True, read_only=True)
-
+    collaborators = TripCollaboratorSerializer(many=True, read_only=True) 
     class Meta:
         model = Trip
         fields = [
@@ -72,6 +95,7 @@ class TripSerializer(serializers.ModelSerializer):
             "updated_at",
             "days",
             "items",
+            "collaborators",  
         ]
 
 
@@ -86,7 +110,7 @@ class TripCollaboratorSummarySerializer(serializers.Serializer):
 
 class TripOverviewSerializer(serializers.ModelSerializer):
     """
-    Lightweight “header” view for TripSubHeader:
+    Lightweight "header" view for TripSubHeader:
     - collaborators
     - location
     - duration

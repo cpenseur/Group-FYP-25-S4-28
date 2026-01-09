@@ -1,8 +1,9 @@
 // frontend/src/lib/apiClient.js
 import { supabase } from "./supabaseClient";
+import { getCookie } from "../lib/csrf";
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
 
 export async function apiFetch(path, options = {}) {
   // IMPORTANT: path should be like "/f1/trips/5/overview/"
@@ -18,19 +19,38 @@ export async function apiFetch(path, options = {}) {
   }
 
   const token = session?.access_token;
+  const csrftoken = getCookie('csrftoken');
 
   const headers = {
     ...(options.headers || {}),
-    "Content-Type": "application/json",
   };
+
+  // Only set Content-Type if not already set and body is not FormData
+  if (!headers["Content-Type"] && !(options.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
 
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
+  // Add CSRF token for POST, PUT, PATCH, DELETE requests
+  const method = (options.method || 'GET').toUpperCase();
+  if (csrftoken && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    headers["X-CSRFToken"] = csrftoken;
+  }
+
+  console.log('API Request:', {
+    url: `${API_BASE_URL}${path}`,
+    method,
+    hasCSRF: !!csrftoken,
+    hasAuth: !!token
+  });
+
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers,
+    credentials: 'include', // Important: include cookies
   });
 
   // ---------- handle non-OK responses ----------
@@ -53,6 +73,7 @@ export async function apiFetch(path, options = {}) {
       // do nothing, keep default message
     }
 
+    console.error('API Error:', message);
     throw new Error(message);
   }
 
@@ -85,7 +106,23 @@ const apiClient = {
       body: JSON.stringify(body),
     });
   },
-  // you can add put/patch/delete later if needed
+  put(path, body) {
+    return apiFetch(path, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  },
+  patch(path, body) {
+    return apiFetch(path, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  },
+  delete(path) {
+    return apiFetch(path, {
+      method: "DELETE",
+    });
+  },
 };
 
 export default apiClient;

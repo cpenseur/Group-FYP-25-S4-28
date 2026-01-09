@@ -25,17 +25,18 @@ urlpatterns = [
         name="f2-sync",
     ),
 
-    # F2.2 - Group Trip Generator
-    path(
-        "group-trip-generator/",
-        F22GroupTripGeneratorView.as_view(),
-        name="f2-group-trip-generator",
-    ),
-     # F2.2 - Group Preferences (Summary page)
+    # F2.2 - Group Preferences (Summary page)
     path(
         "trips/<int:trip_id>/preferences/",
         TripGroupPreferencesAPIView.as_view(),
         name="f2-trip-group-preferences",
+    ),
+
+    # F2.2 - Group Trip Generator (Generate itinerary from preferences)
+    path(
+        "trips/<int:trip_id>/generate-group-itinerary/",
+        F22GroupTripGeneratorView.as_view(),
+        name="f2-generate-group-itinerary",
     ),
 
     # F2.3 - Sharing Options to View
