@@ -8,9 +8,12 @@ from ..views.f1_3_views import (
     F13AIChatbotView, 
     F13SaveTripPreferenceView, 
     F13SoloAITripGenerateCreateView,
-    F13GroupPreferencesListView,      
-    F13GenerateGroupItineraryView,    
+    F13GroupPreferencesListView,
+
 )
+# ✅ ADDED: Import the real view from f2_2_views
+from ..views.f2_2_views import F22GroupTripGeneratorView
+
 from ..views.f1_4_views import F14AdaptivePlanningView
 from ..views.f1_5_views import F15AIRecommendationsSidebarView
 from ..views.f1_6_views import F16DestinationFAQView
@@ -59,9 +62,10 @@ urlpatterns = [
         F13GroupPreferencesListView.as_view(),       
         name="f13-group-preferences-list",         
     ),
+    # ✅ FIXED: Use F22GroupTripGeneratorView instead of F13GenerateGroupItineraryView
     path(
         "trips/<int:trip_id>/generate-group-itinerary/",  
-        F13GenerateGroupItineraryView.as_view(),        
+        F22GroupTripGeneratorView.as_view(),        # ← Changed here!
         name="f13-generate-group-itinerary",           
     ),
     path(   

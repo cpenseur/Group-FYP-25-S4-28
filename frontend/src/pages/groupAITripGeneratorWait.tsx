@@ -73,28 +73,44 @@ export default function GroupAITripGeneratorWait() {
     const fetchPreferences = async () => {
       try {
         console.log("📋 Fetching preferences for keywords...");
-        const prefs = await apiFetch(`/f2/trips/${tripId}/preferences/`);
+        // ✅ FIXED: Use correct endpoint
+        const prefs = await apiFetch(`/f1/trips/${tripId}/group-preferences/`);
+
+        console.log("📊 Raw preferences:", prefs);
 
         const allKeywords: string[] = [];
-        prefs.forEach((pref: any) => {
-          if (pref.preferences) {
-            const p = pref.preferences;
-            // Extract keywords from preferences array
-            p.forEach((item: any) => {
-              if (typeof item === 'object' && item.value) {
-                allKeywords.push(item.value);
-              } else if (typeof item === 'string') {
-                allKeywords.push(item);
+        
+        // ✅ FIXED: Handle response properly
+        if (Array.isArray(prefs)) {
+          prefs.forEach((pref: any) => {
+            if (pref.preferences) {
+              const p = pref.preferences;
+              
+              // Extract activities
+              if (Array.isArray(p.activities)) {
+                allKeywords.push(...p.activities);
               }
-            });
-          }
-        });
+              
+              // Extract destination types
+              if (Array.isArray(p.destination_types)) {
+                allKeywords.push(...p.destination_types);
+              }
+              
+              // Extract country/destination
+              if (p.country) {
+                allKeywords.push(p.country);
+              }
+            }
+          });
+        }
 
         const unique = Array.from(new Set(allKeywords)).slice(0, 20);
         console.log("✅ Keywords loaded:", unique);
         setKeywords(unique);
       } catch (error) {
         console.error("❌ Failed to fetch preferences:", error);
+        // Set some default keywords if fetch fails
+        setKeywords(["Adventure", "Sightseeing", "Culinary", "Urban"]);
       }
     };
 
@@ -164,7 +180,7 @@ export default function GroupAITripGeneratorWait() {
         console.error("❌ Polling error:", error);
         // Continue polling on error
       }
-    }, 3000); // Poll every 3 seconds
+    }, 5000); // Poll every 3 seconds
 
     return () => {
       console.log("🛑 Stopping completion polling");

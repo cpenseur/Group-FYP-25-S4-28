@@ -1,4 +1,6 @@
 // frontend/src/pages/groupWaitForFriends.tsx
+// ✅ FIXED: Reduced polling from 3s to 10s to prevent database connection exhaustion
+
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
@@ -37,7 +39,7 @@ export default function GroupWaitForFriends() {
       const tripData = await apiFetch(`/f1/trips/${tripId}/`);
 
       // Check if trip has been generated
-      console.log("Trip travel_type:", tripData.travel_type);
+      console.log("📊 Trip travel_type:", tripData.travel_type);
       
       if (tripData.travel_type === "group_ai") {
         console.log("✅ Trip already generated! Navigating to summary...");
@@ -51,13 +53,13 @@ export default function GroupWaitForFriends() {
         return;
       }
 
-      // Fetch all group preferences for this trip
+      // ✅ Use correct endpoint to fetch group preferences
       let preferencesData: any[] = [];
       try {
-        preferencesData = await apiFetch(`/f2/trips/${tripId}/preferences/`);
-        console.log("Preferences data:", preferencesData);
+        preferencesData = await apiFetch(`/f1/trips/${tripId}/group-preferences/`);
+        console.log("📋 Preferences data:", preferencesData);
       } catch (prefError) {
-        console.error("Failed to fetch preferences:", prefError);
+        console.error("❌ Failed to fetch preferences:", prefError);
       }
 
       // Check if current user is the owner
@@ -70,26 +72,30 @@ export default function GroupWaitForFriends() {
 
       // Map collaborators to include preference status
       const collaboratorList: Collaborator[] = (tripData.collaborators || []).map((collab: any) => {
+        const collaboratorUserId = collab.user_id || collab.user?.id;
+        
         // Check if this collaborator has saved preferences
         const hasPreferences = preferencesData.some(
-          (pref: any) => pref.user_id === (collab.user_id || collab.user?.id)
+          (pref: any) => pref.user_id === collaboratorUserId
         );
+
+        console.log(`👤 ${collab.invited_email || collab.email}: hasPreferences = ${hasPreferences}`);
 
         return {
           email: collab.invited_email || collab.user?.email || collab.email || "Unknown",
           status: hasPreferences ? "confirmed" : "pending",
-          user_id: collab.user_id || collab.user?.id,
+          user_id: collaboratorUserId,
           is_owner: collab.role === "owner",
         };
       });
 
-      console.log("Updated collaborator list:", collaboratorList);
+      console.log("✅ Updated collaborator list:", collaboratorList);
       setFriends(collaboratorList);
       setLoading(false);
       hasInitialized.current = true;
 
     } catch (error) {
-      console.error("Failed to fetch collaborators:", error);
+      console.error("❌ Failed to fetch collaborators:", error);
       setLoading(false);
     }
   };
@@ -100,19 +106,19 @@ export default function GroupWaitForFriends() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId]);
 
-  // Poll for status updates every 3 seconds
+  // ✅ FIXED: Poll for status updates every 10 seconds (was 3 seconds)
   useEffect(() => {
     if (!tripId || loading) return;
 
-    console.log("Starting status polling...");
+    console.log("🔄 Starting status polling (every 10 seconds)...");
 
     const pollInterval = setInterval(() => {
-      console.log("Polling for updates...");
+      console.log("🔄 Polling for updates...");
       fetchCollaboratorStatus();
-    }, 3000);
+    }, 10000);  // ✅ Changed from 3000 to 10000 (10 seconds)
 
     return () => {
-      console.log("Stopping status polling");
+      console.log("🛑 Stopping status polling");
       clearInterval(pollInterval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

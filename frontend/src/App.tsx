@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 import { supabase } from "./lib/supabaseClient";
+import { ensureCsrfToken } from "./lib/apiClient";
 import Home from "./pages/Home";
 import TopBar from "./components/TopBar";
 
@@ -65,22 +66,28 @@ export default function App() {
 
   // Get CSRF token on app load and after authentication changes
   useEffect(() => {
-    const getCSRF = () => {
-      fetch('http://localhost:8000/api/f1/csrf/', {
-        credentials: 'include'
-      })
-        .then(() => console.log('✅ CSRF token fetched'))
-        .catch(err => console.error('❌ Failed to get CSRF token:', err));
+    const initializeCsrf = async () => {
+      try {
+        await ensureCsrfToken();
+        console.log('CSRF token initialized');
+      } catch (error) {
+        console.error('Failed to initialize CSRF token:', error);
+      }
     };
 
-    // Get CSRF token immediately
-    getCSRF();
+    // Get CSRF token immediately on app load
+    initializeCsrf();
 
-    // Also get CSRF token after login/logout
-    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+    // Also refresh CSRF token after login/logout
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event) => {
       if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-        console.log(`User ${event}, refreshing CSRF token`);
-        getCSRF();
+        console.log(`User ${event}, refreshing CSRF token...`);
+        try {
+          await ensureCsrfToken();
+          console.log('CSRF token refreshed after', event);
+        } catch (error) {
+          console.error('Failed to refresh CSRF token:', error);
+        }
       }
     });
 
@@ -88,7 +95,7 @@ export default function App() {
       authListener?.subscription.unsubscribe();
     };
   }, []);
-
+  
   return (
     <>
       <TopBar />
