@@ -1,4 +1,8 @@
 // frontend/src/pages/groupAITripGeneratorWait.tsx
+// ✅ FIXED: 
+// 1. Polling interval is 5 seconds (was 3 seconds)
+// 2. Automatically triggers regeneration on page load
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
@@ -66,6 +70,31 @@ export default function GroupAITripGeneratorWait() {
     }, 420);
   };
 
+  // ✅ NEW: Trigger regeneration on page load
+  useEffect(() => {
+    if (!tripId || navigatedRef.current) return;
+
+    const triggerRegeneration = async () => {
+      try {
+        console.log("🔄 Triggering AI regeneration...");
+        
+        await apiFetch(`/f2/trips/${tripId}/generate-group-itinerary/`, {
+          method: "POST",
+        });
+        
+        console.log("✅ Regeneration API called successfully");
+        
+      } catch (error) {
+        console.error("❌ Failed to trigger regeneration:", error);
+        setErrorMsg("Failed to start regeneration. Please try again.");
+      }
+    };
+
+    // Call once on mount
+    triggerRegeneration();
+    
+  }, [tripId]);
+
   // Fetch preferences for keywords
   useEffect(() => {
     if (!tripId) return;
@@ -73,30 +102,25 @@ export default function GroupAITripGeneratorWait() {
     const fetchPreferences = async () => {
       try {
         console.log("📋 Fetching preferences for keywords...");
-        // ✅ FIXED: Use correct endpoint
         const prefs = await apiFetch(`/f1/trips/${tripId}/group-preferences/`);
 
         console.log("📊 Raw preferences:", prefs);
 
         const allKeywords: string[] = [];
         
-        // ✅ FIXED: Handle response properly
         if (Array.isArray(prefs)) {
           prefs.forEach((pref: any) => {
             if (pref.preferences) {
               const p = pref.preferences;
               
-              // Extract activities
               if (Array.isArray(p.activities)) {
                 allKeywords.push(...p.activities);
               }
               
-              // Extract destination types
               if (Array.isArray(p.destination_types)) {
                 allKeywords.push(...p.destination_types);
               }
               
-              // Extract country/destination
               if (p.country) {
                 allKeywords.push(p.country);
               }
@@ -109,7 +133,6 @@ export default function GroupAITripGeneratorWait() {
         setKeywords(unique);
       } catch (error) {
         console.error("❌ Failed to fetch preferences:", error);
-        // Set some default keywords if fetch fails
         setKeywords(["Adventure", "Sightseeing", "Culinary", "Urban"]);
       }
     };
@@ -138,14 +161,14 @@ export default function GroupAITripGeneratorWait() {
     };
   }, []);
 
-  // Poll for completion
+  // ✅ Poll for completion - FIXED: 5 seconds instead of 3
   useEffect(() => {
     if (!tripId || navigatedRef.current) return;
 
-    console.log("🔄 Starting completion polling...");
+    console.log("🔄 Starting completion polling (every 5 seconds)...");
 
     let pollCount = 0;
-    const maxPolls = 60; // 3 minutes max
+    const maxPolls = 36; // 3 minutes max (36 * 5s = 180s)
 
     const pollInterval = setInterval(async () => {
       pollCount++;
@@ -158,29 +181,25 @@ export default function GroupAITripGeneratorWait() {
       }
 
       try {
-        console.log(`🔄 Polling... (${pollCount * 3}s)`);
+        console.log(`🔄 Polling... (${pollCount * 5}s)`); // ✅ Changed from 3s to 5s
         
         const tripData = await apiFetch(`/f1/trips/${tripId}/`);
         
         console.log(`📊 Status: ${tripData.travel_type}`);
 
-        // Check if generation is complete
         if (tripData.travel_type === "group_ai") {
           console.log("✅ AI generation completed!");
           clearInterval(pollInterval);
           goToSummary(tripId);
         } else if (tripData.travel_type === "group") {
-          // Generation failed or was reverted
           console.log("❌ Generation failed or was cancelled");
           clearInterval(pollInterval);
           setErrorMsg("AI generation failed. Please try again.");
         }
-        // If still "group_generating", continue polling
       } catch (error) {
         console.error("❌ Polling error:", error);
-        // Continue polling on error
       }
-    }, 5000); // Poll every 3 seconds
+    }, 5000); // ✅ FIXED: Changed from 3000 to 5000 (5 seconds)
 
     return () => {
       console.log("🛑 Stopping completion polling");
