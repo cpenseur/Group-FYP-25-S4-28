@@ -1,6 +1,7 @@
 // frontend/src/pages/itineraryEditor.tsx
 import { useEffect, useRef, useState, ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
 
 import {
   DndContext,
@@ -21,11 +22,13 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
+import PlaceAboutTab from "../components/PlaceAboutTab";
 import PlaceSearchBar from "../components/PlaceSearchBar";
 import TripSubHeader from "../components/TripSubHeader";
 import { apiFetch } from "../lib/apiClient";
 import ItineraryMap from "../components/ItineraryMap";
 import planbotSmall from "../assets/planbotSmall.png";
+
 
 /* -------------------- Time Edit Modal -------------------- */
 
@@ -199,6 +202,45 @@ type SelectedPlace = {
   lon: number;
 };
 
+type NearbyPOI = {
+  xid: string;
+  name: string;
+  kinds: string | null;
+  dist_m?: number | null;
+  image_url?: string | null;
+  wikipedia?: string | null;
+};
+
+type PlaceDetails = {
+  item_id: number;
+  xid?: string | null;
+
+  name: string;
+  description: string | null;
+
+  about?: {
+    why_go?: string[];
+    know_before_you_go?: string[];
+    getting_there?: string | null;
+    best_time?: string | null;
+    tips?: string[];
+  };
+
+  image_url: string | null;     // primary
+  images?: string[];            // gallery (0..n)
+
+  wikipedia: string | null;
+  kinds: string | null;
+  source: "opentripmap" | "wikipedia" | "none";
+
+  address?: string | null;
+  website?: string | null;
+  phone?: string | null;
+  opening_hours?: string | null;
+
+  nearby?: NearbyPOI[];
+};
+
 /* -------------------- Helpers -------------------- */
 
 function formatDayHeader(day: TripDayResponse): string {
@@ -263,6 +305,19 @@ function getDayColor(dayIndex: number | null | undefined): string {
     ((dayIndex - 1) % dayColorPalette.length + dayColorPalette.length) %
     dayColorPalette.length;
   return dayColorPalette[idx];
+}
+
+/* -------------------- Formatters -------------------- */
+function formatMeters(m?: number | null) {
+  if (!m || m <= 0) return "";
+  if (m >= 1000) return `${(m / 1000).toFixed(1)} km`;
+  return `${Math.round(m)} m`;
+}
+
+function normalizeUrl(u?: string | null) {
+  if (!u) return null;
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  return `https://${u}`;
 }
 
 
@@ -345,6 +400,68 @@ export default function ItineraryEditor() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [isOptimisingFull, setIsOptimisingFull] = useState(false);
+
+  // Place overlay state
+  const [placeOverlay, setPlaceOverlay] = useState<PlaceDetails | null>(null);
+  const [placeOverlayLoading, setPlaceOverlayLoading] = useState(false);
+  const [placeOverlayError, setPlaceOverlayError] = useState<string | null>(null);
+  const [placeTab, setPlaceTab] = useState<"about"|"nearby"|"photos">("about");
+
+  // Lightbox (photo overlay)
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+
+  const photos = placeOverlay?.images || [];
+
+  const openLightbox = (idx: number) => {
+    setLightboxIndex(idx);
+    setLightboxOpen(true);
+  };
+
+  const closeLightbox = () => setLightboxOpen(false);
+
+  const showPrev = () => setLightboxIndex((i) => (i - 1 + photos.length) % photos.length);
+  const showNext = () => setLightboxIndex((i) => (i + 1) % photos.length);
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeLightbox();
+      if (e.key === "ArrowLeft") showPrev();
+      if (e.key === "ArrowRight") showNext();
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [lightboxOpen, photos.length]);
+
+  //* -------------------- Open place overlay -------------------- */
+  async function openPlaceOverlay(item: ItineraryItem) {
+    setLightboxOpen(false);
+    setLightboxIndex(0);
+    setPlaceOverlayLoading(true);
+    setPlaceOverlayError(null);
+    setPlaceTab("about");
+
+    try {
+      const data: PlaceDetails = await apiFetch(`/f1/itinerary-items/${item.id}/place-details/?include_images=3`);
+
+      setPlaceOverlay(data);
+    } catch (err: any) {
+      console.error("Failed to load place details:", err);
+      setPlaceOverlay(null);
+      setPlaceOverlayError("Could not load place details.");
+    } finally {
+      setPlaceOverlayLoading(false);
+    }
+  }
 
   /* -------------------- Apply updated items after optimisation -------------------- */
   const applyUpdatedItems = (
@@ -969,7 +1086,7 @@ export default function ItineraryEditor() {
           <div
             style={{
               position: "sticky",
-              top: 90, // adjust if your header height is different
+              top: 90,
               height: "calc(90vh - 90px)",
               background: "#e5e7eb",
               borderRadius: 0,
@@ -977,7 +1094,428 @@ export default function ItineraryEditor() {
               boxShadow: "none",
             }}
           >
-            <ItineraryMap items={mapItems} />
+            <div style={{ position: "relative", width: "100%", height: "100%" }}>
+              <ItineraryMap items={mapItems} />
+
+              {/* Bottom place overlay */}
+              {(placeOverlay || placeOverlayLoading || placeOverlayError) && (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: 12,
+                    right: 12,
+                    bottom: 12,
+                    zIndex: 50,
+                    borderRadius: 18,
+                    background: "rgba(255,255,255,0.96)",
+                    border: "1px solid rgba(229,231,235,0.9)",
+                    boxShadow: "0 18px 45px rgba(15,23,42,0.22)",
+                    overflow: "hidden",
+                    backdropFilter: "blur(10px)",
+                  }}
+                >
+                  <div style={{ padding: 12 }}>
+                    {/* TOP ROW: Image + Title + Close */}
+                    <div style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
+                      {/* image */}
+                      <div
+                        style={{
+                          width: 98,
+                          minWidth: 98,
+                          borderRadius: 14,
+                          background: placeOverlay?.image_url
+                            ? `url(${placeOverlay.image_url}) center/cover no-repeat`
+                            : "linear-gradient(135deg,#bfdbfe,#a5b4fc)",
+                        }}
+                      />
+
+                      {/* title + meta */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <div
+                            style={{
+                              fontSize: "0.95rem",
+                              fontWeight: 750,
+                              color: "#111827",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {placeOverlayLoading ? "Loading…" : (placeOverlay?.name || "Place")}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPlaceOverlay(null);
+                              setPlaceOverlayError(null);
+                            }}
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              cursor: "pointer",
+                              color: "#6b7280",
+                              fontSize: 18,
+                              lineHeight: "18px",
+                            }}
+                            title="Close"
+                          >
+                            ×
+                          </button>
+                        </div>
+
+                        {/* quick meta line */}
+                        {!placeOverlayLoading && !placeOverlayError && (
+                          <div style={{ marginTop: 6, fontSize: "0.78rem", color: "#6b7280" }}>
+                            {placeOverlay?.kinds ? placeOverlay.kinds : "—"}
+                            {placeOverlay?.address ? ` · ${placeOverlay.address}` : ""}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* TAB BAR */}
+                    <div style={{ display: "flex", gap: 10, paddingTop: 10 }}>
+                      {(["about", "nearby", "photos"] as const).map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => setPlaceTab(t)}
+                          style={{
+                            border: "none",
+                            background: placeTab === t ? "#eef2ff" : "transparent",
+                            color: placeTab === t ? "#4338ca" : "#6b7280",
+                            fontWeight: 750,
+                            fontSize: "0.78rem",
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {t === "about" ? "About" : t === "nearby" ? "Nearby" : "Photos"}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* TAB CONTENT */}
+                    <div style={{ marginTop: 10 }}>
+                      {/* ERROR */}
+                      {placeOverlayError && (
+                        <div style={{ fontSize: "0.85rem", color: "#b91c1c" }}>
+                          {placeOverlayError}
+                        </div>
+                      )}
+
+                      {/* LOADING */}
+                      {!placeOverlayError && placeOverlayLoading && (
+                        <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+                          Fetching place info…
+                        </div>
+                      )}
+
+                      {/* ABOUT */}
+                      {!placeOverlayError && !placeOverlayLoading && placeTab === "about" && placeOverlay && (
+                        <div
+                          style={{
+                            maxHeight: 190,
+                            overflowY: "auto",
+                            paddingRight: 6,
+                            position: "relative",
+
+                            fontSize: "0.8rem",
+                            color: "#6b7280",
+                            lineHeight: 1.45,
+                          }}
+                        >
+                          <PlaceAboutTab place={placeOverlay as any} />
+
+                          {/* extra info chips */}
+                          <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8 }}>
+                            {placeOverlay?.opening_hours && (
+                              <span
+                                style={{
+                                  fontSize: "0.75rem",
+                                  color: "#374151",
+                                  background: "#f3f4f6",
+                                  padding: "5px 10px",
+                                  borderRadius: 999,
+                                }}
+                              >
+                                ⏰ {placeOverlay.opening_hours}
+                              </span>
+                            )}
+
+                            {placeOverlay?.phone && (
+                              <span
+                                style={{
+                                  fontSize: "0.75rem",
+                                  color: "#374151",
+                                  background: "#f3f4f6",
+                                  padding: "5px 10px",
+                                  borderRadius: 999,
+                                }}
+                              >
+                                📞 {placeOverlay.phone}
+                              </span>
+                            )}
+
+                            {placeOverlay?.website && normalizeUrl(placeOverlay.website) && (
+                              <a
+                                href={normalizeUrl(placeOverlay.website)!}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  fontSize: "0.75rem",
+                                  color: "#4f46e5",
+                                  background: "#eef2ff",
+                                  padding: "5px 10px",
+                                  borderRadius: 999,
+                                  textDecoration: "none",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                Website ↗
+                              </a>
+                            )}
+                          </div>
+
+                          {/* bottom fade gradient */}
+                          <div
+                            style={{
+                              position: "sticky",
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              height: 28,
+                              pointerEvents: "none",
+                              background:
+                                "linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.96))",
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {/* NEARBY */}
+                      {!placeOverlayError && !placeOverlayLoading && placeTab === "nearby" && (
+                        <>
+                          <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: 8 }}>
+                            {placeOverlay?.nearby?.length ? "Nearby places" : "No nearby places found."}
+                          </div>
+
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 170, overflowY: "auto", paddingRight: 6 }}>
+                            {(placeOverlay?.nearby || []).slice(0, 12).map((p) => (
+                              <div
+                                key={p.xid}
+                                style={{
+                                  border: "1px solid #e5e7eb",
+                                  borderRadius: 12,
+                                  padding: "8px 10px",
+                                  background: "white",
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                  <div style={{ fontSize: "0.84rem", fontWeight: 750, color: "#111827" }}>
+                                    {p.name}
+                                  </div>
+                                  <div style={{ fontSize: "0.76rem", color: "#6b7280", whiteSpace: "nowrap" }}>
+                                    {formatMeters(p.dist_m)}
+                                  </div>
+                                </div>
+                                <div style={{ marginTop: 3, fontSize: "0.75rem", color: "#6b7280" }}>
+                                  {p.kinds || "—"}
+                                </div>
+                                {/* Optional: later make this clickable to fetch xid details */}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      {/* PHOTOS */}
+                      {!placeOverlayError && !placeOverlayLoading && placeTab === "photos" && (
+                        <>
+                          <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: 8 }}>
+                            {(placeOverlay?.images?.length ?? 0) > 0
+                              ? `${placeOverlay?.images?.length ?? 0} photos`
+                              : "No photos available."}
+                          </div>
+
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(3, 1fr)",
+                              gap: 8,
+                              maxHeight: 180,
+                              overflowY: "auto",
+                              paddingRight: 6,
+                            }}
+                          >
+                            {(placeOverlay?.images || []).slice(0, 18).map((src, idx) => (
+                              <button
+                                key={`${src}-${idx}`}
+                                type="button"
+                                onClick={() => openLightbox(idx)}
+                                style={{
+                                  display: "block",
+                                  border: "none",
+                                  padding: 0,
+                                  background: "transparent",
+                                  borderRadius: 12,
+                                  overflow: "hidden",
+                                  cursor: "pointer",
+                                }}
+                                title="View photo"
+                              >
+                                <div
+                                  style={{
+                                    width: "100%",
+                                    paddingTop: "75%",
+                                    background: `url(${src}) center/cover no-repeat`,
+                                  }}
+                                />
+                              </button>
+                            ))}
+                          </div>
+                          {lightboxOpen && photos.length > 0 &&
+                            createPortal(
+                              <div
+                                style={{
+                                  position: "fixed",
+                                  inset: 0,
+                                  zIndex: 99999,
+                                  background: "rgba(0,0,0,0.72)",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  padding: 24,
+                                }}
+                              >
+                                {/* OUTER wrapper: allows arrows outside */}
+                                <div
+                                  style={{
+                                    position: "relative",
+                                    width: "min(1100px, 92vw)",
+                                    height: "min(80vh, 720px)",
+                                    overflow: "visible", // IMPORTANT
+                                  }}
+                                >
+                                  {/* INNER frame: clips image nicely */}
+                                  <div
+                                    style={{
+                                      width: "100%",
+                                      height: "100%",
+                                      borderRadius: 18,
+                                      overflow: "hidden",
+                                      background: "rgba(0,0,0,0.35)",
+                                      boxShadow: "0 30px 80px rgba(0,0,0,0.55)",
+                                    }}
+                                  >
+                                    <img
+                                      src={photos[lightboxIndex]}
+                                      alt="Place photo"
+                                      style={{
+                                        width: "100%",
+                                        height: "100%",
+                                        objectFit: "contain",
+                                        display: "block",
+                                      }}
+                                    />
+                                  </div>
+
+                                  {/* Close */}
+                                  <button
+                                    type="button"
+                                    onClick={closeLightbox}
+                                    style={{
+                                      position: "absolute",
+                                      top: 12,
+                                      right: 12,
+                                      width: 38,
+                                      height: 38,
+                                      borderRadius: 999,
+                                      border: "1px solid rgba(255,255,255,0.22)",
+                                      background: "rgba(0,0,0,0.40)",
+                                      color: "white",
+                                      cursor: "pointer",
+                                      fontSize: 18,
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      zIndex: 10,
+                                    }}
+                                    title="Close"
+                                  >
+                                    ×
+                                  </button>
+
+                                  {/* Arrows OUTSIDE the frame */}
+                                  {photos.length > 1 && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={showPrev}
+                                        style={{
+                                          position: "absolute",
+                                          left: -64,
+                                          top: "50%",
+                                          transform: "translateY(-50%)",
+                                          width: 52,
+                                          height: 52,
+                                          borderRadius: 999,
+                                          border: "1px solid rgba(255,255,255,0.22)",
+                                          background: "rgba(0,0,0,0.40)",
+                                          color: "white",
+                                          cursor: "pointer",
+                                          fontSize: 24,
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          zIndex: 10,
+                                        }}
+                                        title="Previous"
+                                      >
+                                        ‹
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={showNext}
+                                        style={{
+                                          position: "absolute",
+                                          right: -64,
+                                          top: "50%",
+                                          transform: "translateY(-50%)",
+                                          width: 52,
+                                          height: 52,
+                                          borderRadius: 999,
+                                          border: "1px solid rgba(255,255,255,0.22)",
+                                          background: "rgba(0,0,0,0.40)",
+                                          color: "white",
+                                          cursor: "pointer",
+                                          fontSize: 24,
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          zIndex: 10,
+                                        }}
+                                        title="Next"
+                                      >
+                                        ›
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>,
+                              document.body
+                            )
+                          }
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* MIDDLE: Optimise + Itinerary Planner (this scrolls) */}
@@ -1225,7 +1763,7 @@ export default function ItineraryEditor() {
                                     key={item.id}
                                     item={item}
                                   >
-                                    <div
+                                    <div onClick={() => openPlaceOverlay(item)}
                                       style={{
                                         borderRadius: "12px",
                                         padding: "0.6rem 0.8rem",
@@ -1236,6 +1774,7 @@ export default function ItineraryEditor() {
                                         columnGap: "0.75rem",
                                         alignItems: "center",
                                         backgroundColor: "transparent",
+                                        cursor: "pointer",
                                       }}
                                     >
                                       {/* Sequence number */}
@@ -1333,7 +1872,10 @@ export default function ItineraryEditor() {
                                             cursor: "pointer",
                                             marginTop: 6,
                                           }}
-                                          onClick={() => openTimeEditor(item)}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openTimeEditor(item);
+                                          }}
                                         >
                                           {timeLabel || "Add time"}
                                         </div>
@@ -1349,9 +1891,10 @@ export default function ItineraryEditor() {
                                       >
                                         <button
                                           type="button"
-                                          onClick={() =>
-                                            handleDeleteItem(item.id)
-                                          }
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteItem(item.id);
+                                          }}
                                           style={{
                                             borderRadius: "999px",
                                             border: "none",
