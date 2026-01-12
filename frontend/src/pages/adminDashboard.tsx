@@ -136,7 +136,7 @@ export default function AdminDashboard() {
     try {
       let q = supabase
         .from("app_user")
-        .select("id, full_name, email, role, status, created_at")
+        .select("id, full_name, email, role, status, auth_user_id, created_at")
         .order("created_at", { ascending: false });
 
       if (search.trim()) {
@@ -159,7 +159,7 @@ export default function AdminDashboard() {
         id: u.id,
         name: u.full_name,
         email: u.email,
-        status: u.status ?? u.role ?? "active",
+        status: u.status ?? (u.auth_user_id ? "verified" : "pending"),
         created_at: u.created_at,
       }));
 
@@ -354,6 +354,45 @@ export default function AdminDashboard() {
     requestAnimationFrame(() => {
       window.print();
     });
+  };
+  const [rowActionLoading, setRowActionLoading] = useState<Record<string, boolean>>({});
+
+  const setRowBusy = (userId: string, busy: boolean) => {
+  setRowActionLoading((prev) => ({ ...prev, [userId]: busy }));
+  };
+
+  const updateUserStatus = async (userId: string, nextStatus: "verified" | "pending" | "suspended") => {
+    setRowBusy(userId, true);
+    try {
+      const { error } = await supabase.from("app_user").update({ status: nextStatus }).eq("id", userId);
+      if (error) throw error;
+
+      // refresh list (simple + reliable)
+      await fetchUsers();
+    } catch (e) {
+      console.error(e);
+      alert("Could not update user status.");
+    } finally {
+      setRowBusy(userId, false);
+    }
+  };
+
+  const deleteUserRow = async (userId: string) => {
+    const ok = window.confirm("Delete this user? This cannot be undone.");
+    if (!ok) return;
+
+    setRowBusy(userId, true);
+    try {
+      const { error } = await supabase.from("app_user").delete().eq("id", userId);
+      if (error) throw error;
+
+      await fetchUsers();
+    } catch (e) {
+      console.error(e);
+      alert("Could not delete user.");
+    } finally {
+      setRowBusy(userId, false);
+    }
   };
 
   return (
@@ -652,7 +691,7 @@ export default function AdminDashboard() {
                                       u.email?.[0] ||
                                       "?").toUpperCase();
 
-                                  const status = (u.status ?? "active").toLowerCase();
+                                  const status = (u.status ?? "verified").toLowerCase();
                                   const joined = new Date(u.created_at);
                                   const joinedTop = joined.toISOString().slice(0, 4);
                                   const joinedBottom = joined.toISOString().slice(5, 10);
@@ -686,27 +725,28 @@ export default function AdminDashboard() {
 
                                       <td>
                                         <div className="users-actions">
-                                          <button className="users-action-btn" title="View">
+                                          <button className="users-action-btn" title="View" onClick={() => navigate(`/admin/users/${u.id}`)} // or open a modal
+                                           disabled={!!rowActionLoading[u.id]}>
                                             👁️
                                           </button>
 
                                           {isPending ? (
-                                            <button className="users-action-btn users-action-btn--success" title="Approve">
+                                            <button className="users-action-btn users-action-btn--success" title="Approve" onClick={() => updateUserStatus(u.id, "verified")}
+                                             disabled={!!rowActionLoading[u.id]}>
                                               ✓
                                             </button>
                                           ) : isSuspended ? (
-                                            <button className="users-action-btn users-action-btn--lock" title="Locked">
-                                              🔒
+                                            <button className="users-action-btn users-action-btn--success" title="Unsuspend" onClick={() => updateUserStatus(u.id, "verified")} disabled={!!rowActionLoading[u.id]}>
+                                              🔓
                                             </button>
                                           ) : (
-                                            <button className="users-action-btn" title="Disable">
-                                              ⛔
+                                            <button className="users-action-btn users-action-btn--lock" title="Suspend" onClick={() => updateUserStatus(u.id, "suspended")} disabled={!!rowActionLoading[u.id]}>
+                                             🔒
+                                              </button>
+                                            )}
+                                            <button className="users-action-btn users-action-btn--danger" title="Delete" onClick={() => deleteUserRow(u.id)} disabled={!!rowActionLoading[u.id]}>
+                                              🗑️
                                             </button>
-                                          )}
-
-                                          <button className="users-action-btn users-action-btn--danger" title="Delete">
-                                            🗑️
-                                          </button>
                                         </div>
                                       </td>
                                     </tr>
@@ -839,7 +879,7 @@ export default function AdminDashboard() {
                                   u.email?.[0] ||
                                   "?").toUpperCase();
 
-                              const status = (u.status ?? "active").toLowerCase();
+                              const status = (u.status ?? "verified").toLowerCase();
                               const joined = new Date(u.created_at);
                               const joinedTop = joined.toISOString().slice(0, 4);
                               const joinedBottom = joined.toISOString().slice(5, 10);
@@ -872,28 +912,29 @@ export default function AdminDashboard() {
                                   </td>
 
                                   <td>
-                                    <div className="users-actions">
-                                      <button className="users-action-btn" title="View">
-                                        👁️
-                                      </button>
+                                      <div className="users-actions">
+                                        <button className="users-action-btn" title="View" onClick={() => navigate(`/admin/users/${u.id}`)} // or open a modal
+                                          disabled={!!rowActionLoading[u.id]}>
+                                          👁️
+                                        </button>
 
-                                      {isPending ? (
-                                        <button className="users-action-btn users-action-btn--success" title="Approve">
-                                          ✓
-                                        </button>
-                                      ) : isSuspended ? (
-                                        <button className="users-action-btn users-action-btn--lock" title="Locked">
-                                          🔒
-                                        </button>
-                                      ) : (
-                                        <button className="users-action-btn" title="Disable">
-                                          ⛔
-                                        </button>
-                                      )}
-
-                                      <button className="users-action-btn users-action-btn--danger" title="Delete">
-                                        🗑️
-                                      </button>
+                                        {isPending ? (
+                                          <button className="users-action-btn users-action-btn--success" title="Approve" onClick={() => updateUserStatus(u.id, "verified")}
+                                            disabled={!!rowActionLoading[u.id]}>
+                                            ✓
+                                          </button>
+                                        ) : isSuspended ? (
+                                          <button className="users-action-btn users-action-btn--success" title="Unsuspend" onClick={() => updateUserStatus(u.id, "verified")} disabled={!!rowActionLoading[u.id]}>
+                                            🔓
+                                          </button>
+                                        ) : (
+                                          <button className="users-action-btn users-action-btn--lock" title="Suspend" onClick={() => updateUserStatus(u.id, "suspended")} disabled={!!rowActionLoading[u.id]}>
+                                            🔒
+                                            </button>
+                                          )}
+                                          <button className="users-action-btn users-action-btn--danger" title="Delete" onClick={() => deleteUserRow(u.id)} disabled={!!rowActionLoading[u.id]}>
+                                            🗑️
+                                          </button>
                                     </div>
                                   </td>
                                 </tr>

@@ -90,6 +90,28 @@ export default function Login({
           setStatus(`Login error: ${error.message}`);
           return;
         }
+        // 🔒 Check if user is suspended
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (user) {
+          const { data: profile, error: profileError } = await supabase
+            .from("app_user")
+            .select("status")
+            .eq("id", user.id)
+            .single();
+
+          if (profileError) {
+            setStatus("Login failed. Please try again.");
+            await supabase.auth.signOut();
+            return;
+          }
+
+          if (profile.status === "suspended") {
+            await supabase.auth.signOut();
+            setStatus("Your account has been suspended. Please contact customer service.");
+            return; // ⛔ STOP — do not navigate
+          }
+        }
 
         const { data, error: userErr } = await supabase.auth.getUser();
         if (userErr) {
