@@ -1,4 +1,5 @@
 // frontend/src/pages/mediaHighlights.tsx - FIXED VERSION
+// ✅ Added delete and download buttons for highlights
 
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -19,6 +20,7 @@ import {
   Trash2,
   Edit,
   Calendar,
+  Download,  // ✅ Added
 } from "lucide-react";
 
 // Types
@@ -113,6 +115,9 @@ export default function MediaHighlights() {
   const [generateProgress, setGenerateProgress] = useState(0);
   const [generateStatus, setGenerateStatus] = useState("");
 
+  // ✅ NEW: Download state
+  const [downloading, setDownloading] = useState<number | null>(null);
+
   // Map state
   const [selectedPhoto, setSelectedPhoto] = useState<TripPhoto | null>(null);
 
@@ -121,7 +126,6 @@ export default function MediaHighlights() {
   useEffect(() => {
     async function getCurrentUser() {
       try {
-        // Get user from Supabase directly (no Django backend call needed)
         const { data: { user }, error } = await supabase.auth.getUser();
         
         if (error) {
@@ -139,7 +143,7 @@ export default function MediaHighlights() {
     }
     
     getCurrentUser();
-  }, []); // Remove tripId dependency
+  }, []);
 
   useEffect(() => {
     if (!tripId) return;
@@ -167,6 +171,54 @@ export default function MediaHighlights() {
       setLoading(false);
     }
   }
+
+  // ✅ NEW: Delete highlight function
+  const deleteHighlight = async (highlightId: number, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent navigation to player
+    
+    if (!confirm("Delete this video highlight?")) return;
+
+    try {
+      await apiFetch(`/f5/highlights/${highlightId}/`, { method: "DELETE" });
+      setHighlights(prev => prev.filter(h => h.id !== highlightId));
+      alert("✅ Video deleted successfully!");
+    } catch (error) {
+      console.error("Failed to delete highlight:", error);
+      alert("❌ Failed to delete video.");
+    }
+  };
+
+  // ✅ NEW: Download highlight function
+  const downloadHighlight = async (highlight: MediaHighlight, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent navigation to player
+    
+    try {
+      setDownloading(highlight.id);
+
+      // Fetch the video blob
+      const response = await fetch(highlight.video_url);
+      const blob = await response.blob();
+
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${highlight.title.replace(/[^a-z0-9]/gi, '_')}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      
+      // Cleanup
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      alert("✅ Video downloaded successfully!");
+    } catch (error) {
+      console.error("Download failed:", error);
+      alert("❌ Failed to download video. Please try again.");
+    } finally {
+      setDownloading(null);
+    }
+  };
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -371,10 +423,8 @@ export default function MediaHighlights() {
       let videoDuration = 0;
 
       if (generateReal) {
-        // Real video generation with MapLibre
         console.log("🎬 Generating real video with map animation...");
         
-        // Prepare data for video generator
         const groups = segments.map(seg => {
           const stopItem = trip?.items?.find(i => i.id === seg.stop_id);
           return {
@@ -402,7 +452,6 @@ export default function MediaHighlights() {
           }
         });
 
-        // Generate video using Leaflet (no API key needed!)
         const videoBlob = await generateMapTripVideo({
           groups,
           transportModes,
@@ -416,7 +465,6 @@ export default function MediaHighlights() {
 
         console.log("✅ Video generated! Size:", (videoBlob.size / 1024 / 1024).toFixed(2), "MB");
 
-        // Upload to Supabase Storage
         setGenerateStatus("Uploading video to storage...");
         const fileName = `trip_${tripId}_${Date.now()}.webm`;
         const filePath = `videos/${fileName}`;
@@ -439,18 +487,16 @@ export default function MediaHighlights() {
 
         videoUrl = urlData.publicUrl;
         
-        // Estimate duration based on segments
         videoDuration = 
-          3 + // Title slide
-          (segments.length - 1) * 5 + // Travel animations
-          selectedPhotos.length * 3 + // Photos
-          3; // End slide
+          3 + 
+          (segments.length - 1) * 5 + 
+          selectedPhotos.length * 3 + 
+          3;
         
         console.log("☁️ Video uploaded to:", videoUrl);
         setGenerateStatus("Saving to database...");
       }
 
-      // Save to database
       const highlightData = {
         trip: parseInt(tripId!),
         title: videoTitle,
@@ -686,19 +732,43 @@ export default function MediaHighlights() {
                   {highlights.map((highlight) => (
                     <div 
                       key={highlight.id} 
-                      style={{...highlightItem, cursor: "pointer"}}
-                      onClick={() => navigate(`/trip/${tripId}/highlight/${highlight.id}`)}
+                      style={highlightItem}
                     >
-                      <div style={highlightThumbnail}>
-                        <Play size={28} style={{ opacity: 0.9 }} />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={highlightTitleStyle}>{highlight.title}</div>
-                        <div style={highlightMeta}>
-                          {highlight.metadata?.photo_count || highlight.metadata?.all_photos?.length || 0} photos •{" "}
-                          {highlight.metadata?.duration || 0}s
-                          {highlight.metadata?.generated_with_map && " • Map"}
+                      {/* Main content - clickable to play */}
+                      <div 
+                        style={highlightMainContent}
+                        onClick={() => navigate(`/trip/${tripId}/highlight/${highlight.id}`)}
+                      >
+                        <div style={highlightThumbnail}>
+                          <Play size={28} style={{ opacity: 0.9 }} />
                         </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={highlightTitleStyle}>{highlight.title}</div>
+                          <div style={highlightMeta}>
+                            {highlight.metadata?.photo_count || highlight.metadata?.all_photos?.length || 0} photos •{" "}
+                            {highlight.metadata?.duration || 0}s
+                            {highlight.metadata?.generated_with_map && " • Map"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ✅ NEW: Action buttons */}
+                      <div style={highlightActions}>
+                        <button 
+                          onClick={(e) => downloadHighlight(highlight, e)} 
+                          style={highlightDownloadBtn}
+                          disabled={downloading === highlight.id}
+                          title="Download video"
+                        >
+                          <Download size={14} />
+                        </button>
+                        <button 
+                          onClick={(e) => deleteHighlight(highlight.id, e)} 
+                          style={highlightDeleteBtn}
+                          title="Delete video"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -709,6 +779,7 @@ export default function MediaHighlights() {
         </div>
       </div>
 
+      {/* ... rest of the modals remain the same ... */}
       {selectedPhoto && (
         <div style={modalOverlay} onClick={() => setSelectedPhoto(null)}>
           <div style={photoPreviewCard} onClick={(e) => e.stopPropagation()}>
@@ -981,7 +1052,61 @@ const editButton: React.CSSProperties = { width: 28, height: 28, borderRadius: 8
 const deleteButton: React.CSSProperties = { width: 28, height: 28, borderRadius: 8, border: "none", background: "#fee2e2", color: "#ef4444", display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0 };
 const highlightsCard: React.CSSProperties = { background: "#fafafa", borderRadius: 16, padding: 16, border: "1px solid #e5e7eb" };
 const highlightsList: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10 };
-const highlightItem: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, padding: 10, background: "white", borderRadius: 12, border: "1px solid #e5e7eb" };
+
+// ✅ UPDATED: Highlight item styles
+const highlightItem: React.CSSProperties = { 
+  display: "flex", 
+  alignItems: "center", 
+  justifyContent: "space-between",
+  padding: 10, 
+  background: "white", 
+  borderRadius: 12, 
+  border: "1px solid #e5e7eb",
+  transition: "all 0.2s ease",
+};
+
+const highlightMainContent: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  flex: 1,
+  cursor: "pointer",
+};
+
+const highlightActions: React.CSSProperties = {
+  display: "flex",
+  gap: 4,
+  marginLeft: 8,
+};
+
+const highlightDownloadBtn: React.CSSProperties = {
+  width: 32,
+  height: 32,
+  borderRadius: 8,
+  border: "none",
+  background: "#dcfce7",
+  color: "#16a34a",
+  display: "grid",
+  placeItems: "center",
+  cursor: "pointer",
+  flexShrink: 0,
+  transition: "all 0.2s ease",
+};
+
+const highlightDeleteBtn: React.CSSProperties = {
+  width: 32,
+  height: 32,
+  borderRadius: 8,
+  border: "none",
+  background: "#fee2e2",
+  color: "#ef4444",
+  display: "grid",
+  placeItems: "center",
+  cursor: "pointer",
+  flexShrink: 0,
+  transition: "all 0.2s ease",
+};
+
 const highlightThumbnail: React.CSSProperties = { width: 60, height: 60, borderRadius: 8, background: "linear-gradient(135deg, #f59e0b, #f97316)", display: "grid", placeItems: "center", color: "white", flexShrink: 0 };
 const highlightTitleStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "#111827" };
 const highlightMeta: React.CSSProperties = { fontSize: 11, color: "#6b7280", marginTop: 2 };

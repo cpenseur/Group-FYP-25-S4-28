@@ -97,6 +97,7 @@ DATABASES = {
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
     )
 }
+
 # Supabase requires SSL; enforce if not already in the URL
 DATABASES["default"].setdefault("OPTIONS", {})
 DATABASES["default"]["OPTIONS"].update({
@@ -108,7 +109,9 @@ DATABASES["default"]["OPTIONS"].update({
     "keepalives_count": 5,      
 })
 
-DATABASES["default"]["CONN_MAX_AGE"] = 300         
+# ⭐ FIXED: Reduced connection persistence to prevent pool exhaustion
+# Changed from 300 to 60 seconds to avoid "max clients reached" error
+DATABASES["default"]["CONN_MAX_AGE"] = 60          # Was 300
 DATABASES["default"]["CONN_HEALTH_CHECKS"] = True  
 
 
