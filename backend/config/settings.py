@@ -109,9 +109,7 @@ DATABASES["default"]["OPTIONS"].update({
     "keepalives_count": 5,      
 })
 
-# ⭐ FIXED: Reduced connection persistence to prevent pool exhaustion
-# Changed from 300 to 60 seconds to avoid "max clients reached" error
-DATABASES["default"]["CONN_MAX_AGE"] = 60          # Was 300
+DATABASES["default"]["CONN_MAX_AGE"] = 60        
 DATABASES["default"]["CONN_HEALTH_CHECKS"] = True  
 
 

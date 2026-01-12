@@ -9,16 +9,26 @@ from ..views.f1_3_views import (
     F13SaveTripPreferenceView, 
     F13SoloAITripGenerateCreateView,
     F13GroupPreferencesListView,
-
 )
-# ✅ ADDED: Import the real view from f2_2_views
+# Import the real view from f2_2_views
 from ..views.f2_2_views import F22GroupTripGeneratorView
 
 from ..views.f1_4_views import F14AdaptivePlanningView
 from ..views.f1_5_views import F15AIRecommendationsSidebarView
 from ..views.f1_6_views import F16DestinationFAQView
 from ..views.email_invitation_views import SendTripInvitationView 
-from ..views.accept_invitation_views import AcceptTripInvitationView 
+from ..views.accept_invitation_views import AcceptTripInvitationView
+
+# Import Recommendations Page views
+from ..views.recommendations_views import (
+    DestinationInfoView,
+    FeaturedGuidesView,
+    PopularDestinationsView,
+    SaveGuideView,
+    UnsaveGuideView,
+    SaveDestinationView,
+    UnsaveDestinationView,
+)
 
 
 router = DefaultRouter()
@@ -62,7 +72,7 @@ urlpatterns = [
         F13GroupPreferencesListView.as_view(),       
         name="f13-group-preferences-list",         
     ),
-    # ✅ FIXED: Use F22GroupTripGeneratorView instead of F13GenerateGroupItineraryView
+    # Use F22GroupTripGeneratorView instead of F13GenerateGroupItineraryView
     path(
         "trips/<int:trip_id>/generate-group-itinerary/",  
         F22GroupTripGeneratorView.as_view(),        # ← Changed here!
@@ -91,11 +101,52 @@ urlpatterns = [
         name="f1-adaptive-plan",
     ),
 
-    # F1.5 - AI Recommendations Sidebar
+    # ================================================================
+    # F1.5 - AI Recommendations Sidebar & Recommendations Page
+    # ================================================================
+    
+    # F1.5a - AI Recommendations Sidebar (Real-time context-aware suggestions)
     path(
         "sidebar-suggestions/",
         F15AIRecommendationsSidebarView.as_view(),
-        name="f1-sidebar-suggestions",
+        name="f15-sidebar-suggestions",
+    ),
+    
+    # F1.5b - Recommendations Page (Featured guides & destinations)
+    path(
+        "recommendations/destination-info/",
+        DestinationInfoView.as_view(),
+        name="f15-destination-info",
+    ),
+    path(
+        "recommendations/featured-guides/",
+        FeaturedGuidesView.as_view(),
+        name="f15-featured-guides",
+    ),
+    path(
+        "recommendations/popular-destinations/",
+        PopularDestinationsView.as_view(),
+        name="f15-popular-destinations",
+    ),
+    path(
+        "recommendations/save-guide/",
+        SaveGuideView.as_view(),
+        name="f15-save-guide",
+    ),
+    path(
+        "recommendations/unsave-guide/",
+        UnsaveGuideView.as_view(),
+        name="f15-unsave-guide",
+    ),
+    path(
+        "recommendations/save-destination/",
+        SaveDestinationView.as_view(),
+        name="f15-save-destination",
+    ),
+    path(
+        "recommendations/unsave-destination/",
+        UnsaveDestinationView.as_view(),
+        name="f15-unsave-destination",
     ),
 
     # F1.6 - Destination FAQ
