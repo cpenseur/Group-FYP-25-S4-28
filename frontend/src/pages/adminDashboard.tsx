@@ -69,7 +69,10 @@ type AdminUserRow = {
   email: string;
   status: string | null;
   created_at: string;
+  role?: string | null;
+  auth_user_id?: string | null;
 };
+
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -135,13 +138,13 @@ export default function AdminDashboard() {
     setUsersLoading(true);
     try {
       let q = supabase
-        .from("app_user")
-        .select("id, full_name, email, role, status, auth_user_id, created_at")
+        .from("user_directory")
+        .select("id, name, email, role, status, auth_user_id, created_at")
         .order("created_at", { ascending: false });
 
       if (search.trim()) {
         const s = search.trim();
-        q = q.or(`full_name.ilike.%${s}%,email.ilike.%${s}%`);
+        q = q.or(`name.ilike.%${s}%,email.ilike.%${s}%`);
       }
 
       const { data, error } = await q;
@@ -157,11 +160,14 @@ export default function AdminDashboard() {
 
       const mapped: AdminUserRow[] = (data ?? []).map((u: any) => ({
         id: u.id,
-        name: u.full_name,
+        name: u.name,
         email: u.email,
         status: u.status ?? (u.auth_user_id ? "verified" : "pending"),
         created_at: u.created_at,
+        role: u.role,
+        auth_user_id: u.auth_user_id,
       }));
+
 
       setUsers(mapped);
     } finally {
@@ -305,6 +311,8 @@ export default function AdminDashboard() {
       setStatsLoading(false);
     }
   };
+  
+  const [viewUser, setViewUser] = useState<any | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -321,7 +329,7 @@ export default function AdminDashboard() {
       const email = (data.session?.user?.email ?? "").toLowerCase();
 
       if (!data.session || !isAdminEmail(email)) {
-        navigate("/login", { replace: true });
+        navigate("/dashboard", { replace: true });
         return;
       }
 
@@ -378,22 +386,28 @@ export default function AdminDashboard() {
   };
 
   const deleteUserRow = async (userId: string) => {
-    const ok = window.confirm("Delete this user? This cannot be undone.");
+    const ok = window.confirm("Delete this user record? This cannot be undone.");
     if (!ok) return;
 
     setRowBusy(userId, true);
     try {
-      const { error } = await supabase.from("app_user").delete().eq("id", userId);
+      const { error } = await supabase
+        .from("app_user")
+        .delete()
+        .eq("id", userId);
+
       if (error) throw error;
 
-      await fetchUsers();
-    } catch (e) {
-      console.error(e);
-      alert("Could not delete user.");
+      await fetchUsers(); // refresh list
+    } catch (e: any) {
+      console.error("Delete failed:", e);
+      alert(`Could not delete user: ${e?.message ?? e}`);
     } finally {
       setRowBusy(userId, false);
     }
   };
+
+
 
   return (
     <>
@@ -725,7 +739,7 @@ export default function AdminDashboard() {
 
                                       <td>
                                         <div className="users-actions">
-                                          <button className="users-action-btn" title="View" onClick={() => navigate(`/admin/users/${u.id}`)} // or open a modal
+                                          <button className="users-action-btn" title="View" onClick={() => setViewUser(u)} 
                                            disabled={!!rowActionLoading[u.id]}>
                                             👁️
                                           </button>
@@ -913,7 +927,7 @@ export default function AdminDashboard() {
 
                                   <td>
                                       <div className="users-actions">
-                                        <button className="users-action-btn" title="View" onClick={() => navigate(`/admin/users/${u.id}`)} // or open a modal
+                                        <button className="users-action-btn" title="View" onClick={() => setViewUser(u)} 
                                           disabled={!!rowActionLoading[u.id]}>
                                           👁️
                                         </button>
@@ -1178,6 +1192,55 @@ export default function AdminDashboard() {
               )}
             </section>
           </div>
+          {viewUser && (
+          <div
+            onClick={() => setViewUser(null)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.45)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 9999,
+              padding: 24,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: "100%",
+                maxWidth: 520,
+                background: "#fff",
+                borderRadius: 16,
+                padding: 20,
+                boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <h3>User Details</h3>
+                <button
+                  onClick={() => setViewUser(null)}
+                  style={{ border: "none", background: "transparent", fontSize: 18 }}
+                >
+                  ✕
+                </button>
+              </div>
+              <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+                <div><b>ID:</b> {viewUser.id}</div>
+                <div><b>Name:</b> {viewUser.name ?? "-"}</div>
+                <div><b>Email:</b> {viewUser.email ?? "-"}</div>
+                <div><b>Role:</b> {viewUser.role ?? "-"}</div>
+                <div><b>Status:</b> {viewUser.status ?? "-"}</div>
+                <div><b>Joined:</b> {viewUser.created_at}</div>
+
+                {viewUser.auth_user_id && (
+                  <div><b>Auth User ID:</b> {viewUser.auth_user_id}</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         </main>
       </div>
 
