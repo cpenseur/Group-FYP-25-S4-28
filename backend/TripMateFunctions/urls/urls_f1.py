@@ -10,25 +10,18 @@ from ..views.f1_3_views import (
     F13SoloAITripGenerateCreateView,
     F13GroupPreferencesListView,
 )
-# Import the real view from f2_2_views
 from ..views.f2_2_views import F22GroupTripGeneratorView
-
 from ..views.f1_4_views import F14AdaptivePlanningView
-from ..views.f1_5_views import F15AIRecommendationsSidebarView
+
+# F1.5 - SIMPLIFIED: Only AI Recommendations (no Guide models)
+from ..views.f1_5_views import (
+    AIRecommendationsView,
+    QuickAddRecommendationView,
+)
+
 from ..views.f1_6_views import F16DestinationFAQView
 from ..views.email_invitation_views import SendTripInvitationView 
 from ..views.accept_invitation_views import AcceptTripInvitationView
-
-# Import Recommendations Page views
-from ..views.recommendations_views import (
-    DestinationInfoView,
-    FeaturedGuidesView,
-    PopularDestinationsView,
-    SaveGuideView,
-    UnsaveGuideView,
-    SaveDestinationView,
-    UnsaveDestinationView,
-)
 
 
 router = DefaultRouter()
@@ -72,10 +65,9 @@ urlpatterns = [
         F13GroupPreferencesListView.as_view(),       
         name="f13-group-preferences-list",         
     ),
-    # Use F22GroupTripGeneratorView instead of F13GenerateGroupItineraryView
     path(
         "trips/<int:trip_id>/generate-group-itinerary/",  
-        F22GroupTripGeneratorView.as_view(),        # ← Changed here!
+        F22GroupTripGeneratorView.as_view(),
         name="f13-generate-group-itinerary",           
     ),
     path(   
@@ -101,55 +93,23 @@ urlpatterns = [
         name="f1-adaptive-plan",
     ),
 
-    # ================================================================
-    # F1.5 - AI Recommendations Sidebar & Recommendations Page
-    # ================================================================
-    
-    # F1.5a - AI Recommendations Sidebar (Real-time context-aware suggestions)
+    # ============================================================================
+    # F1.5 - AI Recommendations (Simplified - Real-time AI, No Database)
+    # ============================================================================
     path(
-        "sidebar-suggestions/",
-        F15AIRecommendationsSidebarView.as_view(),
-        name="f15-sidebar-suggestions",
-    ),
-    
-    # F1.5b - Recommendations Page (Featured guides & destinations)
-    path(
-        "recommendations/destination-info/",
-        DestinationInfoView.as_view(),
-        name="f15-destination-info",
+        "recommendations/ai/",
+        AIRecommendationsView.as_view(),
+        name="f15-ai-recommendations",
     ),
     path(
-        "recommendations/featured-guides/",
-        FeaturedGuidesView.as_view(),
-        name="f15-featured-guides",
-    ),
-    path(
-        "recommendations/popular-destinations/",
-        PopularDestinationsView.as_view(),
-        name="f15-popular-destinations",
-    ),
-    path(
-        "recommendations/save-guide/",
-        SaveGuideView.as_view(),
-        name="f15-save-guide",
-    ),
-    path(
-        "recommendations/unsave-guide/",
-        UnsaveGuideView.as_view(),
-        name="f15-unsave-guide",
-    ),
-    path(
-        "recommendations/save-destination/",
-        SaveDestinationView.as_view(),
-        name="f15-save-destination",
-    ),
-    path(
-        "recommendations/unsave-destination/",
-        UnsaveDestinationView.as_view(),
-        name="f15-unsave-destination",
+        "recommendations/quick-add/",
+        QuickAddRecommendationView.as_view(),
+        name="f15-quick-add",
     ),
 
+    # ============================================================================
     # F1.6 - Destination FAQ
+    # ============================================================================
     path(
         "destination-faq/",
         F16DestinationFAQView.as_view(),

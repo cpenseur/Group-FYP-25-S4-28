@@ -1,197 +1,5 @@
 // frontend/src/components/ItineraryMap.tsx
-/*
-import React, { useEffect, useRef } from "react";
-import maplibregl from "maplibre-gl";
-
-export type MapItineraryItem = {
-  id: number;
-  title: string;
-  address?: string | null;
-  lat: number | null;
-  lon: number | null;
-  sort_order?: number | null;   // global sequence 1..N
-  day_index?: number | null;    // which day (for color)
-  stop_index?: number | null;   // stop number within that day
-};
-
-type ItineraryMapProps = {
-  items: MapItineraryItem[];
-};
-
-const mapDayColorPalette = [
-  "#746ee5ff", // indigo
-  "#b13171ff", // pink
-  "#2fa57eff", // emerald
-  "#eb904eff", // orange
-  "#56acd4ff", // sky
-  "#bc78fbff", // purple
-];
-
-function getMapDayColor(dayIndex: number | null | undefined): string {
-  if (!dayIndex || dayIndex <= 0) return "#4f46e5";
-  const idx =
-    ((dayIndex - 1) % mapDayColorPalette.length +
-      mapDayColorPalette.length) %
-    mapDayColorPalette.length;
-  return mapDayColorPalette[idx];
-}
-
-const ItineraryMap: React.FC<ItineraryMapProps> = ({ items }) => {
-  const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<maplibregl.Map | null>(null);
-  const markersRef = useRef<maplibregl.Marker[]>([]);
-
-  // Init map once
-  useEffect(() => {
-    if (!mapContainerRef.current || mapRef.current) return;
-
-    const defaultCenter: [number, number] = [103.8198, 1.3521];
-    const styleUrl =
-      "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
-
-    const map = new maplibregl.Map({
-      container: mapContainerRef.current,
-      style: styleUrl,
-      center: defaultCenter,
-      zoom: 6,
-    });
-
-    map.addControl(new maplibregl.NavigationControl(), "bottom-right");
-
-    map.on("error", (e) => {
-      console.error("MapLibre error:", (e as any).error);
-    });
-
-    mapRef.current = map;
-  }, []);
-
-  // Update markers + route when items change
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    // Clear old markers
-    markersRef.current.forEach((m) => m.remove());
-    markersRef.current = [];
-
-    const coords: [number, number][] = [];
-
-    const sorted = [...items].sort((a, b) => {
-      const sa = a.sort_order ?? 0;
-      const sb = b.sort_order ?? 0;
-      if (sa !== sb) return sa - sb;
-      return a.id - b.id;
-    });
-
-    sorted.forEach((item) => {
-      if (item.lat == null || item.lon == null) return;
-
-      const seq = item.sort_order ?? 0; // global sequence
-      const dayIdx = item.day_index ?? 1;
-      const stopIdx = item.stop_index ?? null;
-
-      const color = getMapDayColor(dayIdx);
-
-      const el = document.createElement("div");
-      el.style.width = "26px";
-      el.style.height = "26px";
-      el.style.borderRadius = "999px";
-      el.style.background = color;
-      el.style.color = "white";
-      el.style.display = "flex";
-      el.style.alignItems = "center";
-      el.style.justifyContent = "center";
-      el.style.fontSize = "11px";
-      el.style.fontWeight = "600";
-      el.style.boxShadow = "0 2px 6px rgba(15,23,42,0.35)";
-      el.textContent = seq ? String(seq) : "";
-
-      const dayLabel = item.day_index ? `Day ${item.day_index}` : "";
-      const stopLabel = stopIdx ? ` · Stop ${stopIdx}` : "";
-
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([item.lon, item.lat])
-        .setPopup(
-          new maplibregl.Popup({ offset: 16 }).setHTML(
-            `<strong>${seq ? seq + ". " : ""}${item.title}</strong><br/>
-            ${dayLabel}${stopLabel}<br/>
-            ${item.address || ""}`
-          )
-        )
-        .addTo(map);
-
-      markersRef.current.push(marker);
-      coords.push([item.lon, item.lat]);
-    });
-
-    if (coords.length) {
-      const bounds = coords.reduce(
-        (b, c) => b.extend(c as any),
-        new maplibregl.LngLatBounds(coords[0], coords[0])
-      );
-      map.fitBounds(bounds, { padding: 60, maxZoom: 13 });
-    }
-
-    const ROUTE_ID = "itinerary-route";
-
-    if (coords.length >= 2) {
-      const routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
-        type: "Feature",
-        geometry: {
-          type: "LineString",
-          coordinates: coords,
-        },
-        properties: {},
-      };
-
-      if (map.getSource(ROUTE_ID)) {
-        (map.getSource(ROUTE_ID) as maplibregl.GeoJSONSource).setData(
-          routeGeoJson
-        );
-      } else {
-        map.addSource(ROUTE_ID, {
-          type: "geojson",
-          data: routeGeoJson,
-        });
-
-        map.addLayer({
-          id: ROUTE_ID,
-          type: "line",
-          source: ROUTE_ID,
-          layout: {
-            "line-cap": "round",
-            "line-join": "round",
-          },
-          paint: {
-            "line-color": "#4f46e5",
-            "line-width": 4,
-            "line-opacity": 0.85,
-          },
-        });
-      }
-    } else {
-      if (map.getLayer("itinerary-route")) {
-        map.removeLayer("itinerary-route");
-      }
-      if (map.getSource("itinerary-route")) {
-        map.removeSource("itinerary-route");
-      }
-    }
-  }, [items]);
-
-  return (
-    <div
-      ref={mapContainerRef}
-      style={{ width: "100%", height: "100%", minHeight: "520px" }}
-    />
-  );
-};
-
-export default ItineraryMap;
-*/
-// frontend/src/components/ItineraryMap.tsx
-// frontend/src/components/ItineraryMap.tsx
-// frontend/src/components/ItineraryMap.tsx
+// ✅ FIXED: Better bounds handling, ensure numbered markers and routes are always visible
 import React, { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -202,12 +10,11 @@ export type MapItineraryItem = {
   address?: string | null;
   lat: number | null;
   lon: number | null;
-  sort_order?: number | null; // global sequence 1..N
-  day_index?: number | null;  // which day (for color)
-  stop_index?: number | null; // stop number within that day
+  sort_order?: number | null;
+  day_index?: number | null;
+  stop_index?: number | null;
 };
 
-// NEW: Photo marker type
 export type PhotoMarker = {
   id: number;
   lat: number;
@@ -217,9 +24,17 @@ export type PhotoMarker = {
   itinerary_item?: number;
 };
 
+interface MapBounds {
+  minLat: number;
+  maxLat: number;
+  minLon: number;
+  maxLon: number;
+}
+
 type ItineraryMapProps = {
   items: MapItineraryItem[];
-  photos?: PhotoMarker[]; // NEW: Optional photo markers
+  photos?: PhotoMarker[];
+  bounds?: MapBounds | null;
 };
 
 const mapDayColorPalette = [
@@ -241,29 +56,91 @@ function getMapDayColor(dayIndex: number | null | undefined): string {
 
 const ROUTE_ID = "itinerary-route";
 
-const ItineraryMap: React.FC<ItineraryMapProps> = ({ items, photos = [] }) => {
+const ItineraryMap: React.FC<ItineraryMapProps> = ({ 
+  items, 
+  photos = [],
+  bounds = null
+}) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
-  const photoMarkersRef = useRef<maplibregl.Marker[]>([]); // NEW: Photo markers
+  const photoMarkersRef = useRef<maplibregl.Marker[]>([]);
   const styleReadyRef = useRef(false);
+  const boundsAppliedRef = useRef(false);
 
-  // NEW: Photo preview state
   const [selectedPhoto, setSelectedPhoto] = useState<PhotoMarker | null>(null);
+
+  // ✅ Compute bounds from items and photos
+  const computedBounds = React.useMemo(() => {
+    console.log("🔍 Computing bounds from items and photos...");
+    console.log("  - items:", items.length);
+    console.log("  - photos:", photos.length);
+    
+    const allPoints: Array<{ lat: number; lon: number }> = [];
+
+    // Add item coordinates
+    items.forEach(item => {
+      if (item.lat != null && item.lon != null) {
+        allPoints.push({ lat: item.lat, lon: item.lon });
+      }
+    });
+
+    // Add photo coordinates
+    photos.forEach(photo => {
+      if (photo.lat != null && photo.lon != null) {
+        allPoints.push({ lat: photo.lat, lon: photo.lon });
+      }
+    });
+
+    console.log("  - Total points with coords:", allPoints.length);
+    if (allPoints.length > 0) {
+      console.log("  - Sample points:", allPoints.slice(0, 3));
+    }
+
+    if (allPoints.length === 0) {
+      console.log("⚠️ No points with coordinates!");
+      return null;
+    }
+
+    const lats = allPoints.map(p => p.lat);
+    const lons = allPoints.map(p => p.lon);
+
+    const boundsCalc = {
+      minLat: Math.min(...lats),
+      maxLat: Math.max(...lats),
+      minLon: Math.min(...lons),
+      maxLon: Math.max(...lons),
+    };
+
+    console.log("✅ Computed bounds:", boundsCalc);
+    return boundsCalc;
+  }, [items, photos]);
+
+  // Use provided bounds or computed bounds
+  const effectiveBounds = bounds || computedBounds;
+
+  console.log("🗺️ ItineraryMap render:", {
+    items: items.length,
+    photos: photos.length,
+    boundsProp: bounds,
+    computedBounds: computedBounds,
+    effectiveBounds: effectiveBounds
+  });
 
   // Init map once
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
-    const defaultCenter: [number, number] = [103.8198, 1.3521];
+    console.log("🏗️ Initializing map...");
+
     const styleUrl =
       "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
       style: styleUrl,
-      center: defaultCenter,
-      zoom: 6,
+      center: [139.6917, 35.6895], // Tokyo default
+      zoom: 10,
     });
 
     map.addControl(new maplibregl.NavigationControl(), "bottom-right");
@@ -273,12 +150,14 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items, photos = [] }) => {
     });
 
     map.on("load", () => {
+      console.log("✅ Map style loaded");
       styleReadyRef.current = true;
     });
 
     mapRef.current = map;
 
     return () => {
+      console.log("🧹 Cleaning up map");
       try {
         map.remove();
       } catch {
@@ -286,18 +165,79 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items, photos = [] }) => {
       }
       mapRef.current = null;
       styleReadyRef.current = false;
+      boundsAppliedRef.current = false;
     };
   }, []);
+
+  // ✅ Apply bounds when map is ready and bounds are available
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !effectiveBounds) {
+      console.log("⏳ Waiting for map or bounds...");
+      return;
+    }
+
+    console.log("🎯 Bounds effect triggered");
+    console.log("  - styleReady:", styleReadyRef.current);
+    console.log("  - boundsApplied:", boundsAppliedRef.current);
+    console.log("  - effectiveBounds:", effectiveBounds);
+
+    const applyBounds = () => {
+      if (!effectiveBounds) return;
+
+      const { minLat, maxLat, minLon, maxLon } = effectiveBounds;
+
+      console.log(`📐 Applying bounds: [${minLon}, ${minLat}] to [${maxLon}, ${maxLat}]`);
+
+      try {
+        const bounds = new maplibregl.LngLatBounds(
+          [minLon, minLat],
+          [maxLon, maxLat]
+        );
+
+        map.fitBounds(bounds, {
+          padding: 80,
+          maxZoom: 13,
+          duration: 500,
+        });
+
+        boundsAppliedRef.current = true;
+        console.log("✅ Bounds applied successfully!");
+      } catch (err) {
+        console.error("❌ Failed to apply bounds:", err);
+      }
+    };
+
+    if (styleReadyRef.current && map.isStyleLoaded?.()) {
+      console.log("✅ Style already loaded, applying bounds immediately");
+      applyBounds();
+    } else {
+      console.log("⏳ Waiting for style to load...");
+      const onLoad = () => {
+        console.log("✅ Style loaded, applying bounds");
+        styleReadyRef.current = true;
+        applyBounds();
+      };
+      
+      map.once("load", onLoad);
+      
+      return () => {
+        map.off("load", onLoad);
+      };
+    }
+  }, [effectiveBounds]);
 
   // Update stop markers + route when items change
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
+    console.log("🎨 Updating markers and routes...");
+
     if (!styleReadyRef.current || !map.isStyleLoaded()) {
+      console.log("⏳ Style not ready yet, waiting...");
       const onLoad = () => {
         styleReadyRef.current = true;
-        setTimeout(() => {}, 0);
       };
       map.once("load", onLoad);
       return () => {
@@ -318,95 +258,106 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items, photos = [] }) => {
       return a.id - b.id;
     });
 
-    sorted.forEach((item) => {
+    console.log(`📍 Creating ${sorted.length} numbered markers...`);
+
+    sorted.forEach((item, idx) => {
       if (item.lat == null || item.lon == null) return;
 
-      const seq = item.sort_order ?? 0;
+      const seq = item.sort_order ?? (idx + 1);
       const dayIdx = item.day_index ?? 1;
-      const stopIdx = item.stop_index ?? null;
 
       const color = getMapDayColor(dayIdx);
 
+      // ✅ Create numbered circular marker
       const el = document.createElement("div");
-      el.style.width = "26px";
-      el.style.height = "26px";
-      el.style.borderRadius = "999px";
+      el.style.width = "32px";
+      el.style.height = "32px";
+      el.style.borderRadius = "50%";
       el.style.background = color;
       el.style.color = "white";
       el.style.display = "flex";
       el.style.alignItems = "center";
       el.style.justifyContent = "center";
-      el.style.fontSize = "11px";
-      el.style.fontWeight = "600";
-      el.style.boxShadow = "0 2px 6px rgba(15,23,42,0.35)";
-      el.textContent = seq ? String(seq) : "";
+      el.style.fontSize = "13px";
+      el.style.fontWeight = "700";
+      el.style.boxShadow = "0 2px 8px rgba(0,0,0,0.3)";
+      el.style.border = "2px solid white";
+      el.style.cursor = "pointer";
+      el.style.zIndex = "100";
+      el.textContent = String(seq);
 
       const dayLabel = item.day_index ? `Day ${item.day_index}` : "";
-      const stopLabel = stopIdx ? ` · Stop ${stopIdx}` : "";
 
       const marker = new maplibregl.Marker({ element: el })
         .setLngLat([item.lon, item.lat])
         .setPopup(
-          new maplibregl.Popup({ offset: 16 }).setHTML(
-            `<strong>${seq ? seq + ". " : ""}${item.title}</strong><br/>
-            ${dayLabel}${stopLabel}<br/>
-            ${item.address || ""}`
+          new maplibregl.Popup({ offset: 20, closeButton: false }).setHTML(
+            `<div style="font-family: system-ui; padding: 4px;">
+              <strong style="font-size: 14px;">${seq}. ${item.title}</strong><br/>
+              ${dayLabel ? `<span style="color: #6b7280; font-size: 12px;">${dayLabel}</span><br/>` : ""}
+              ${item.address ? `<span style="color: #6b7280; font-size: 11px;">${item.address}</span>` : ""}
+            </div>`
           )
         )
         .addTo(map);
 
       markersRef.current.push(marker);
       coords.push([item.lon, item.lat]);
+
+      console.log(`  ✅ Marker ${seq}: ${item.title} at [${item.lon}, ${item.lat}]`);
     });
 
-    // Fit bounds
-    if (coords.length) {
-      const bounds = coords.reduce(
-        (b, c) => b.extend(c as any),
-        new maplibregl.LngLatBounds(coords[0], coords[0])
-      );
-      try {
-        map.fitBounds(bounds, { padding: 60, maxZoom: 13 });
-      } catch {
-        // ignore fit errors
-      }
-    }
-
-    // Route layer/source
+    // ✅ Route layer/source
     const removeRoute = () => {
-      if (map.getLayer(ROUTE_ID)) map.removeLayer(ROUTE_ID);
-      if (map.getSource(ROUTE_ID)) map.removeSource(ROUTE_ID);
+      if (map.getLayer(ROUTE_ID)) {
+        console.log("🗑️ Removing old route layer");
+        map.removeLayer(ROUTE_ID);
+      }
+      if (map.getSource(ROUTE_ID)) {
+        console.log("🗑️ Removing old route source");
+        map.removeSource(ROUTE_ID);
+      }
     };
 
     if (coords.length >= 2) {
+      console.log(`🛣️ Creating route with ${coords.length} points`);
+
       const routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
         type: "Feature",
         geometry: { type: "LineString", coordinates: coords },
         properties: {},
       };
 
-      if (map.getSource(ROUTE_ID)) {
-        (map.getSource(ROUTE_ID) as maplibregl.GeoJSONSource).setData(routeGeoJson);
-      } else {
-        map.addSource(ROUTE_ID, { type: "geojson", data: routeGeoJson });
-        map.addLayer({
-          id: ROUTE_ID,
-          type: "line",
-          source: ROUTE_ID,
-          layout: { "line-cap": "round", "line-join": "round" },
-          paint: {
-            "line-color": "#4f46e5",
-            "line-width": 4,
-            "line-opacity": 0.85,
-          },
-        });
-      }
+      removeRoute();
+
+      map.addSource(ROUTE_ID, { 
+        type: "geojson", 
+        data: routeGeoJson 
+      });
+
+      map.addLayer({
+        id: ROUTE_ID,
+        type: "line",
+        source: ROUTE_ID,
+        layout: { 
+          "line-cap": "round", 
+          "line-join": "round" 
+        },
+        paint: {
+          "line-color": "#4f46e5",
+          "line-width": 4,
+          "line-opacity": 0.85,
+        },
+      });
+
+      console.log("✅ Route created!");
     } else {
+      console.log("⚠️ Not enough points for route");
       removeRoute();
     }
   }, [items]);
 
-  // NEW: Add photo markers when photos change
+  // Add photo markers when photos change
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -416,6 +367,8 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items, photos = [] }) => {
     photoMarkersRef.current = [];
 
     if (!photos || photos.length === 0) return;
+
+    console.log(`📸 Rendering ${photos.length} photo markers on map`);
 
     photos.forEach((photo) => {
       if (!photo.lat || !photo.lon) return;
@@ -433,14 +386,17 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items, photos = [] }) => {
       el.style.backgroundSize = "cover";
       el.style.backgroundPosition = "center";
       el.style.transition = "transform 0.2s ease";
+      el.style.zIndex = "50";
 
       // Hover effect
       el.addEventListener("mouseenter", () => {
         el.style.transform = "scale(1.1)";
+        el.style.zIndex = "200";
       });
 
       el.addEventListener("mouseleave", () => {
         el.style.transform = "scale(1)";
+        el.style.zIndex = "50";
       });
 
       // Click to preview
@@ -464,13 +420,13 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({ items, photos = [] }) => {
         style={{ width: "100%", height: "100%", minHeight: "520px" }}
       />
 
-      {/* NEW: Photo preview modal */}
+      {/* Photo preview modal */}
       {selectedPhoto && (
         <div
           style={{
-            position: "absolute",
+            position: "fixed",
             inset: 0,
-            backgroundColor: "rgba(0,0,0,0.7)",
+            backgroundColor: "rgba(0,0,0,0.8)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",

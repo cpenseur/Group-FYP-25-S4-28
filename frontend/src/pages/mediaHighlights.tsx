@@ -1,5 +1,5 @@
-// frontend/src/pages/mediaHighlights.tsx - FIXED VERSION
-// ✅ Added delete and download buttons for highlights
+// frontend/src/pages/mediaHighlights.tsx
+// ✅ FIXED: Per-day timeline, proper trip filtering, map shows only current trip photos
 
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -20,7 +20,7 @@ import {
   Trash2,
   Edit,
   Calendar,
-  Download,  // ✅ Added
+  Download,
 } from "lucide-react";
 
 // Types
@@ -83,6 +83,14 @@ interface PhotoFormData {
   itinerary_item: number | null;
 }
 
+// ✅ NEW: Photo grouped by day
+interface PhotosByDay {
+  dayId: number;
+  dayIndex: number;
+  date: string | null;
+  photos: TripPhoto[];
+}
+
 export default function MediaHighlights() {
   const { tripId } = useParams();
   const navigate = useNavigate();
@@ -93,10 +101,22 @@ export default function MediaHighlights() {
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
+  // ✅ ADD: Separate state for items and days (like notesAndChecklistPage)
+  const [items, setItems] = useState<ItineraryItem[]>([]);
+  const [days, setDays] = useState<TripDay[]>([]);
+
   // Modals
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+
+  // Debug: Log modal state changes
+  React.useEffect(() => {
+    console.log("=== MODAL STATE ===");
+    console.log("  showGenerateModal:", showGenerateModal);
+    console.log("  showUploadModal:", showUploadModal);
+    console.log("  showEditModal:", showEditModal);
+  }, [showGenerateModal, showUploadModal, showEditModal]);
 
   // Upload state
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -114,8 +134,6 @@ export default function MediaHighlights() {
   const [generating, setGenerating] = useState(false);
   const [generateProgress, setGenerateProgress] = useState(0);
   const [generateStatus, setGenerateStatus] = useState("");
-
-  // ✅ NEW: Download state
   const [downloading, setDownloading] = useState<number | null>(null);
 
   // Map state
@@ -156,15 +174,52 @@ export default function MediaHighlights() {
     try {
       setLoading(true);
 
-      const tripData = await apiFetch(`/f1/trips/${tripId}/`, { method: "GET" });
-      setTrip(tripData);
+      console.log("=== 📦 Loading Media Highlights Data ===");
+      console.log(`Trip ID: ${tripId}`);
 
+      const tripData = await apiFetch(`/f1/trips/${tripId}/`, { method: "GET" });
+      console.log("Trip loaded:", {
+        id: tripData.id,
+        title: tripData.title,
+        main_city: tripData.main_city,
+        days: tripData.days?.length,
+        items: tripData.items?.length,
+      });
+
+      setTrip(tripData);
+      
+      // ✅ SET: Separate state for items and days (like notesAndChecklistPage)
+      const safeDays = Array.isArray(tripData?.days) ? tripData.days : [];
+      const safeItems = Array.isArray(tripData?.items) ? tripData.items : [];
+      setDays(safeDays);
+      setItems(safeItems);
+      
+      console.log(`✅ Set ${safeItems.length} items and ${safeDays.length} days to state`);
+
+      // ✅ CRITICAL: Filter photos by trip ID
       const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
       const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
-      setPhotos(photosList);
+      
+      // ✅ Double-check: Only keep photos from THIS trip
+      const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
+      console.log(`📸 Photos loaded: ${tripPhotos.length} (filtered from ${photosList.length})`);
+      
+      if (tripPhotos.length > 0) {
+        console.log("Sample photo:", {
+          id: tripPhotos[0].id,
+          trip: tripPhotos[0].trip,
+          lat: tripPhotos[0].lat,
+          lon: tripPhotos[0].lon,
+          itinerary_item: tripPhotos[0].itinerary_item,
+        });
+      }
+      
+      setPhotos(tripPhotos);
 
       const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
       setHighlights(Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || []);
+      
+      console.log("=== ✅ Data Loading Complete ===\n");
     } catch (error) {
       console.error("Failed to load data:", error);
     } finally {
@@ -172,9 +227,8 @@ export default function MediaHighlights() {
     }
   }
 
-  // ✅ NEW: Delete highlight function
   const deleteHighlight = async (highlightId: number, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent navigation to player
+    e.stopPropagation();
     
     if (!confirm("Delete this video highlight?")) return;
 
@@ -188,18 +242,15 @@ export default function MediaHighlights() {
     }
   };
 
-  // ✅ NEW: Download highlight function
   const downloadHighlight = async (highlight: MediaHighlight, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent navigation to player
+    e.stopPropagation();
     
     try {
       setDownloading(highlight.id);
 
-      // Fetch the video blob
       const response = await fetch(highlight.video_url);
       const blob = await response.blob();
 
-      // Create download link
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -207,7 +258,6 @@ export default function MediaHighlights() {
       document.body.appendChild(a);
       a.click();
       
-      // Cleanup
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
@@ -260,7 +310,7 @@ export default function MediaHighlights() {
         file,
         caption: file.name.replace(/\.[^/.]+$/, ""),
         taken_at: new Date().toISOString().slice(0, 16),
-        itinerary_item: trip?.items?.[0]?.id || null,
+        itinerary_item: items.length > 0 ? items[0].id : null,
       });
     });
 
@@ -315,7 +365,7 @@ export default function MediaHighlights() {
             .from("trip-media")
             .getPublicUrl(filePath);
 
-          const selectedItem = trip?.items?.find(item => item.id === formData.itinerary_item);
+          const selectedItem = items.find(item => item.id === formData.itinerary_item);
           const photoLat = selectedItem?.lat || null;
           const photoLon = selectedItem?.lon || null;
 
@@ -376,7 +426,7 @@ export default function MediaHighlights() {
     if (!editingPhoto) return;
 
     try {
-      const selectedItem = trip?.items?.find(item => item.id === editItemId);
+      const selectedItem = items.find(item => item.id === editItemId);
       const photoLat = selectedItem?.lat || null;
       const photoLon = selectedItem?.lon || null;
 
@@ -426,7 +476,7 @@ export default function MediaHighlights() {
         console.log("🎬 Generating real video with map animation...");
         
         const groups = segments.map(seg => {
-          const stopItem = trip?.items?.find(i => i.id === seg.stop_id);
+          const stopItem = items.find(i => i.id === seg.stop_id);
           return {
             stop: {
               id: seg.stop_id,
@@ -541,6 +591,27 @@ export default function MediaHighlights() {
     }
   };
 
+  // ✅ NEW: Wrapper function to match AutoGenerateVideoModal's expected signature
+  const handleModalGenerate = (
+    groups: any,
+    transportModes: any,
+    title: string,
+    generateReal: boolean
+  ) => {
+    // Convert groups back to segments format
+    const segments = Array.isArray(groups) ? groups.map((group: any, idx: number) => ({
+      stop_id: group.stop?.id || group.id,
+      stop_title: group.stop?.title || group.title,
+      photo_ids: group.photos?.map((p: any) => p.id) || [],
+      transport_mode: idx < groups.length - 1 
+        ? transportModes[`${group.stop?.id || group.id}-${groups[idx + 1]?.stop?.id || groups[idx + 1]?.id}`]
+        : undefined,
+    })) : [];
+
+    // Call the original function
+    handleGenerateWithSegments(segments, title, generateReal);
+  };
+
   function formatDateTime(dateStr: string) {
     if (!dateStr) return "";
     try {
@@ -564,8 +635,8 @@ export default function MediaHighlights() {
     return item?.title || "";
   }
 
-  const dayIndexMap = new Map((trip?.days || []).map((d) => [d.id, d.day_index]));
-  const items = trip?.items || [];
+  // ✅ Use state variables (like notesAndChecklistPage)
+  const dayIndexMap = new Map(days.map((d) => [d.id, d.day_index]));
   
   const itemsInTripOrder = [...items].sort((a, b) => {
     const da = dayIndexMap.get(a.day ?? 0) ?? 0;
@@ -588,8 +659,15 @@ export default function MediaHighlights() {
     };
   });
 
+  console.log("🗺️ Media Highlights - mapItems:", mapItems.length);
+  console.log("  - Items with coords:", mapItems.filter(i => i.lat && i.lon).length);
+  if (mapItems.length > 0 && mapItems[0].lat && mapItems[0].lon) {
+    console.log("  - First item:", mapItems[0].title, `[${mapItems[0].lat}, ${mapItems[0].lon}]`);
+  }
+
+  // ✅ Prepare photo markers for map (if you want photos on map)
   const photoMarkers = photos
-    .filter((p) => p.lat && p.lon)
+    .filter((p) => p.lat && p.lon && p.trip === parseInt(tripId || "0"))
     .map((p) => ({
       id: p.id,
       file_url: p.file_url,
@@ -597,6 +675,43 @@ export default function MediaHighlights() {
       lon: p.lon!,
       caption: p.caption,
     }));
+
+  console.log("📸 Photo markers:", photoMarkers.length);
+
+  // ✅ NEW: Group photos by day
+  const photosByDay: PhotosByDay[] = React.useMemo(() => {
+    if (days.length === 0) return [];
+    
+    const dayMap = new Map<number, PhotosByDay>();
+
+    // Initialize all days
+    days.forEach(day => {
+      dayMap.set(day.id, {
+        dayId: day.id,
+        dayIndex: day.day_index,
+        date: day.date,
+        photos: [],
+      });
+    });
+
+    // Group photos by day
+    photos.forEach(photo => {
+      if (photo.itinerary_item) {
+        const item = items.find(i => i.id === photo.itinerary_item);
+        if (item?.day) {
+          const dayGroup = dayMap.get(item.day);
+          if (dayGroup) {
+            dayGroup.photos.push(photo);
+          }
+        }
+      }
+    });
+
+    // Convert to array and sort by day_index
+    return Array.from(dayMap.values())
+      .filter(day => day.photos.length > 0) // Only show days with photos
+      .sort((a, b) => a.dayIndex - b.dayIndex);
+  }, [photos, days, items]);
 
   if (loading) {
     return (
@@ -632,7 +747,24 @@ export default function MediaHighlights() {
       <div style={pageContainer}>
         <div style={mainGrid}>
           <div style={mapSection}>
-            <ItineraryMap items={mapItems} photos={photoMarkers} />
+            {/* ✅ Map shows itinerary route + photo thumbnails */}
+            {loading ? (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                height: '100%',
+                background: '#f3f4f6' 
+              }}>
+                <div className="spinner" />
+              </div>
+            ) : (
+              <ItineraryMap 
+                key={`map-${items.length}-${days.length}-${photos.length}`}
+                items={mapItems}
+                photos={photoMarkers}
+              />
+            )}
           </div>
 
           <div style={sidebarSection}>
@@ -642,8 +774,21 @@ export default function MediaHighlights() {
                 Upload Photo
               </button>
               <button 
-                onClick={() => setShowGenerateModal(true)} 
-                style={generateButton} 
+                onClick={() => {
+                  console.log("Create Highlight Video clicked!");
+                  console.log("Photos:", photos.length);
+                  console.log("Generating:", generating);
+                  if (photos.length === 0) {
+                    alert("⚠️ Please upload photos first!");
+                    return;
+                  }
+                  setShowGenerateModal(true);
+                }} 
+                style={{
+                  ...generateButton,
+                  opacity: photos.length === 0 || generating ? 0.5 : 1,
+                  cursor: photos.length === 0 || generating ? 'not-allowed' : 'pointer',
+                }} 
                 disabled={photos.length === 0 || generating}
               >
                 <Video size={16} strokeWidth={2.5} />
@@ -651,13 +796,14 @@ export default function MediaHighlights() {
               </button>
             </div>
 
+            {/* ✅ NEW: Per-day timeline */}
             <div style={timelineCard}>
               <div style={cardTitle}>
                 <Clock size={18} />
-                Trip Timeline
+                Trip Timeline by Day
               </div>
 
-              {photos.length === 0 ? (
+              {photosByDay.length === 0 ? (
                 <div style={emptyState}>
                   <ImageIcon size={40} strokeWidth={1.5} />
                   <div style={{ marginTop: 12, fontSize: 14, fontWeight: 600 }}>No photos yet</div>
@@ -667,43 +813,67 @@ export default function MediaHighlights() {
                 </div>
               ) : (
                 <div style={photoList}>
-                  {photos.map((photo) => (
-                    <div key={photo.id} style={photoItem}>
-                      <div
-                        style={{
-                          width: 60,
-                          height: 60,
-                          borderRadius: 8,
-                          backgroundImage: `url(${photo.file_url})`,
-                          backgroundSize: "cover",
-                          backgroundPosition: "center",
-                          flexShrink: 0,
-                          cursor: "pointer",
-                        }}
-                        onClick={() => setSelectedPhoto(photo)}
-                      />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={photoItemTitle}>
-                          {photo.caption || "Photo"}
-                        </div>
-                        <div style={photoItemMeta}>
-                          <Calendar size={10} style={{ display: "inline", marginRight: 4 }} />
-                          {formatDateTime(photo.taken_at || photo.created_at)}
-                        </div>
-                        {photo.itinerary_item && (
-                          <div style={photoItemLocation}>
-                            <MapPin size={12} />
-                            {getStopTitle(photo.itinerary_item)}
-                          </div>
+                  {photosByDay.map((dayGroup) => (
+                    <div key={dayGroup.dayId} style={{ marginBottom: 16 }}>
+                      {/* Day header */}
+                      <div style={dayHeader}>
+                        <Calendar size={14} />
+                        Day {dayGroup.dayIndex}
+                        {dayGroup.date && (
+                          <span style={{ marginLeft: 8, fontSize: 11, color: "#6b7280" }}>
+                            {new Date(dayGroup.date).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                            })}
+                          </span>
                         )}
+                        <span style={{ marginLeft: "auto", fontSize: 11, color: "#6b7280" }}>
+                          {dayGroup.photos.length} photo{dayGroup.photos.length !== 1 ? "s" : ""}
+                        </span>
                       </div>
-                      <div style={{ display: "flex", gap: 4 }}>
-                        <button onClick={() => openEditModal(photo)} style={editButton}>
-                          <Edit size={14} />
-                        </button>
-                        <button onClick={() => deletePhoto(photo.id)} style={deleteButton}>
-                          <Trash2 size={14} />
-                        </button>
+
+                      {/* Photos for this day */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
+                        {dayGroup.photos.map((photo) => (
+                          <div key={photo.id} style={photoItem}>
+                            <div
+                              style={{
+                                width: 60,
+                                height: 60,
+                                borderRadius: 8,
+                                backgroundImage: `url(${photo.file_url})`,
+                                backgroundSize: "cover",
+                                backgroundPosition: "center",
+                                flexShrink: 0,
+                                cursor: "pointer",
+                              }}
+                              onClick={() => setSelectedPhoto(photo)}
+                            />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={photoItemTitle}>
+                                {photo.caption || "Photo"}
+                              </div>
+                              <div style={photoItemMeta}>
+                                <Clock size={10} style={{ display: "inline", marginRight: 4 }} />
+                                {formatDateTime(photo.taken_at || photo.created_at)}
+                              </div>
+                              {photo.itinerary_item && (
+                                <div style={photoItemLocation}>
+                                  <MapPin size={12} />
+                                  {getStopTitle(photo.itinerary_item)}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", gap: 4 }}>
+                              <button onClick={() => openEditModal(photo)} style={editButton}>
+                                <Edit size={14} />
+                              </button>
+                              <button onClick={() => deletePhoto(photo.id)} style={deleteButton}>
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
@@ -734,7 +904,6 @@ export default function MediaHighlights() {
                       key={highlight.id} 
                       style={highlightItem}
                     >
-                      {/* Main content - clickable to play */}
                       <div 
                         style={highlightMainContent}
                         onClick={() => navigate(`/trip/${tripId}/highlight/${highlight.id}`)}
@@ -752,7 +921,6 @@ export default function MediaHighlights() {
                         </div>
                       </div>
 
-                      {/* ✅ NEW: Action buttons */}
                       <div style={highlightActions}>
                         <button 
                           onClick={(e) => downloadHighlight(highlight, e)} 
@@ -779,27 +947,64 @@ export default function MediaHighlights() {
         </div>
       </div>
 
-      {/* ... rest of the modals remain the same ... */}
+      {/* Photo preview modal */}
       {selectedPhoto && (
-        <div style={modalOverlay} onClick={() => setSelectedPhoto(null)}>
-          <div style={photoPreviewCard} onClick={(e) => e.stopPropagation()}>
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: "20px",
+          }}
+          onClick={() => setSelectedPhoto(null)}
+        >
+          <div
+            style={{
+              maxWidth: "90%",
+              maxHeight: "90%",
+              background: "white",
+              borderRadius: "16px",
+              overflow: "hidden",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <img
               src={selectedPhoto.file_url}
               alt={selectedPhoto.caption || "Trip photo"}
-              style={photoPreviewImage}
+              style={{
+                width: "100%",
+                height: "auto",
+                maxHeight: "70vh",
+                objectFit: "contain",
+              }}
             />
             {selectedPhoto.caption && (
-              <div style={photoCaption}>{selectedPhoto.caption}</div>
+              <div
+                style={{
+                  padding: "16px",
+                  fontSize: "14px",
+                  color: "#111827",
+                  fontWeight: 600,
+                }}
+              >
+                {selectedPhoto.caption}
+              </div>
             )}
           </div>
         </div>
       )}
 
+      {/* Upload Modal */}
       {showUploadModal && (
         <div style={modalOverlay} onClick={() => setShowUploadModal(false)}>
-          <div style={uploadModalContent} onClick={(e) => e.stopPropagation()}>
+          <div style={modalContent} onClick={(e) => e.stopPropagation()}>
             <div style={modalHeader}>
-              <div style={modalTitle}>Upload Photos</div>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Upload Photos</h2>
               <button onClick={() => setShowUploadModal(false)} style={closeButton}>
                 <X size={20} />
               </button>
@@ -808,8 +1013,7 @@ export default function MediaHighlights() {
             <div
               style={{
                 ...dropZone,
-                borderColor: dragActive ? "#f59e0b" : "rgba(17, 24, 39, 0.1)",
-                background: dragActive ? "rgba(245, 158, 11, 0.05)" : "#fafafa",
+                ...(dragActive ? dropZoneActive : {}),
               }}
               onDragEnter={handleDrag}
               onDragLeave={handleDrag}
@@ -817,17 +1021,12 @@ export default function MediaHighlights() {
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
             >
-              <Upload size={40} style={{ color: "#f59e0b" }} />
-              <div style={{ marginTop: 16, fontSize: 16, fontWeight: 600 }}>
-                Drag and Drop here to Upload Photos
+              <Upload size={40} strokeWidth={1.5} />
+              <div style={{ marginTop: 12, fontSize: 14, fontWeight: 600 }}>
+                Drop photos here or click to browse
               </div>
-              <div style={{ marginTop: 8, fontSize: 14, color: "#6b7280" }}>
-                <span style={{ textDecoration: "underline", cursor: "pointer" }}>
-                  Choose Files from your computer
-                </span>
-              </div>
-              <div style={{ marginTop: 12, fontSize: 12, color: "#9ca3af" }}>
-                Supports: JPG, PNG (max 10MB per file)
+              <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
+                JPG, PNG up to 10MB each
               </div>
               <input
                 ref={fileInputRef}
@@ -840,154 +1039,141 @@ export default function MediaHighlights() {
             </div>
 
             {selectedFiles.length > 0 && (
-              <div style={filesSection}>
-                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>
-                  Photo Details ({selectedFiles.length} photo{selectedFiles.length > 1 ? 's' : ''})
+              <div style={{ marginTop: 20 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
+                  {selectedFiles.length} photo{selectedFiles.length !== 1 ? "s" : ""} selected
                 </div>
+
                 <div style={filesList}>
-                  {selectedFiles.map((file, idx) => {
-                    const formData = photoForms.get(idx);
-                    if (!formData) return null;
+                  {selectedFiles.map((file, index) => {
+                    const form = photoForms.get(index);
+                    if (!form) return null;
 
                     return (
-                      <div key={idx} style={photoFormCard}>
-                        <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-                          <img
-                            src={URL.createObjectURL(file)}
-                            alt=""
-                            style={filePreview}
-                            onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
-                          />
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-                              {file.name}
-                            </div>
-                            <button onClick={() => removeFile(idx)} style={removePhotoButton}>
-                              <Trash2 size={12} />
-                              Remove
-                            </button>
-                          </div>
-                        </div>
+                      <div key={index} style={fileItem}>
+                        <div
+                          style={{
+                            width: 60,
+                            height: 60,
+                            borderRadius: 8,
+                            backgroundImage: `url(${URL.createObjectURL(file)})`,
+                            backgroundSize: "cover",
+                            backgroundPosition: "center",
+                            flexShrink: 0,
+                          }}
+                        />
 
-                        <div style={formGroup}>
-                          <label style={formLabel}>Caption/Title</label>
+                        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
                           <input
-                            type="text"
-                            value={formData.caption}
-                            onChange={(e) => updatePhotoForm(idx, 'caption', e.target.value)}
-                            style={formInput}
-                            placeholder="Enter photo caption..."
+                            value={form.caption}
+                            onChange={(e) => updatePhotoForm(index, "caption", e.target.value)}
+                            placeholder="Caption"
+                            style={inputStyle}
                           />
-                        </div>
 
-                        <div style={formGroup}>
-                          <label style={formLabel}>Date & Time</label>
                           <input
                             type="datetime-local"
-                            value={formData.taken_at}
-                            onChange={(e) => updatePhotoForm(idx, 'taken_at', e.target.value)}
-                            style={formInput}
+                            value={form.taken_at}
+                            onChange={(e) => updatePhotoForm(index, "taken_at", e.target.value)}
+                            style={inputStyle}
                           />
-                        </div>
 
-                        <div style={formGroup}>
-                          <label style={formLabel}>Associated Stop</label>
                           <select
-                            value={formData.itinerary_item || ""}
-                            onChange={(e) => updatePhotoForm(idx, 'itinerary_item', e.target.value ? parseInt(e.target.value) : null)}
-                            style={formSelect}
+                            value={form.itinerary_item || ""}
+                            onChange={(e) =>
+                              updatePhotoForm(index, "itinerary_item", parseInt(e.target.value))
+                            }
+                            style={inputStyle}
                           >
-                            <option value="">No specific stop</option>
-                            {itemsInTripOrder.map((item, itemIdx) => (
+                            <option value="">No location</option>
+                            {items.map((item) => (
                               <option key={item.id} value={item.id}>
-                                {itemIdx + 1}. {item.title}
+                                {item.title}
                               </option>
                             ))}
                           </select>
                         </div>
+
+                        <button onClick={() => removeFile(index)} style={deleteButton}>
+                          <X size={16} />
+                        </button>
                       </div>
                     );
                   })}
                 </div>
+
+                <button
+                  onClick={handleUpload}
+                  disabled={uploading}
+                  style={{
+                    ...uploadButton,
+                    width: "100%",
+                    marginTop: 16,
+                    opacity: uploading ? 0.6 : 1,
+                  }}
+                >
+                  {uploading ? "Uploading..." : "Upload All Photos"}
+                </button>
               </div>
             )}
-
-            <div style={modalFooter}>
-              <button onClick={() => setShowUploadModal(false)} style={cancelButton}>
-                Cancel
-              </button>
-              <button
-                onClick={handleUpload}
-                style={saveButton}
-                disabled={uploading || selectedFiles.length === 0}
-              >
-                {uploading ? "Uploading..." : `Upload ${selectedFiles.length} Photo${selectedFiles.length > 1 ? 's' : ''}`}
-              </button>
-            </div>
           </div>
         </div>
       )}
 
+      {/* Edit Photo Modal */}
       {showEditModal && editingPhoto && (
         <div style={modalOverlay} onClick={() => setShowEditModal(false)}>
-          <div style={editModalContent} onClick={(e) => e.stopPropagation()}>
+          <div style={modalContent} onClick={(e) => e.stopPropagation()}>
             <div style={modalHeader}>
-              <div style={modalTitle}>Edit Photo</div>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Edit Photo</h2>
               <button onClick={() => setShowEditModal(false)} style={closeButton}>
                 <X size={20} />
               </button>
             </div>
 
-            <div style={{ padding: "24px 28px" }}>
-              <img
-                src={editingPhoto.file_url}
-                alt=""
-                style={{ width: "100%", height: 200, objectFit: "cover", borderRadius: 12, marginBottom: 20 }}
+            <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+              <div
+                style={{
+                  width: "100%",
+                  height: 200,
+                  borderRadius: 12,
+                  backgroundImage: `url(${editingPhoto.file_url})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                }}
               />
 
-              <div style={formGroup}>
-                <label style={formLabel}>Caption/Title</label>
-                <input
-                  type="text"
-                  value={editCaption}
-                  onChange={(e) => setEditCaption(e.target.value)}
-                  style={formInput}
-                  placeholder="Enter photo caption..."
-                />
-              </div>
+              <input
+                value={editCaption}
+                onChange={(e) => setEditCaption(e.target.value)}
+                placeholder="Caption"
+                style={inputStyle}
+              />
 
-              <div style={formGroup}>
-                <label style={formLabel}>Date & Time</label>
-                <input
-                  type="datetime-local"
-                  value={editTakenAt}
-                  onChange={(e) => setEditTakenAt(e.target.value)}
-                  style={formInput}
-                />
-              </div>
+              <input
+                type="datetime-local"
+                value={editTakenAt}
+                onChange={(e) => setEditTakenAt(e.target.value)}
+                style={inputStyle}
+              />
 
-              <div style={formGroup}>
-                <label style={formLabel}>Associated Stop</label>
-                <select
-                  value={editItemId || ""}
-                  onChange={(e) => setEditItemId(e.target.value ? parseInt(e.target.value) : null)}
-                  style={formSelect}
-                >
-                  <option value="">No specific stop</option>
-                  {itemsInTripOrder.map((item, idx) => (
-                    <option key={item.id} value={item.id}>
-                      {idx + 1}. {item.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+              <select
+                value={editItemId || ""}
+                onChange={(e) => setEditItemId(parseInt(e.target.value))}
+                style={inputStyle}
+              >
+                <option value="">No location</option>
+                {items.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title}
+                  </option>
+                ))}
+              </select>
 
-            <div style={modalFooter}>
-              <button onClick={() => setShowEditModal(false)} style={cancelButton}>
-                Cancel
-              </button>
-              <button onClick={handleEditPhoto} style={saveButton}>
+              <button
+                onClick={handleEditPhoto}
+                style={{ ...uploadButton, width: "100%", marginTop: 8 }}
+              >
                 Save Changes
               </button>
             </div>
@@ -995,39 +1181,32 @@ export default function MediaHighlights() {
         </div>
       )}
 
-      <AutoGenerateVideoModal  
-        show={showGenerateModal}
-        onClose={() => !generating && setShowGenerateModal(false)}
-        photos={photos.map(p => ({
-          id: p.id,
-          url: p.file_url,
-          caption: p.caption,
-          itinerary_item: p.itinerary_item,
-        }))}
-        stops={trip?.items?.map(item => ({
-          id: item.id,
-          title: item.title,
-          lat: item.lat,
-          lon: item.lon,
-        })) || []}
-        onGenerate={(groups, transportModes, title, generateReal) => {
-          const segments = groups.map((g, idx) => ({
-            order: idx + 1,
-            stop_id: g.stop.id,
-            stop_title: g.stop.title,
-            photo_ids: g.photos.map(p => p.id),
-            transport_mode:
-              idx < groups.length - 1
-                ? (transportModes[`${g.stop.id}-${groups[idx + 1].stop.id}`] || "plane")
-                : null,
-          }));
+      {/* Generate Video Modal */}
+      {showGenerateModal && (
+        <AutoGenerateVideoModal
+          show={showGenerateModal}
+          stops={items.map(item => ({
+            id: item.id,
+            title: item.title,
+            lat: item.lat || 0,
+            lon: item.lon || 0,
+          }))}
+          photos={photos.map(p => ({
+            id: p.id,
+            url: p.file_url,  // ✅ Transform file_url to url
+            caption: p.caption,
+          }))}
+          onClose={() => {
+            console.log("❌ Closing AutoGenerateVideoModal");
+            setShowGenerateModal(false);
+          }}
+          onGenerate={handleModalGenerate}
+          generating={generating}
+        />
+      )}
 
-          handleGenerateWithSegments(segments, title, generateReal);
-        }}
-        generating={generating}
-        generateProgress={generateProgress}
-        generateStatus={generateStatus}
-      />
+      {/* DEBUG: Show modal state */}
+      {console.log("🔍 Render check - showGenerateModal:", showGenerateModal, "photos:", photos.length)}
     </>
   );
 }
@@ -1043,8 +1222,22 @@ const uploadButton: React.CSSProperties = { padding: "10px 16px", borderRadius: 
 const generateButton: React.CSSProperties = { padding: "10px 16px", borderRadius: 12, border: "1px solid #e5e7eb", background: "white", color: "#111827", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" };
 const timelineCard: React.CSSProperties = { background: "#fafafa", borderRadius: 16, padding: 16, border: "1px solid #e5e7eb" };
 const cardTitle: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 12 };
-const photoList: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10, maxHeight: 300, overflowY: "auto" };
-const photoItem: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, padding: 10, background: "white", borderRadius: 12, border: "1px solid #e5e7eb", transition: "all 0.2s ease" };
+const photoList: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10, maxHeight: 400, overflowY: "auto" };
+
+// ✅ NEW: Day header style
+const dayHeader: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "8px 12px",
+  background: "#f3f4f6",
+  borderRadius: 8,
+  fontSize: 13,
+  fontWeight: 700,
+  color: "#374151",
+};
+
+const photoItem: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, padding: 10, background: "white", borderRadius: 12, border: "1px solid #e5e7eb", transition: "all 0.2s ease", position: "relative" };
 const photoItemTitle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 const photoItemMeta: React.CSSProperties = { fontSize: 11, color: "#6b7280", marginTop: 2 };
 const photoItemLocation: React.CSSProperties = { fontSize: 11, color: "#f59e0b", marginTop: 2, display: "flex", alignItems: "center", gap: 4 };
@@ -1052,84 +1245,23 @@ const editButton: React.CSSProperties = { width: 28, height: 28, borderRadius: 8
 const deleteButton: React.CSSProperties = { width: 28, height: 28, borderRadius: 8, border: "none", background: "#fee2e2", color: "#ef4444", display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0 };
 const highlightsCard: React.CSSProperties = { background: "#fafafa", borderRadius: 16, padding: 16, border: "1px solid #e5e7eb" };
 const highlightsList: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10 };
-
-// ✅ UPDATED: Highlight item styles
-const highlightItem: React.CSSProperties = { 
-  display: "flex", 
-  alignItems: "center", 
-  justifyContent: "space-between",
-  padding: 10, 
-  background: "white", 
-  borderRadius: 12, 
-  border: "1px solid #e5e7eb",
-  transition: "all 0.2s ease",
-};
-
-const highlightMainContent: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 12,
-  flex: 1,
-  cursor: "pointer",
-};
-
-const highlightActions: React.CSSProperties = {
-  display: "flex",
-  gap: 4,
-  marginLeft: 8,
-};
-
-const highlightDownloadBtn: React.CSSProperties = {
-  width: 32,
-  height: 32,
-  borderRadius: 8,
-  border: "none",
-  background: "#dcfce7",
-  color: "#16a34a",
-  display: "grid",
-  placeItems: "center",
-  cursor: "pointer",
-  flexShrink: 0,
-  transition: "all 0.2s ease",
-};
-
-const highlightDeleteBtn: React.CSSProperties = {
-  width: 32,
-  height: 32,
-  borderRadius: 8,
-  border: "none",
-  background: "#fee2e2",
-  color: "#ef4444",
-  display: "grid",
-  placeItems: "center",
-  cursor: "pointer",
-  flexShrink: 0,
-  transition: "all 0.2s ease",
-};
-
+const highlightItem: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: 10, background: "white", borderRadius: 12, border: "1px solid #e5e7eb", transition: "all 0.2s ease" };
+const highlightMainContent: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, flex: 1, cursor: "pointer" };
+const highlightActions: React.CSSProperties = { display: "flex", gap: 4, marginLeft: 8 };
+const highlightDownloadBtn: React.CSSProperties = { width: 32, height: 32, borderRadius: 8, border: "none", background: "#dcfce7", color: "#16a34a", display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0, transition: "all 0.2s ease" };
+const highlightDeleteBtn: React.CSSProperties = { width: 32, height: 32, borderRadius: 8, border: "none", background: "#fee2e2", color: "#ef4444", display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0, transition: "all 0.2s ease" };
 const highlightThumbnail: React.CSSProperties = { width: 60, height: 60, borderRadius: 8, background: "linear-gradient(135deg, #f59e0b, #f97316)", display: "grid", placeItems: "center", color: "white", flexShrink: 0 };
 const highlightTitleStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "#111827" };
 const highlightMeta: React.CSSProperties = { fontSize: 11, color: "#6b7280", marginTop: 2 };
 const emptyState: React.CSSProperties = { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "30px 20px", color: "#9ca3af", textAlign: "center" };
-const modalOverlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0, 0, 0, 0.5)", backdropFilter: "blur(4px)", display: "grid", placeItems: "center", zIndex: 1000 };
-const photoPreviewCard: React.CSSProperties = { maxWidth: "90%", maxHeight: "90%", background: "white", borderRadius: "16px", overflow: "hidden", boxShadow: "0 20px 60px rgba(0, 0, 0, 0.5)" };
-const photoPreviewImage: React.CSSProperties = { width: "100%", height: "auto", maxHeight: "70vh", objectFit: "contain" };
-const photoCaption: React.CSSProperties = { padding: "16px", fontSize: "14px", color: "#111827", fontWeight: 600 };
-const uploadModalContent: React.CSSProperties = { background: "white", borderRadius: 20, width: "90%", maxWidth: 700, maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0, 0, 0, 0.3)" };
-const editModalContent: React.CSSProperties = { background: "white", borderRadius: 20, width: "90%", maxWidth: 500, maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0, 0, 0, 0.3)" };
-const modalHeader: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "24px 28px", borderBottom: "1px solid rgba(17, 24, 39, 0.06)" };
-const modalTitle: React.CSSProperties = { fontSize: 20, fontWeight: 800, color: "#111827" };
-const closeButton: React.CSSProperties = { width: 32, height: 32, borderRadius: 8, border: "none", background: "#f3f4f6", display: "grid", placeItems: "center", cursor: "pointer", color: "#6b7280" };
-const dropZone: React.CSSProperties = { margin: "24px 28px", padding: "40px 20px", border: "2px dashed rgba(17, 24, 39, 0.1)", borderRadius: 16, textAlign: "center", cursor: "pointer", transition: "all 0.2s ease" };
-const filesSection: React.CSSProperties = { margin: "0 28px 24px", padding: "20px 0", borderTop: "1px solid rgba(17, 24, 39, 0.06)" };
-const filesList: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 16 };
-const filePreview: React.CSSProperties = { width: 80, height: 80, borderRadius: 8, objectFit: "cover" };
-const photoFormCard: React.CSSProperties = { padding: 16, borderRadius: 12, background: "#fafafa", border: "1px solid #e5e7eb" };
-const removePhotoButton: React.CSSProperties = { padding: "4px 8px", borderRadius: 6, border: "1px solid #fca5a5", background: "white", color: "#ef4444", fontSize: 11, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 };
-const formGroup: React.CSSProperties = { marginBottom: 16 };
-const formLabel: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 };
-const formInput: React.CSSProperties = { width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, outline: "none", boxSizing: "border-box" };
-const formSelect: React.CSSProperties = { width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 14, outline: "none", background: "white", boxSizing: "border-box" };
-const modalFooter: React.CSSProperties = { display: "flex", justifyContent: "flex-end", gap: 12, padding: "20px 28px", borderTop: "1px solid rgba(17, 24, 39, 0.06)" };
-const cancelButton: React.CSSProperties = { padding: "12px 24px", borderRadius: 12, border: "1px solid rgba(17, 24, 39, 0.1)", background: "white", color: "#111827", fontWeight: 700, fontSize: 14, cursor: "pointer" };
-const saveButton: React.CSSProperties = { padding: "12px 24px", borderRadius: 12, border: "none", background: "#111827", color: "white", fontWeight: 700, fontSize: 14, cursor: "pointer" };
+
+// Modal styles
+const modalOverlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 };
+const modalContent: React.CSSProperties = { background: "white", borderRadius: 16, padding: 24, maxWidth: 600, width: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" };
+const modalHeader: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 };
+const closeButton: React.CSSProperties = { width: 32, height: 32, borderRadius: 8, border: "none", background: "#f3f4f6", display: "grid", placeItems: "center", cursor: "pointer" };
+const dropZone: React.CSSProperties = { border: "2px dashed #d1d5db", borderRadius: 12, padding: "40px 20px", textAlign: "center", cursor: "pointer", transition: "all 0.2s ease", color: "#6b7280" };
+const dropZoneActive: React.CSSProperties = { borderColor: "#f59e0b", background: "#fffbeb", color: "#f59e0b" };
+const filesList: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 12, maxHeight: 400, overflowY: "auto" };
+const fileItem: React.CSSProperties = { display: "flex", gap: 12, padding: 12, border: "1px solid #e5e7eb", borderRadius: 12, background: "white" };
+const inputStyle: React.CSSProperties = { width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none" };
