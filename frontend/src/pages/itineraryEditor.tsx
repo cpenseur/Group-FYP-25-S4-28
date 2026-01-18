@@ -1,5 +1,5 @@
 // frontend/src/pages/itineraryEditor.tsx
-import { useEffect, useRef, useState, ReactNode } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 
@@ -183,6 +183,8 @@ type TripResponse = {
   main_country: string | null;
   start_date: string | null;
   end_date: string | null;
+  notes_summary?: string | null;
+  preferences_text?: string | null;
   days: TripDayResponse[];
   items: ItineraryItem[];
 };
@@ -218,6 +220,9 @@ type PlaceDetails = {
   name: string;
   description: string | null;
 
+  notes_summary?: string | null;
+  preferences_text?: string | null;
+
   about?: {
     why_go?: string[];
     know_before_you_go?: string[];
@@ -226,8 +231,8 @@ type PlaceDetails = {
     tips?: string[];
   };
 
-  image_url: string | null;     // primary
-  images?: string[];            // gallery (0..n)
+  image_url: string | null;
+  images?: string[];
 
   wikipedia: string | null;
   kinds: string | null;
@@ -277,6 +282,11 @@ function formatTimeRange(item: ItineraryItem): string {
 function getItemThumbnail(item: ItineraryItem): string | null {
   const anyItem = item as any;
   return anyItem.photo_url || anyItem.thumbnail_url || null;
+}
+
+function hasAnyThumbnail(item: ItineraryItem): boolean {
+  const u = getItemThumbnail(item);
+  return typeof u === "string" && u.trim().length > 0;
 }
 
 function getItemsForDay(
@@ -393,6 +403,46 @@ export default function ItineraryEditor() {
 
   const [trip, setTrip] = useState<TripResponse | null>(null);
   const [items, setItems] = useState<ItineraryItem[]>([]);
+
+  const fetchedThumbIdsRef = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    if (!items || items.length === 0) return;
+
+    // Only hydrate a few at a time to avoid hammering backend
+    const missing = items.filter((it) => !hasAnyThumbnail(it)).slice(0, 10);
+
+    for (const it of missing) {
+      if (!it?.id) continue;
+      if (fetchedThumbIdsRef.current.has(it.id)) continue;
+      fetchedThumbIdsRef.current.add(it.id);
+
+      (async () => {
+        try {
+          const details: any = await apiFetch(
+            `/f1/itinerary-items/${it.id}/place-details/?include_images=0`
+          );
+
+          const url =
+            (typeof details?.image_url === "string" && details.image_url.trim())
+              ? details.image_url.trim()
+              : (Array.isArray(details?.images) && details.images.length > 0 ? details.images[0] : null);
+
+          if (!url) return;
+
+          setItems((prev) =>
+            prev.map((x) =>
+              x.id === it.id ? ({ ...(x as any), thumbnail_url: url } as any) : x
+            )
+          );
+        } catch {
+          // ignore; keep fallback gradient UI
+        }
+      })();
+    }
+  }, [items]);
+
+
   const [days, setDays] = useState<TripDayResponse[]>([]);
   const [legs, setLegs] = useState<LegInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -406,6 +456,8 @@ export default function ItineraryEditor() {
   const [placeOverlayLoading, setPlaceOverlayLoading] = useState(false);
   const [placeOverlayError, setPlaceOverlayError] = useState<string | null>(null);
   const [placeTab, setPlaceTab] = useState<"about"|"nearby"|"photos">("about");
+  const [openverseLoading, setOpenverseLoading] = useState(false);
+  const [photosLoading, setPhotosLoading] = useState(false);
 
   // Lightbox (photo overlay)
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -442,6 +494,46 @@ export default function ItineraryEditor() {
     };
   }, [lightboxOpen, photos.length]);
 
+  useEffect(() => {
+    if (!placeOverlay) return;
+    if (placeTab !== "photos") return;
+
+    const alreadyHasGallery = (placeOverlay.images?.length ?? 0) > 0;
+    if (alreadyHasGallery) return;
+
+    (async () => {
+      setPhotosLoading(true);
+      try {
+        const data: PlaceDetails = await apiFetch(
+          `/f1/itinerary-items/${placeOverlay.item_id}/place-details/?include_images=12`
+        );
+
+        setPlaceOverlay((prev) => {
+          if (!prev || prev.item_id !== data.item_id) return prev;
+          return {
+            ...prev,
+            image_url: prev.image_url || data.image_url,
+            images: data.images || [],
+          };
+        });
+
+        const missingAllImages =
+          (!data.image_url || data.image_url.trim() === "") &&
+          ((data.images?.length ?? 0) === 0);
+
+        if (missingAllImages) {
+          await fetchOpenverseImages(data);
+        }
+      } catch (err) {
+        console.error("Failed to load photos:", err);
+      } finally {
+        setPhotosLoading(false);
+      }
+    })();
+  }, [placeTab, placeOverlay?.item_id]);
+
+
+
   //* -------------------- Open place overlay -------------------- */
   async function openPlaceOverlay(item: ItineraryItem) {
     setLightboxOpen(false);
@@ -449,17 +541,105 @@ export default function ItineraryEditor() {
     setPlaceOverlayLoading(true);
     setPlaceOverlayError(null);
     setPlaceTab("about");
+    setOpenverseLoading(false);
+    setPhotosLoading(false);
 
     try {
-      const data: PlaceDetails = await apiFetch(`/f1/itinerary-items/${item.id}/place-details/?include_images=3`);
+      const data: PlaceDetails = await apiFetch(
+        `/f1/itinerary-items/${item.id}/place-details/?include_images=0`
+      );
 
       setPlaceOverlay(data);
+
+      // If we got a hero image, store it as the item's thumbnail so the list shows it too
+      if (data?.image_url && !hasAnyThumbnail(item)) {
+        setItems((prev) =>
+          prev.map((x) =>
+            x.id === item.id ? ({ ...(x as any), thumbnail_url: data.image_url } as any) : x
+          )
+        );
+      }
+
     } catch (err: any) {
       console.error("Failed to load place details:", err);
       setPlaceOverlay(null);
       setPlaceOverlayError("Could not load place details.");
     } finally {
       setPlaceOverlayLoading(false);
+    }
+  }
+
+  const pickImageUrls = (results: any[]): string[] => {
+    const urls = (results || [])
+      .map((r) => {
+        // Openverse images typically provide 'thumbnail' (direct image),
+        // and sometimes 'url' (landing page) — prefer thumbnail.
+        return (
+          r?.thumbnail ||
+          r?.url ||
+          r?.foreign_landing_url ||
+          r?.detail_url ||
+          null
+        );
+      })
+      .filter((u): u is string => typeof u === "string" && u.length > 0);
+
+    // dedupe preserving order
+    const seen = new Set<string>();
+    const deduped: string[] = [];
+    for (const u of urls) {
+      if (!seen.has(u)) {
+        seen.add(u);
+        deduped.push(u);
+      }
+    }
+    return deduped;
+  };
+
+  async function fetchOpenverseImages(details: PlaceDetails) {
+    const queryParts = [
+      details.name,
+      trip?.main_city,
+      "landmark",
+    ].filter(Boolean);
+
+    if (queryParts.length === 0) return;
+
+    setOpenverseLoading(true);
+    setPhotosLoading(true);
+
+    try {
+      const searchUrl = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(
+        queryParts.join(" ")
+      )}&page_size=12`;
+
+      const resp = await fetch(searchUrl);
+      if (!resp.ok) throw new Error(`Openverse status ${resp.status}`);
+
+      const json = await resp.json();
+      const urls = pickImageUrls(json?.results || []);
+      if (urls.length === 0) return;
+
+      setPlaceOverlay((prev) => {
+        if (!prev || prev.item_id !== details.item_id) return prev;
+
+        const merged = [
+          ...(prev.images || []),
+          ...urls,
+        ];
+        const unique = Array.from(new Set(merged));
+
+        return {
+          ...prev,
+          image_url: prev.image_url || unique[0],
+          images: unique,
+        };
+      });
+    } catch (err) {
+      console.error("Openverse fallback failed:", err);
+    } finally {
+      setOpenverseLoading(false);
+      setPhotosLoading(false);
     }
   }
 
@@ -1150,6 +1330,7 @@ export default function ItineraryEditor() {
                             onClick={() => {
                               setPlaceOverlay(null);
                               setPlaceOverlayError(null);
+                              setOpenverseLoading(false);
                             }}
                             style={{
                               border: "none",
@@ -1170,6 +1351,56 @@ export default function ItineraryEditor() {
                           <div style={{ marginTop: 6, fontSize: "0.78rem", color: "#6b7280" }}>
                             {placeOverlay?.kinds ? placeOverlay.kinds : "—"}
                             {placeOverlay?.address ? ` · ${placeOverlay.address}` : ""}
+                          </div>
+                        )}
+
+                        {/* ✅ Notes + Preferences (under address) */}
+                        {(placeOverlay?.notes_summary || placeOverlay?.preferences_text) && (
+                          <div
+                            style={{
+                              marginTop: 8,
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 6,
+                            }}
+                          >
+                            {placeOverlay?.notes_summary && (
+                              <div
+                                style={{
+                                  fontSize: "0.78rem",
+                                  color: "#374151",
+                                  background: "#f3f4f6",
+                                  border: "1px solid #e5e7eb",
+                                  padding: "8px 10px",
+                                  borderRadius: 12,
+                                  lineHeight: 1.35,
+                                }}
+                              >
+                                <div style={{ fontWeight: 800, fontSize: "0.72rem", color: "#6b7280", marginBottom: 4 }}>
+                                  Notes summary
+                                </div>
+                                {placeOverlay.notes_summary}
+                              </div>
+                            )}
+
+                            {placeOverlay?.preferences_text && (
+                              <div
+                                style={{
+                                  fontSize: "0.78rem",
+                                  color: "#374151",
+                                  background: "#eef2ff",
+                                  border: "1px solid #c7d2fe",
+                                  padding: "8px 10px",
+                                  borderRadius: 12,
+                                  lineHeight: 1.35,
+                                }}
+                              >
+                                <div style={{ fontWeight: 800, fontSize: "0.72rem", color: "#6b7280", marginBottom: 4 }}>
+                                  Preferences
+                                </div>
+                                {placeOverlay.preferences_text}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1227,7 +1458,7 @@ export default function ItineraryEditor() {
                             lineHeight: 1.45,
                           }}
                         >
-                          <PlaceAboutTab place={placeOverlay as any} />
+                          <PlaceAboutTab place={placeOverlay as any} hideHeroImage />
 
                           {/* extra info chips */}
                           <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -1335,7 +1566,9 @@ export default function ItineraryEditor() {
                       {!placeOverlayError && !placeOverlayLoading && placeTab === "photos" && (
                         <>
                           <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: 8 }}>
-                            {(placeOverlay?.images?.length ?? 0) > 0
+                            {(photosLoading || openverseLoading)
+                              ? "Loading photos…"
+                              : (placeOverlay?.images?.length ?? 0) > 0
                               ? `${placeOverlay?.images?.length ?? 0} photos`
                               : "No photos available."}
                           </div>
@@ -1350,31 +1583,47 @@ export default function ItineraryEditor() {
                               paddingRight: 6,
                             }}
                           >
-                            {(placeOverlay?.images || []).slice(0, 18).map((src, idx) => (
-                              <button
-                                key={`${src}-${idx}`}
-                                type="button"
-                                onClick={() => openLightbox(idx)}
-                                style={{
-                                  display: "block",
-                                  border: "none",
-                                  padding: 0,
-                                  background: "transparent",
-                                  borderRadius: 12,
-                                  overflow: "hidden",
-                                  cursor: "pointer",
-                                }}
-                                title="View photo"
-                              >
+                            {(photosLoading || openverseLoading) && (placeOverlay?.images?.length ?? 0) === 0 ? (
+                              Array.from({ length: 9 }).map((_, idx) => (
                                 <div
+                                  key={`sk-${idx}`}
                                   style={{
                                     width: "100%",
                                     paddingTop: "75%",
-                                    background: `url(${src}) center/cover no-repeat`,
+                                    borderRadius: 12,
+                                    background: "linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 37%, #e5e7eb 63%)",
+                                    backgroundSize: "400% 100%",
+                                    animation: "tmShimmer 1.2s ease-in-out infinite",
                                   }}
                                 />
-                              </button>
-                            ))}
+                              ))
+                            ) : (
+                              (placeOverlay?.images || []).slice(0, 18).map((src, idx) => (
+                                <button
+                                  key={`${src}-${idx}`}
+                                  type="button"
+                                  onClick={() => openLightbox(idx)}
+                                  style={{
+                                    display: "block",
+                                    border: "none",
+                                    padding: 0,
+                                    background: "transparent",
+                                    borderRadius: 12,
+                                    overflow: "hidden",
+                                    cursor: "pointer",
+                                  }}
+                                  title="View photo"
+                                >
+                                  <div
+                                    style={{
+                                      width: "100%",
+                                      paddingTop: "75%",
+                                      background: `url(${src}) center/cover no-repeat`,
+                                    }}
+                                  />
+                                </button>
+                              ))
+                            )}
                           </div>
                           {lightboxOpen && photos.length > 0 &&
                             createPortal(
@@ -2303,6 +2552,14 @@ export default function ItineraryEditor() {
           </div>
         </div>
       )}
+      <style>
+        {`
+          @keyframes tmShimmer {
+            0% { background-position: 100% 0; }
+            100% { background-position: 0 0; }
+          }
+        `}
+      </style>
     </>
   );
 }

@@ -4,6 +4,7 @@ import difflib
 import requests
 import logging
 import re
+import json
 from urllib.parse import quote
 from django.db.models import F
 from django.db import models
@@ -394,15 +395,57 @@ class ItineraryItemViewSet(BaseViewSet):
             return (data.get("query") or {}).get("geosearch") or []
 
         def wiki_summary(place_title: str):
-            t = quote(place_title.replace(" ", "_"))
-            url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{t}"
-            r = safe_get(url, timeout=10, headers=WIKI_HEADERS)
+            """
+            More reliable than REST summary:
+            Uses MediaWiki action=query to fetch extract + thumbnail + canonical page url.
+            """
+            if not place_title:
+                return None
+
+            url = "https://en.wikipedia.org/w/api.php"
+            params = {
+                "action": "query",
+                "format": "json",
+                "redirects": 1,
+                "prop": "extracts|pageimages|info",
+                "exintro": 1,
+                "explaintext": 1,
+                "piprop": "thumbnail",
+                "pithumbsize": 800,
+                "inprop": "url",
+                "titles": place_title,
+            }
+
+            r = safe_get(url, timeout=10, headers=WIKI_HEADERS, params=params)
             if not r or r.status_code != 200:
                 return None
+
             try:
-                return r.json()
+                data = r.json()
             except Exception:
                 return None
+
+            pages = ((data.get("query") or {}).get("pages") or {})
+            if not pages:
+                return None
+
+            # pages is dict keyed by pageid
+            page = next(iter(pages.values()))
+            if not page or page.get("missing") is not None:
+                return None
+
+            extract = (page.get("extract") or "").strip()
+            thumb = ((page.get("thumbnail") or {}).get("source") or "").strip()
+            page_url = (page.get("fullurl") or "").strip()
+
+            # return shape similar to REST so the rest of your code works
+            return {
+                "extract": extract,
+                "thumbnail": {"source": thumb} if thumb else {},
+                "content_urls": {"desktop": {"page": page_url}} if page_url else {},
+                "description": None,
+            }
+
 
         def wiki_media_images(place_title: str, limit: int = 12):
             t = quote(place_title.replace(" ", "_"))
@@ -597,8 +640,152 @@ class ItineraryItemViewSet(BaseViewSet):
                 if len(deduped) >= limit:
                     break
             return deduped
+        
+        # ----------------------------
+        # Openverse helpers (fallback)
+        # ----------------------------
+        def openverse_search(query: str, limit: int = 12):
+            """
+            Openverse: free CC images search. No API key needed.
+            Prefer 'thumbnail' (direct image) and dedupe.
+            """
+            if not query:
+                return []
 
-            
+            url = "https://api.openverse.org/v1/images/"
+            params = {
+                "q": query,
+                "page_size": min(max(limit, 1), 20),
+                # IMPORTANT: don't over-filter or you'll get 0 results often
+                # (no aspect_ratio restriction, no license restriction)
+            }
+
+            headers = {
+                "User-Agent": "TripMate/1.0 (educational project)",
+                "Accept": "application/json",
+            }
+
+            r = safe_get(url, timeout=12, params=params, headers=headers)
+            if not r or r.status_code != 200:
+                return []
+
+            try:
+                data = r.json()
+            except Exception:
+                return []
+
+            results = data.get("results") or []
+            urls = []
+            for it in results:
+                u = it.get("thumbnail") or it.get("url") or it.get("foreign_landing_url")
+                if u:
+                    urls.append(u)
+
+            # dedupe
+            seen = set()
+            deduped = []
+            for u in urls:
+                if u in seen:
+                    continue
+                seen.add(u)
+                deduped.append(u)
+                if len(deduped) >= limit:
+                    break
+            return deduped
+
+
+        def ranked_wiki_titles(title_hint: str, geo_results: list[dict], max_n: int = 5):
+            """
+            Return up to N candidate titles ranked by similarity (and distance penalty).
+            """
+            if not geo_results:
+                return []
+
+            hint = (title_hint or "").strip().lower()
+
+            scored = []
+            for g in geo_results:
+                t = (g.get("title") or "").strip()
+                if not t:
+                    continue
+                sim = difflib.SequenceMatcher(None, hint, t.lower()).ratio() if hint else 0.0
+                dist = float(g.get("dist") or 0.0)
+                score = sim - (dist / 50000.0)  # 50km => -1 penalty
+                scored.append((score, t))
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+
+            out_titles = []
+            seen = set()
+            for _, t in scored:
+                if t in seen:
+                    continue
+                seen.add(t)
+                out_titles.append(t)
+                if len(out_titles) >= max_n:
+                    break
+            return out_titles
+
+        def make_openverse_queries(place_title: str, address: str | None, nearby_titles: list[str]):
+            """
+            Openverse works best with short, clean English queries.
+            We'll try multiple queries from most specific to broader.
+            """
+            queries = []
+
+            base = (place_title or "").strip()
+            if base:
+                queries.append(base)
+
+            # Try nearby wiki titles (these are often the canonical names)
+            for t in (nearby_titles or [])[:4]:
+                tt = (t or "").strip()
+                if tt and tt.lower() != base.lower():
+                    queries.append(tt)
+
+            # Add city-level hint (e.g., Tokyo) but NOT full street address
+            city_hint = ""
+            if address:
+                # crude but effective: keep only ASCII words and pick common city tokens
+                # e.g. "Tokyo Prefecture" -> "Tokyo"
+                m = re.search(r"\b(Tokyo|Kyoto|Osaka|Singapore|Jakarta|Seoul|Bangkok|Paris|London|New York)\b", address, re.IGNORECASE)
+                if m:
+                    city_hint = m.group(1)
+
+            if base and city_hint:
+                queries.append(f"{base} {city_hint}")
+            if city_hint:
+                queries.append(f"{base} temple {city_hint}".strip())
+                queries.append(f"{base} landmark {city_hint}".strip())
+
+            # de-dupe preserve order
+            seen = set()
+            out_q = []
+            for q in queries:
+                q2 = " ".join(q.split()).strip()
+                if not q2:
+                    continue
+                k = q2.lower()
+                if k in seen:
+                    continue
+                seen.add(k)
+                out_q.append(q2)
+
+            return out_q[:8]
+
+
+        # ----------------------------
+        # Address helpers
+        # ----------------------------
+        def extract_city_hint(addr: str | None) -> str | None:
+            if not addr:
+                return None
+            parts = [p.strip() for p in addr.split(",") if p.strip()]
+            if len(parts) >= 2:
+                return parts[1]
+            return None
+
+
         # ----------------------------
         # Build response
         # ----------------------------
@@ -650,91 +837,538 @@ class ItineraryItemViewSet(BaseViewSet):
         ]
 
 
-        # 3) Wikipedia via GEOSEARCH (fixes wrong page selection)
-        include_images = True
+        # 3) Wikipedia → Commons → Openverse (images)
+        # Allow caller to control gallery size:
+        # /place-details/?include_images=0   => only hero (if any)
+        # /place-details/?include_images=3   => small gallery
+        # /place-details/?include_images=12  => bigger gallery
+        try:
+            include_images_n = int(request.query_params.get("include_images", "6"))
+        except Exception:
+            include_images_n = 3
+        include_images_n = max(0, min(include_images_n, 20))
 
-        geo = wiki_geosearch(item.lat, item.lon, radius_m=12000, limit=10)
-        best_title = pick_best_wiki_title(title, geo)
+        geo = wiki_geosearch(item.lat, item.lon, radius_m=12000, limit=12)
+        candidates = ranked_wiki_titles(title, geo, max_n=6)
 
-        if include_images:
-            # Build a strong query: use Wikipedia title if available, else itinerary title
-            commons_query = None
-            if best_title:
-                commons_query = best_title
-            elif title:
-                commons_query = title
+        # ALSO include the closest geosearch titles (not just similarity-ranked),
+        # because the correct page can have a very different name:
+        # e.g. "Asakusa Kannon Temple" => "Sensō-ji"
+        nearest_titles = []
+        for g in sorted(geo, key=lambda x: float(x.get("dist") or 1e18))[:6]:
+            t = (g.get("title") or "").strip()
+            if t:
+                nearest_titles.append(t)
 
-            gallery = commons_scenic_images(best_title or title, limit=12)
+        merged = []
+        seen = set()
+        for t in (candidates + nearest_titles):
+            if not t or t in seen:
+                continue
+            seen.add(t)
+            merged.append(t)
 
-            # ensure primary image is first
+        candidates = merged[:12]
+
+
+
+        # If geosearch returns nothing, fall back to itinerary title as a last attempt.
+        if not candidates and title:
+            candidates = [title]
+
+        chosen_title = None
+        wiki = None
+
+        # Try multiple nearby wiki titles until one returns a usable summary
+        for t in candidates:
+            w = wiki_summary(t)
+            if not w:
+                continue
+
+            extract = (w.get("extract") or "").strip()
+            thumb = ((w.get("thumbnail") or {}).get("source") or "").strip()
+
+            # treat it as usable if we got at least some text or a thumbnail
+            if extract or thumb:
+                chosen_title = t
+                wiki = w
+                break
+
+        if wiki:
+            out["description"] = (wiki.get("extract") or out["description"])
+            thumb = (wiki.get("thumbnail") or {}).get("source")
+            if thumb:
+                out["image_url"] = thumb
+            out["wikipedia"] = (
+                (((wiki.get("content_urls") or {}).get("desktop") or {}).get("page"))
+                or out["wikipedia"]
+            )
+            wiki_desc = (wiki.get("description") or "").strip()
+            out["kinds"] = out["kinds"] or (wiki_desc if wiki_desc else None)
+            out["source"] = "wikipedia"
+
+        # 4) Gallery build (only if include_images_n > 0)
+        gallery: list[str] = []
+
+        if include_images_n > 0:
+            # Prefer Wikipedia media list if we have a chosen title
+            if chosen_title:
+                gallery = wiki_media_images(chosen_title, limit=include_images_n)
+
+            # If wiki media list is empty, try Commons category heuristics
+            if not gallery:
+                gallery = commons_scenic_images(chosen_title or title, limit=include_images_n)
+
+            # If still empty, use Openverse fallback
+            if not gallery:
+                nearby_titles_for_ov = [n.get("name") for n in (out.get("nearby") or []) if n.get("name")]
+                for q in make_openverse_queries(title, out.get("address"), nearby_titles_for_ov):
+                    gallery = openverse_search(q, limit=include_images_n)
+                    if gallery:
+                        break
+
+
+        # Ensure hero image exists: if still none, try Openverse for at least one
+        if (not out["image_url"] or str(out["image_url"]).strip() == ""):
+            # if gallery exists, pick first as hero
+            if gallery:
+                out["image_url"] = gallery[0]
+            else:
+                nearby_titles_for_ov = [n.get("name") for n in (out.get("nearby") or []) if n.get("name")]
+                for q in make_openverse_queries(title, out.get("address"), nearby_titles_for_ov):
+                    ov = openverse_search(q, limit=1)
+                    if ov:
+                        out["image_url"] = ov[0]
+                        break
+                    
+
+        # Ensure hero is included first in images (if gallery is enabled)
+        if include_images_n > 0:
             if out["image_url"] and out["image_url"] not in gallery:
                 gallery = [out["image_url"]] + gallery
 
-            out["images"] = gallery
+            # dedupe preserve order
+            seen = set()
+            deduped = []
+            for u in gallery:
+                if not u or u in seen:
+                    continue
+                seen.add(u)
+                deduped.append(u)
+                if len(deduped) >= include_images_n + (1 if out["image_url"] else 0):
+                    break
 
-        # fallback if geosearch returns nothing
-        if not best_title and title:
-            best_title = title
+            out["images"] = deduped
+        else:
+            out["images"] = []
 
-        if best_title:
-            wiki = wiki_summary(best_title)
-            if wiki:
-                out["description"] = wiki.get("extract") or out["description"]
-                out["image_url"] = (wiki.get("thumbnail") or {}).get("source") or out["image_url"]
-                out["wikipedia"] = (((wiki.get("content_urls") or {}).get("desktop") or {}).get("page")) or out["wikipedia"]
-                wiki_desc = (wiki.get("description") or "").strip()
-                out["kinds"] = out["kinds"] or (wiki_desc if wiki_desc else None)
-                out["source"] = "wikipedia"
 
         # ----------------------------
         # About payload 
         # ----------------------------
-        def build_about_payload(name: str, kinds: str | None, address: str | None):
-            k = (kinds or "").lower()
+        def build_about_payload(
+            name: str,
+            kinds: str | None,
+            address: str | None,
+            description: str | None,
+            opening_hours: str | None = None,
+            website: str | None = None,
+            nearby_titles: list[str] | None = None,
+        ):
+            """
+            Dynamic about generator using signals from:
+            - Mapbox category (kinds)           [mapbox]
+            - Wikipedia extract (description)   [wikipedia]
+            - address / city hint              [mapbox reverse]
+            - opening_hours / website          [mapbox or your own]
+            No LLM required; deterministic, fast, stable.
+            """
+
             n = (name or "this place").strip()
+            k = (kinds or "").lower()
+            d = (description or "").strip()
+            name_l = (name or "").lower()
+            nearby_joined = " ".join((nearby_titles or [])).lower()
 
-            why_go = []
-            know = []
-            tips = []
+            # ---------- helpers ----------
+            def extract_city_hint(addr: str | None) -> str | None:
+                """
+                Very light heuristic: picks a likely city token.
+                Works with Mapbox-style place_name: "X, City, Region, Country"
+                """
+                if not addr:
+                    return None
+                parts = [p.strip() for p in addr.split(",") if p.strip()]
+                if len(parts) >= 2:
+                    # often: "Street, City, Prefecture, Country"
+                    # so city is usually 2nd token from left
+                    return parts[1]
+                return None
 
-            # light categorization based on keywords
-            if any(x in k for x in ["mountain", "peak", "alp", "glacier", "viewpoint", "ridge"]):
-                why_go = ["Iconic alpine views", "Great for photos and panoramas", "Memorable high-altitude experience"]
-                know = ["Weather changes fast — bring layers", "Visibility can vary (clouds)", "Higher altitude may feel tiring"]
-                tips = ["Go early for clearer skies", "Check forecast before you go", "Pack a warm layer even in summer"]
-                best_time = "Morning (best visibility)"
-            elif any(x in k for x in ["lake", "river", "waterfall", "gorge"]):
-                why_go = ["Scenic waterside views", "Relaxing stop to slow down", "Great spot for photos"]
-                know = ["Paths can be slippery when wet", "Crowds peak midday in summer", "Some viewpoints are seasonal"]
-                tips = ["Wear shoes with grip", "Visit off-peak hours", "Bring a light rain layer"]
+            def is_food_market() -> bool:
+                return any(w in k for w in ["market", "food", "restaurant", "seafood", "cafe", "bakery"]) or \
+                    any(w in d.lower() for w in ["market", "seafood", "stalls", "restaurants", "vendors"])
+
+            def is_temple_shrine() -> bool:
+                return (
+                    any(w in k for w in ["temple", "shrine", "buddhist", "religion", "place of worship"])
+                    or any(w in d.lower() for w in ["temple", "shrine", "buddhist", "senso-ji", "pagoda", "worship"])
+                    or any(w in name_l for w in ["temple", "shrine", "kannon"])
+                    or any(w in nearby_joined for w in ["sensō-ji", "senso-ji", "kaminarimon", "asakusa shrine"])
+                )
+
+            def is_museum_gallery() -> bool:
+                return any(w in k for w in ["museum", "gallery", "exhibit"]) or \
+                    any(w in d.lower() for w in ["museum", "gallery", "exhibition", "collections"])
+
+            def is_park_nature() -> bool:
+                return any(w in k for w in ["park", "garden", "nature", "lake", "mountain", "trail"]) or \
+                    any(w in d.lower() for w in ["park", "garden", "lake", "mountain", "trail", "viewpoint"])
+
+            def is_shopping_district() -> bool:
+                return (
+                    any(w in k for w in ["shopping", "mall", "store", "retail", "commercial"])
+                    or any(w in d.lower() for w in ["shopping", "district", "electronics", "stores", "retail"])
+                    or any(w in name_l for w in ["district", "shopping", "akihabara"])
+                    or "akihabara" in nearby_joined
+                )
+
+            def is_station_transport() -> bool:
+                return any(w in k for w in ["station", "transit", "metro", "train", "subway"]) or \
+                    any(w in d.lower() for w in ["station", "railway", "metro", "subway", "line"])
+
+            place_type = "generic"
+            if is_temple_shrine():
+                place_type = "temple"
+            elif is_museum_gallery():
+                place_type = "museum"
+            elif is_food_market():
+                place_type = "market"
+            elif is_park_nature():
+                place_type = "nature"
+            elif is_shopping_district():
+                place_type = "shopping"
+            elif is_station_transport():
+                place_type = "transport"
+
+            city = extract_city_hint(address)
+
+            # ---------- dynamic generation ----------
+            why_go: list[str] = []
+            know: list[str] = []
+            tips: list[str] = []
+            best_time: str | None = None
+
+            # Use description signal to create 1 "facty" why_go if we have it
+            # Keep it short and not too specific (avoid hallucinating exact claims)
+            if d:
+                # take first sentence-ish
+                first = d.split("\n")[0].strip()
+                first = first.split(".")[0].strip()
+                if first and len(first) > 25:
+                    why_go.append(first if first.endswith(".") else first + ".")
+
+            if place_type == "temple":
+                why_go += [
+                    "A peaceful cultural stop with strong local character.",
+                    "Great for architecture details and street photography.",
+                ]
+                know += [
+                    "Dress respectfully and keep noise low in worship areas.",
+                    "Expect crowds during weekends and public holidays.",
+                ]
+                best_time = "Morning (quieter + best light)"
+                tips += [
+                    "Go early for clearer photos and fewer people.",
+                    "Check if there are seasonal festivals or ceremonies.",
+                ]
+
+            elif place_type == "museum":
+                why_go += [
+                    "A solid indoor option to balance outdoor walking.",
+                    "Good place to learn local context quickly.",
+                ]
+                know += [
+                    "Some exhibits may have timed entry or last-admission rules.",
+                    "Closed days can vary by season — check before going.",
+                ]
+                best_time = "Weekday morning (less crowded)"
+                tips += [
+                    "Arrive earlier for calmer galleries.",
+                    "If you’re short on time, pick 1–2 key sections and do those well.",
+                ]
+
+            elif place_type == "market":
+                why_go += [
+                    "A high-energy stop for food, snacks, and local atmosphere.",
+                    "Easy to explore in short bursts between other stops.",
+                ]
+                know += [
+                    "Peak times get crowded — keep belongings secure.",
+                    "Some stalls close earlier than you expect.",
+                ]
+                best_time = "Morning (freshest + most vendors)"
+                tips += [
+                    "Go hungry and try small portions across multiple stalls.",
+                    "Bring cash as some stalls don’t take cards.",
+                ]
+
+            elif place_type == "nature":
+                why_go += [
+                    "A relaxing break from city streets and indoor stops.",
+                    "Great for scenic photos and slower pacing.",
+                ]
+                know += [
+                    "Weather can change the experience a lot (views vary).",
+                    "Paths can be slippery after rain.",
+                ]
                 best_time = "Late afternoon (soft light)"
-            elif any(x in k for x in ["museum", "gallery", "historic", "monument", "castle", "church"]):
-                why_go = ["Good cultural/heritage stop", "Nice indoor break option", "Easy add-on near town centers"]
-                know = ["Check opening hours (vary by season)", "Some sites use timed entry", "Quietest on weekday mornings"]
-                tips = ["Buy tickets online if available", "Arrive early to avoid queues", "Check for closures/renovations"]
-                best_time = "Weekday morning"
-            else:
-                why_go = [f"Popular highlight around {n}", "Great for photos and views", "Easy to add to most itineraries"]
-                know = ["Peak times can be crowded", "Weather may affect the experience", "Wear comfortable shoes"]
-                tips = ["Go early for the best light", "Check weather (views vary)", "Avoid peak hours if possible"]
-                best_time = "Morning or late afternoon"
+                tips += [
+                    "Wear comfortable shoes with grip.",
+                    "Check forecast if views are the main reason you’re going.",
+                ]
 
+            elif place_type == "shopping":
+                why_go += [
+                    "A fun area to browse, people-watch, and pick up souvenirs.",
+                    "Great if you want a flexible, non-timed stop.",
+                ]
+                know += [
+                    "Crowds usually peak late afternoon into evening.",
+                    "Some shops may close earlier on weekdays.",
+                ]
+                best_time = "Late afternoon to evening"
+                tips += [
+                    "If you want quieter browsing, go earlier in the day.",
+                    "Save heavier purchases for the end to avoid carrying them around.",
+                ]
+
+            elif place_type == "transport":
+                why_go += [
+                    "A practical landmark that often connects to multiple nearby highlights.",
+                    "Good reference point for navigation and meeting up.",
+                ]
+                know += [
+                    "Stations can be confusing — allow buffer time.",
+                    "Rush hour crowds can be intense.",
+                ]
+                best_time = "Off-peak hours"
+                tips += [
+                    "Take a screenshot of the station name/exit you need.",
+                    "Avoid rush hour if you’re carrying luggage.",
+                ]
+
+            else:
+                why_go += [
+                    f"Popular highlight around {n}.",
+                    "Easy to add to most itineraries.",
+                ]
+                know += [
+                    "Peak times can be crowded.",
+                    "Weather may affect the experience.",
+                ]
+                best_time = "Morning or late afternoon"
+                tips += [
+                    "Go early for better light and fewer crowds.",
+                    "Avoid peak hours if possible.",
+                ]
+
+            # Slightly personalize using city if available
+            if city and city.lower() not in n.lower():
+                why_go.append(f"A convenient stop to pair with other spots around {city}.")
+
+            # Getting there should stay factual (address-based)
             getting_there = f"Navigate to: {address}" if address else None
 
+            # Add hours/website hints if available (not hallucinated)
+            if opening_hours:
+                know.append("Opening hours can vary — double-check before you go.")
+            if website:
+                tips.append("If you’re unsure about details, check the official site for updates.")
+
+            # De-dupe while preserving order
+            def dedupe(xs: list[str]) -> list[str]:
+                seen = set()
+                out = []
+                for x in xs:
+                    x2 = (x or "").strip()
+                    if not x2:
+                        continue
+                    if x2.lower() in seen:
+                        continue
+                    seen.add(x2.lower())
+                    out.append(x2)
+                return out
+
             return {
-                "why_go": why_go[:4],
-                "know_before_you_go": know[:4],
+                "why_go": dedupe(why_go)[:4],
+                "know_before_you_go": dedupe(know)[:4],
                 "getting_there": getting_there,
                 "best_time": best_time,
-                "tips": tips[:4],
+                "tips": dedupe(tips)[:4],
             }
 
-        # Attach to response
-        out["about"] = build_about_payload(
+        # Build richer context for SeaLion even if Wikipedia fails
+        nearby_titles = [n.get("name") for n in (out.get("nearby") or []) if n.get("name")]
+        city_hint = extract_city_hint(out.get("address"))
+
+        sealion_context = {
+            "title": (title or out.get("name") or "").strip(),
+            "address": out.get("address"),
+            "city": city_hint,
+            "country_or_region": "Tokyo Prefecture" if (out.get("address") and "Tokyo" in out.get("address")) else None,
+            "mapbox_category": out.get("kinds"),
+            "wikipedia_extract": out.get("description"),
+            "nearby_wikipedia_titles": nearby_titles[:8],
+            "lat": float(item.lat),
+            "lon": float(item.lon),
+        }
+
+        # -------- About payload (LLM first, fallback deterministic) --------
+        about_llm = self.sealion_generate_about(
+            name=out.get("name") or title or "Place",
+            kinds=out.get("kinds"),
+            description=out.get("description"),
+            address=out.get("address"),
+            opening_hours=out.get("opening_hours"),
+            website=out.get("website"),
+            context=sealion_context,
+        )
+
+        if about_llm:
+            out["about"] = about_llm
+        else:
+            out["about"] = build_about_payload(
             out.get("name") or title or "Place",
             out.get("kinds"),
             out.get("address"),
+            out.get("description"),
+            out.get("opening_hours"),
+            out.get("website"),
+            nearby_titles,
         )
 
-
         return Response(out, status=status.HTTP_200_OK)
+    
+    def sealion_generate_about(
+        self,
+        *,
+        name: str,
+        kinds: str | None,
+        description: str | None,
+        address: str | None,
+        opening_hours: str | None,
+        website: str | None,
+        context: dict | None = None,
+    ):
+
+        """
+        Calls SeaLion LLM to generate structured About payload.
+        Returns dict or None on failure.
+        """
+
+        api_key = os.getenv("SEALION_API_KEY")
+        base_url = os.getenv("SEALION_BASE_URL")
+        enabled = os.getenv("SEALION_ENABLED", "false").lower() == "true"
+
+        if not enabled or not api_key or not base_url:
+            return None
+
+        system_prompt = (
+            "You generate an 'About' section for a travel itinerary place.\n"
+            "Return ONLY valid JSON with keys: why_go, know_before_you_go, best_time, getting_there, tips.\n"
+            "Rules:\n"
+            "- Do NOT hallucinate specific prices, events, or exact opening times.\n"
+            "- You MAY infer general advice from place type (temple/shopping district/market/museum/park).\n"
+            "- Use the provided 'nearby_wikipedia_titles' to identify the canonical place name if needed.\n"
+            "- Bullets must be short (<= 1 sentence each).\n"
+            "- why_go: 3-4 bullets\n"
+            "- know_before_you_go: 2-4 bullets\n"
+            "- tips: 2-4 bullets\n"
+            "- best_time can be a short phrase or null.\n"
+            "- getting_there should be based on address if provided; otherwise null.\n"
+        )
+
+        ctx = context or {}
+
+        user_prompt = {
+            "name": name,
+            "kinds": kinds,
+            "description": description,
+            "address": address,
+            "opening_hours": opening_hours,
+            "website": website,
+            "nearby_wikipedia_titles": ctx.get("nearby_wikipedia_titles") or [],
+            "city": ctx.get("city"),
+            "lat": ctx.get("lat"),
+            "lon": ctx.get("lon"),
+            "task": "Generate About bullets using name/address/nearby titles even if Wikipedia extract is missing."
+        }
+
+        expected_schema = {
+            "why_go": ["string"],
+            "know_before_you_go": ["string"],
+            "best_time": "string or null",
+            "getting_there": "string or null",
+            "tips": ["string"]
+        }
+
+        payload = {
+            "model": "sealion-travel",  # use your actual model name
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(user_prompt)},
+            ],
+            "response_format": {
+                "type": "json",
+                "schema": expected_schema,
+            },
+            "temperature": 0.4,
+            "max_tokens": 500,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            r = requests.post(
+                f"{base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=12,
+            )
+            if r.status_code != 200:
+                return None
+
+            data = r.json()
+            content = (
+                data.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content")
+            )
+
+            if not content:
+                return None
+
+            # robust JSON parse (Sealion sometimes wraps JSON in text)
+            try:
+                parsed = json.loads(content)
+            except Exception:
+                m = re.search(r"\{.*\}", content, flags=re.DOTALL)
+                if not m:
+                    return None
+                try:
+                    parsed = json.loads(m.group(0))
+                except Exception:
+                    return None
+
+            # minimal validation
+            if not isinstance(parsed, dict):
+                return None
+
+            return parsed
+
+        except Exception:
+            return None

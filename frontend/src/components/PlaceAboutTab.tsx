@@ -101,7 +101,13 @@ function makeFallbackAbout(place: PlaceDetailsPayload): AboutPayload {
   };
 }
 
-export default function PlaceAboutTab({ place }: { place: PlaceDetailsPayload }) {
+export default function PlaceAboutTab({
+  place,
+  hideHeroImage = false,
+}: {
+  place: any;
+  hideHeroImage?: boolean;
+}) {
   const descriptionRaw = (place.description || "").trim();
   const shortDescription =
     clampText(descriptionRaw, 180) ||
@@ -118,6 +124,63 @@ export default function PlaceAboutTab({ place }: { place: PlaceDetailsPayload })
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* Images (hero + thumbnails) */}
+        {!hideHeroImage && (() => {
+          const gallery = [
+            ...(place.image_url ? [place.image_url] : []),
+            ...((place.images || []).filter(Boolean) as string[]),
+          ];
+
+          const seen = new Set<string>();
+          const uniq = gallery.filter((u) => {
+            if (!u) return false;
+            if (seen.has(u)) return false;
+            seen.add(u);
+            return true;
+          });
+
+          if (uniq.length === 0) return null;
+
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div
+                style={{
+                  width: "100%",
+                  height: 150,
+                  borderRadius: 14,
+                  background: `url(${uniq[0]}) center/cover no-repeat`,
+                  boxShadow: "0 10px 28px rgba(15,23,42,0.16)",
+                  border: "1px solid rgba(229,231,235,0.9)",
+                }}
+              />
+              {uniq.length > 1 && (
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    overflowX: "auto",
+                    paddingBottom: 2,
+                  }}
+                >
+                  {uniq.slice(1, 7).map((u, idx) => (
+                    <div
+                      key={`${u}-${idx}`}
+                      style={{
+                        width: 84,
+                        minWidth: 84,
+                        height: 58,
+                        borderRadius: 12,
+                        background: `url(${u}) center/cover no-repeat`,
+                        border: "1px solid rgba(229,231,235,0.95)",
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Description (short, clamped) */}
         <div
         style={{
