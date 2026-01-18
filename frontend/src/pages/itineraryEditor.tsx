@@ -24,6 +24,7 @@ import { CSS } from "@dnd-kit/utilities";
 
 import PlaceAboutTab from "../components/PlaceAboutTab";
 import PlaceSearchBar from "../components/PlaceSearchBar";
+import PlaceTravelTab from "../components/PlaceTravelTab";
 import TripSubHeader from "../components/TripSubHeader";
 import { apiFetch } from "../lib/apiClient";
 import ItineraryMap from "../components/ItineraryMap";
@@ -244,6 +245,14 @@ type PlaceDetails = {
   opening_hours?: string | null;
 
   nearby?: NearbyPOI[];
+
+  travel?: {
+    transport_systems?: string[];
+    currency_exchange?: string[];
+    holidays_and_crowds?: string[];
+    attraction_info?: string[];
+  };
+
 };
 
 /* -------------------- Helpers -------------------- */
@@ -455,7 +464,7 @@ export default function ItineraryEditor() {
   const [placeOverlay, setPlaceOverlay] = useState<PlaceDetails | null>(null);
   const [placeOverlayLoading, setPlaceOverlayLoading] = useState(false);
   const [placeOverlayError, setPlaceOverlayError] = useState<string | null>(null);
-  const [placeTab, setPlaceTab] = useState<"about"|"nearby"|"photos">("about");
+  const [placeTab, setPlaceTab] = useState<"about" | "travel" | "nearby" | "photos">("about");
   const [openverseLoading, setOpenverseLoading] = useState(false);
   const [photosLoading, setPhotosLoading] = useState(false);
 
@@ -705,6 +714,11 @@ export default function ItineraryEditor() {
   const itineraryScrollRef = useRef<HTMLDivElement | null>(null);
 
   const DAY_STICKY_OFFSET = 63; // pixels under the main header inside the card
+
+  // Track the last drag preview arrangement so we don't setState with the same shape repeatedly
+  const lastPreviewSigRef = useRef<string | null>(null);
+  // Throttle drag-over previews so we don't synchronously chain updates during layout effects
+  const previewRafRef = useRef<number | null>(null);
 
   // --- Global numbering + map items ---
   // Day index lookup: TripDay.id -> day_index (1,2,3...)
@@ -993,10 +1007,10 @@ export default function ItineraryEditor() {
     prevItems: ItineraryItem[],
     activeId: number,
     overId: string | number
-  ): ItineraryItem[] => {
+  ): ItineraryItem[] | null => {
     const itemsCopy = prevItems.map((i) => ({ ...i }));
     const activeItem = itemsCopy.find((i) => i.id === activeId);
-    if (!activeItem) return prevItems;
+    if (!activeItem) return null;
 
     let targetDayId: number | null = null;
     let targetIndex = 0;
@@ -1008,10 +1022,10 @@ export default function ItineraryEditor() {
     } else {
       const destItemId = Number(overId);
       const destItem = itemsCopy.find((i) => i.id === destItemId);
-      if (!destItem) return prevItems;
+      if (!destItem) return null;
 
       targetDayId = destItem.day ?? null;
-      if (!targetDayId) return prevItems;
+      if (!targetDayId) return null;
 
       const destList = getItemsForDay(itemsCopy, targetDayId);
       const idx = destList.findIndex((i) => i.id === destItemId);
@@ -1019,10 +1033,10 @@ export default function ItineraryEditor() {
     }
 
     const sourceDayId = activeItem.day;
-    if (!sourceDayId || !targetDayId) return prevItems;
+    if (!sourceDayId || !targetDayId) return null;
 
     if (sourceDayId === targetDayId && activeId === Number(overId)) {
-      return prevItems;
+      return null;
     }
 
     const byDay: Record<number, ItineraryItem[]> = {};
@@ -1035,7 +1049,7 @@ export default function ItineraryEditor() {
       sourceDayId === targetDayId ? sourceList : byDay[targetDayId] ?? [];
 
     const sourceIndex = sourceList.findIndex((i) => i.id === activeId);
-    if (sourceIndex === -1) return prevItems;
+    if (sourceIndex === -1) return null;
 
     if (sourceDayId === targetDayId) {
       const reordered = arrayMove(sourceList, sourceIndex, targetIndex);
@@ -1075,21 +1089,44 @@ export default function ItineraryEditor() {
       return (a.sort_order ?? 0) - (b.sort_order ?? 0);
     });
 
-    return updated;
+    // Skip state updates if nothing about day or order actually changed
+    // to avoid endless drag-over re-renders.
+    const prevMap = new Map(prevItems.map((i) => [i.id, i]));
+    const changed = updated.some((it) => {
+      const prev = prevMap.get(it.id);
+      if (!prev) return true;
+      return prev.day !== it.day || prev.sort_order !== it.sort_order;
+    });
+
+    return changed ? updated : null;
+  };
+
+  const makeItemsSignature = (list: ItineraryItem[]): string => {
+    // signature based on each item's day+sort_order keyed by id (order-independent)
+    return [...list]
+      .sort((a, b) => a.id - b.id)
+      .map((it) => `${it.id}:${it.day ?? "null"}:${it.sort_order ?? 0}`)
+      .join("|");
   };
 
   /* ------------- Drag & Drop handler (dnd-kit) ------------- */
 
   const handleDragStart = () => {
     dragOriginRef.current = items;
+    lastPreviewSigRef.current = makeItemsSignature(items);
   };
 
   const handleDragCancel = () => {
+    if (previewRafRef.current) {
+      cancelAnimationFrame(previewRafRef.current);
+      previewRafRef.current = null;
+    }
     if (dragOriginRef.current) {
       setItems(dragOriginRef.current);
       setLegs([]);
     }
     dragOriginRef.current = null;
+    lastPreviewSigRef.current = null;
   };
 
   const handleDragOver = (event: DragOverEvent) => {
@@ -1101,15 +1138,28 @@ export default function ItineraryEditor() {
     if (!activeId || !overId) return;
 
     const nextItems = computeReorderedItems(items, activeId, overId);
-    if (nextItems !== items) {
+    if (!nextItems) return;
+
+    const sig = makeItemsSignature(nextItems);
+    if (sig === lastPreviewSigRef.current) return;
+    lastPreviewSigRef.current = sig;
+
+    if (previewRafRef.current) cancelAnimationFrame(previewRafRef.current);
+    previewRafRef.current = requestAnimationFrame(() => {
       setItems(nextItems);
       setLegs([]);
-    }
+      previewRafRef.current = null;
+    });
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const origin = dragOriginRef.current;
     dragOriginRef.current = null;
+    lastPreviewSigRef.current = null;
+    if (previewRafRef.current) {
+      cancelAnimationFrame(previewRafRef.current);
+      previewRafRef.current = null;
+    }
 
     if (!origin) return;
 
@@ -1408,7 +1458,7 @@ export default function ItineraryEditor() {
 
                     {/* TAB BAR */}
                     <div style={{ display: "flex", gap: 10, paddingTop: 10 }}>
-                      {(["about", "nearby", "photos"] as const).map((t) => (
+                      {(["about", "travel", "nearby", "photos"] as const).map((t) => (
                         <button
                           key={t}
                           onClick={() => setPlaceTab(t)}
@@ -1423,7 +1473,13 @@ export default function ItineraryEditor() {
                             cursor: "pointer",
                           }}
                         >
-                          {t === "about" ? "About" : t === "nearby" ? "Nearby" : "Photos"}
+                          {t === "about"
+                            ? "About"
+                            : t === "travel"
+                            ? "Travel"
+                            : t === "nearby"
+                            ? "Nearby"
+                            : "Photos"}
                         </button>
                       ))}
                     </div>
@@ -1525,6 +1581,38 @@ export default function ItineraryEditor() {
                           />
                         </div>
                       )}
+
+                      {/* TRAVEL */}
+                      {!placeOverlayError && !placeOverlayLoading && placeTab === "travel" && placeOverlay && (
+                        <div
+                          style={{
+                            maxHeight: 190,
+                            overflowY: "auto",
+                            paddingRight: 6,
+                            position: "relative",
+                            fontSize: "0.8rem",
+                            color: "#6b7280",
+                            lineHeight: 1.45,
+                          }}
+                        >
+                          <PlaceTravelTab place={placeOverlay as any} />
+
+                          {/* bottom fade gradient (keep same UI feel as other tabs) */}
+                          <div
+                            style={{
+                              position: "sticky",
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              height: 28,
+                              pointerEvents: "none",
+                              background:
+                                "linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.96))",
+                            }}
+                          />
+                        </div>
+                      )}
+
 
                       {/* NEARBY */}
                       {!placeOverlayError && !placeOverlayLoading && placeTab === "nearby" && (

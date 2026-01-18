@@ -5,6 +5,9 @@ import requests
 import logging
 import re
 import json
+import time
+import hashlib
+import threading
 from urllib.parse import quote
 from django.db.models import F
 from django.db import models
@@ -286,6 +289,96 @@ class TripDayViewSet(BaseViewSet):
 
 logger = logging.getLogger(__name__)
 
+# ----------------------------
+# SeaLion caches (in-memory)
+# ----------------------------
+_SEALION_ABOUT_CACHE: dict[str, dict] = {}
+_SEALION_ABOUT_CACHE_LOCK = threading.Lock()
+
+_SEALION_TRAVEL_CACHE: dict[str, dict] = {}
+_SEALION_TRAVEL_CACHE_LOCK = threading.Lock()
+
+def _cache_key(payload: dict) -> str:
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+def _cache_get(cache: dict, lock: threading.Lock, key: str):
+    now = time.time()
+    with lock:
+        entry = cache.get(key)
+        if not entry:
+            return None
+        if entry.get("expires_at", 0) <= now:
+            cache.pop(key, None)
+            return None
+        return entry.get("value")
+
+def _cache_set(cache: dict, lock: threading.Lock, key: str, value: dict, ttl_seconds: int):
+    expires_at = time.time() + max(int(ttl_seconds), 1)
+    with lock:
+        cache[key] = {"expires_at": expires_at, "value": value}
+
+def _maybe_reset_caches(request):
+    """
+    Dev-only cache reset:
+      /place-details/?reset_travel_cache=1
+      /place-details/?reset_about_cache=1
+      /place-details/?reset_all_cache=1
+    Only works in DEBUG to prevent accidental prod nukes.
+    """
+    if not getattr(settings, "DEBUG", False):
+        return
+
+    if request.query_params.get("reset_all_cache") == "1":
+        with _SEALION_ABOUT_CACHE_LOCK:
+            _SEALION_ABOUT_CACHE.clear()
+        with _SEALION_TRAVEL_CACHE_LOCK:
+            _SEALION_TRAVEL_CACHE.clear()
+        return
+
+    if request.query_params.get("reset_about_cache") == "1":
+        with _SEALION_ABOUT_CACHE_LOCK:
+            _SEALION_ABOUT_CACHE.clear()
+
+    if request.query_params.get("reset_travel_cache") == "1":
+        with _SEALION_TRAVEL_CACHE_LOCK:
+            _SEALION_TRAVEL_CACHE.clear()
+
+def extract_city_hint(addr: str | None) -> str | None:
+    """
+    Better city heuristic than 'parts[1]':
+    - Avoids returning postal code chunks like "3801 Jungfraujoch"
+    - Prefers the last "name-like" token before the country
+    """
+    if not addr:
+        return None
+    parts = [p.strip() for p in addr.split(",") if p.strip()]
+    if len(parts) < 2:
+        return None
+
+    # try from right to left, skipping country-ish last part
+    candidates = parts[:-1]  # exclude last (usually country)
+    for p in reversed(candidates):
+        # reject mostly-numeric chunks
+        if re.match(r"^\d", p):
+            # if it begins with digits, keep only the alpha tail if meaningful
+            tail = re.sub(r"^[0-9\-\s]+", "", p).strip()
+            if tail and re.search(r"[A-Za-z]", tail):
+                return tail
+            continue
+        if re.search(r"[A-Za-z]", p):
+            return p
+    return None
+
+def extract_country_hint(addr: str | None) -> str | None:
+    if not addr:
+        return None
+    parts = [p.strip() for p in addr.split(",") if p.strip()]
+    if not parts:
+        return None
+    return parts[-1]
+
+
 class ItineraryItemViewSet(BaseViewSet):
     queryset = ItineraryItem.objects.all()
     serializer_class = ItineraryItemSerializer
@@ -301,6 +394,7 @@ class ItineraryItemViewSet(BaseViewSet):
         ).values_list("id", flat=True)
 
         item = get_object_or_404(ItineraryItem, pk=pk, trip_id__in=allowed_trip_ids)
+        trip = item.trip
 
         if item.lat is None or item.lon is None:
             return Response({"detail": "This itinerary item has no coordinates."}, status=status.HTTP_400_BAD_REQUEST)
@@ -784,6 +878,14 @@ class ItineraryItemViewSet(BaseViewSet):
             if len(parts) >= 2:
                 return parts[1]
             return None
+        
+        def extract_country_hint(addr: str | None) -> str | None:
+            if not addr:
+                return None
+            parts = [p.strip() for p in addr.split(",") if p.strip()]
+            if len(parts) >= 1:
+                return parts[-1]
+            return None
 
 
         # ----------------------------
@@ -1005,51 +1107,57 @@ class ItineraryItemViewSet(BaseViewSet):
                     return parts[1]
                 return None
 
-            def is_food_market() -> bool:
-                return any(w in k for w in ["market", "food", "restaurant", "seafood", "cafe", "bakery"]) or \
-                    any(w in d.lower() for w in ["market", "seafood", "stalls", "restaurants", "vendors"])
-
-            def is_temple_shrine() -> bool:
-                return (
-                    any(w in k for w in ["temple", "shrine", "buddhist", "religion", "place of worship"])
-                    or any(w in d.lower() for w in ["temple", "shrine", "buddhist", "senso-ji", "pagoda", "worship"])
-                    or any(w in name_l for w in ["temple", "shrine", "kannon"])
-                    or any(w in nearby_joined for w in ["sensō-ji", "senso-ji", "kaminarimon", "asakusa shrine"])
-                )
+            def is_alpine_outdoor() -> bool:
+                text = f"{name_l} {d.lower()} {nearby_joined} {k}".lower()
+                return any(w in text for w in [
+                    "alps", "glacier", "saddle", "mountain", "peak", "summit", "ridge",
+                    "metres", "meters", "elevation", "altitude", "observatory", "sphinx",
+                    "railway station", "cogwheel", "cable car", "gondola", "top of europe"
+                ])
 
             def is_museum_gallery() -> bool:
-                return any(w in k for w in ["museum", "gallery", "exhibit"]) or \
-                    any(w in d.lower() for w in ["museum", "gallery", "exhibition", "collections"])
-
-            def is_park_nature() -> bool:
-                return any(w in k for w in ["park", "garden", "nature", "lake", "mountain", "trail"]) or \
-                    any(w in d.lower() for w in ["park", "garden", "lake", "mountain", "trail", "viewpoint"])
-
-            def is_shopping_district() -> bool:
+                # museum ONLY if it's clearly a museum, not just "exhibitions" inside a mountain complex
+                text = f"{name_l} {d.lower()} {k}".lower()
                 return (
-                    any(w in k for w in ["shopping", "mall", "store", "retail", "commercial"])
-                    or any(w in d.lower() for w in ["shopping", "district", "electronics", "stores", "retail"])
-                    or any(w in name_l for w in ["district", "shopping", "akihabara"])
-                    or "akihabara" in nearby_joined
+                    any(w in text for w in ["museum", "art gallery", "exhibition hall"])
+                    and not is_alpine_outdoor()
                 )
 
+            def is_park_nature() -> bool:
+                text = f"{name_l} {d.lower()} {k}".lower()
+                return any(w in text for w in ["park", "garden", "nature", "lake", "trail", "viewpoint", "scenic"])
+
+            def is_food_market() -> bool:
+                text = f"{name_l} {d.lower()} {k}".lower()
+                return any(w in text for w in ["market", "food", "seafood", "vendors", "stalls", "street food", "food court"])
+
+            def is_temple_shrine() -> bool:
+                text = f"{name_l} {d.lower()} {nearby_joined} {k}".lower()
+                return any(w in text for w in ["temple", "shrine", "buddhist", "pagoda", "place of worship", "kannon", "senso-ji", "sensō-ji"])
+
+            def is_shopping_district() -> bool:
+                text = f"{name_l} {d.lower()} {nearby_joined} {k}".lower()
+                return any(w in text for w in ["shopping district", "electronics", "retail", "mall", "akihabara"])
+
             def is_station_transport() -> bool:
-                return any(w in k for w in ["station", "transit", "metro", "train", "subway"]) or \
-                    any(w in d.lower() for w in ["station", "railway", "metro", "subway", "line"])
+                text = f"{name_l} {d.lower()} {k}".lower()
+                return any(w in text for w in ["station", "metro", "subway", "railway", "train", "transit"])
 
             place_type = "generic"
             if is_temple_shrine():
                 place_type = "temple"
-            elif is_museum_gallery():
-                place_type = "museum"
+            elif is_alpine_outdoor():
+                place_type = "alpine"
+            elif is_shopping_district():
+                place_type = "shopping"
             elif is_food_market():
                 place_type = "market"
             elif is_park_nature():
                 place_type = "nature"
-            elif is_shopping_district():
-                place_type = "shopping"
             elif is_station_transport():
                 place_type = "transport"
+            elif is_museum_gallery():
+                place_type = "museum"
 
             city = extract_city_hint(address)
 
@@ -1127,6 +1235,22 @@ class ItineraryItemViewSet(BaseViewSet):
                     "Wear comfortable shoes with grip.",
                     "Check forecast if views are the main reason you’re going.",
                 ]
+
+            elif place_type == "alpine":
+                why_go += [
+                    "A high-altitude scenic highlight with dramatic mountain views.",
+                    "Great for panoramic photos and a unique ‘top of the world’ experience.",
+                ]
+                know += [
+                    "Weather can change fast at altitude—visibility and access can be affected.",
+                    "Dress for cold conditions even in warmer months.",
+                ]
+                best_time = "Early morning (clearer views)"
+                tips += [
+                    "Check live webcams/forecast before committing to the trip up.",
+                    "If you’re sensitive to altitude, take it slow and hydrate.",
+                ]
+
 
             elif place_type == "shopping":
                 why_go += [
@@ -1208,7 +1332,11 @@ class ItineraryItemViewSet(BaseViewSet):
                 "tips": dedupe(tips)[:4],
             }
 
-        # Build richer context for SeaLion even if Wikipedia fails
+        # -------- About payload (LLM first, fallback deterministic) --------
+        ttl = int(os.getenv("SEALION_ABOUT_CACHE_TTL_SECONDS", "86400"))  # default 24h
+        _maybe_reset_caches(request)
+
+        # Build the exact payload we would send to SeaLion (used for cache key)
         nearby_titles = [n.get("name") for n in (out.get("nearby") or []) if n.get("name")]
         city_hint = extract_city_hint(out.get("address"))
 
@@ -1216,7 +1344,7 @@ class ItineraryItemViewSet(BaseViewSet):
             "title": (title or out.get("name") or "").strip(),
             "address": out.get("address"),
             "city": city_hint,
-            "country_or_region": "Tokyo Prefecture" if (out.get("address") and "Tokyo" in out.get("address")) else None,
+            "country_or_region": trip.main_country or extract_country_hint(out.get("address")),
             "mapbox_category": out.get("kinds"),
             "wikipedia_extract": out.get("description"),
             "nearby_wikipedia_titles": nearby_titles[:8],
@@ -1224,29 +1352,152 @@ class ItineraryItemViewSet(BaseViewSet):
             "lon": float(item.lon),
         }
 
-        # -------- About payload (LLM first, fallback deterministic) --------
-        about_llm = self.sealion_generate_about(
-            name=out.get("name") or title or "Place",
-            kinds=out.get("kinds"),
-            description=out.get("description"),
-            address=out.get("address"),
-            opening_hours=out.get("opening_hours"),
-            website=out.get("website"),
-            context=sealion_context,
-        )
+        # Payload used to compute cache key (only include fields that matter)
+        cache_payload = {
+            "name": (out.get("name") or title or "Place").strip(),
+            "kinds": out.get("kinds"),
+            "description": out.get("description"),
+            "address": out.get("address"),
+            "opening_hours": out.get("opening_hours"),
+            "website": out.get("website"),
+            "context": {
+                "title": sealion_context.get("title"),
+                "city": sealion_context.get("city"),
+                "country_or_region": sealion_context.get("country_or_region"),
+                "mapbox_category": sealion_context.get("mapbox_category"),
+                "nearby_wikipedia_titles": sealion_context.get("nearby_wikipedia_titles"),
+            }
+        }
+        cache_key = _cache_key(cache_payload)
 
+        # 1) Request-level cache (prevents double-call inside a single request)
+        req_cache = getattr(request, "_sealion_about_req_cache", None)
+        if req_cache is None:
+            req_cache = {}
+            setattr(request, "_sealion_about_req_cache", req_cache)
+
+        about_llm = req_cache.get(cache_key)
+
+        # 2) Cross-request in-memory cache (prevents regen across requests)
+        if about_llm is None:
+            about_llm = _cache_get(_SEALION_ABOUT_CACHE, _SEALION_ABOUT_CACHE_LOCK, cache_key)
+
+        # 3) If still not cached, call SeaLion once
+        if about_llm is None:
+            about_llm = self.sealion_generate_about(
+                name=cache_payload["name"],
+                kinds=cache_payload["kinds"],
+                description=cache_payload["description"],
+                address=cache_payload["address"],
+                opening_hours=cache_payload["opening_hours"],
+                website=cache_payload["website"],
+                context=sealion_context,
+            )
+
+            # Only cache successful LLM results (so if SeaLion is down, we fall back properly)
+            if isinstance(about_llm, dict) and about_llm:
+                req_cache[cache_key] = about_llm
+                _cache_set(_SEALION_ABOUT_CACHE, _SEALION_ABOUT_CACHE_LOCK, cache_key, about_llm, ttl)
+
+        # 4) Final: use LLM if available; otherwise deterministic fallback
         if about_llm:
             out["about"] = about_llm
         else:
             out["about"] = build_about_payload(
-            out.get("name") or title or "Place",
-            out.get("kinds"),
-            out.get("address"),
-            out.get("description"),
-            out.get("opening_hours"),
-            out.get("website"),
-            nearby_titles,
-        )
+                out.get("name") or title or "Place",
+                out.get("kinds"),
+                out.get("address"),
+                out.get("description"),
+                out.get("opening_hours"),
+                out.get("website"),
+                nearby_titles,
+            )
+
+        # ----------------------------
+        # Travel payload (SeaLion + caching)
+        # ----------------------------
+        trip_city = (getattr(trip, "main_city", None) or "").strip() or extract_city_hint(out.get("address"))
+        trip_country = (getattr(trip, "main_country", None) or "").strip() or extract_country_hint(out.get("address"))
+
+        trip_start = str(trip.start_date) if getattr(trip, "start_date", None) else None
+        trip_end = str(trip.end_date) if getattr(trip, "end_date", None) else None
+
+        travel_ttl = int(os.getenv("SEALION_TRAVEL_CACHE_TTL_SECONDS", "86400"))
+
+        def build_travel_fallback(name: str | None, address: str | None):
+            place_name = (name or "this place").strip() or "this place"
+            loc = ", ".join([p for p in [trip_city, trip_country] if p]) or "the area"
+            addr_hint = f"Navigate to: {address}" if address else None
+
+            return {
+                "transport_systems": [
+                    f"Use local trains/buses/metro around {loc} when available; they are usually the fastest.",
+                    "Keep a ride-hailing app ready for late or early connections.",
+                    f"Check first/last service times if you need to return from {place_name} after dark.",
+                ],
+                "currency_exchange": [
+                    "Carry a small amount of cash for small vendors; cards may not work everywhere.",
+                    "Use a card with low FX fees and avoid dynamic currency conversion when offered.",
+                ],
+                "holidays_and_crowds": [
+                    f"Weekends and public holidays in {loc} can mean longer queues; go earlier in the day.",
+                    "Book key tickets or time slots ahead during peak seasons or festivals.",
+                ],
+                "attraction_info": [
+                    f"Weather can affect visibility and access around {place_name} - check forecasts and conditions.",
+                    addr_hint or "Confirm any required tickets or time slots before you go.",
+                ],
+            }
+
+        travel_cache_payload = {
+            "place_name": (out.get("name") or title or "Place").strip(),
+            "address": out.get("address"),
+            "city": trip_city,
+            "country": trip_country,
+            "trip_start": trip_start,
+            "trip_end": trip_end,
+            "opening_hours": out.get("opening_hours"),
+            "website": out.get("website"),
+            # include a tiny bit of signal so travel can be more relevant
+            "kinds": out.get("kinds"),
+            "nearby": [n.get("name") for n in (out.get("nearby") or []) if n.get("name")][:6],
+        }
+        travel_cache_key = _cache_key(travel_cache_payload)
+
+        # Request-level cache (prevents double-generation within same request)
+        req_cache = getattr(request, "_sealion_travel_req_cache", None)
+        if req_cache is None:
+            req_cache = {}
+            setattr(request, "_sealion_travel_req_cache", req_cache)
+
+        travel_llm = req_cache.get(travel_cache_key)
+
+        # Cross-request in-memory cache
+        if travel_llm is None:
+            travel_llm = _cache_get(_SEALION_TRAVEL_CACHE, _SEALION_TRAVEL_CACHE_LOCK, travel_cache_key)
+
+        # Generate once via SeaLion
+        if travel_llm is None:
+            travel_llm = self.sealion_generate_travel(
+                place_name=travel_cache_payload["place_name"],
+                address=travel_cache_payload["address"],
+                city=travel_cache_payload["city"],
+                country=travel_cache_payload["country"],
+                trip_start=travel_cache_payload["trip_start"],
+                trip_end=travel_cache_payload["trip_end"],
+                opening_hours=travel_cache_payload["opening_hours"],
+                website=travel_cache_payload["website"],
+            )
+            if isinstance(travel_llm, dict) and travel_llm:
+                req_cache[travel_cache_key] = travel_llm
+                _cache_set(_SEALION_TRAVEL_CACHE, _SEALION_TRAVEL_CACHE_LOCK, travel_cache_key, travel_llm, travel_ttl)
+
+        # Attach to response (ensure consistent shape)
+        if isinstance(travel_llm, dict) and travel_llm:
+            out["travel"] = travel_llm
+        else:
+            out["travel"] = build_travel_fallback(out.get("name") or title, out.get("address"))
+
 
         return Response(out, status=status.HTTP_200_OK)
     
@@ -1372,3 +1623,127 @@ class ItineraryItemViewSet(BaseViewSet):
 
         except Exception:
             return None
+        
+    def sealion_generate_travel(
+        self,
+        *,
+        place_name: str,
+        address: str | None,
+        city: str | None,
+        country: str | None,
+        trip_start: str | None,
+        trip_end: str | None,
+        opening_hours: str | None,
+        website: str | None,
+    ):
+        """
+        Global Travel generator (no country map).
+        Forces SeaLion to be specific for ANY country, but never invent exact opening hours.
+        """
+        api_key = os.getenv("SEALION_API_KEY")
+        base_url = os.getenv("SEALION_BASE_URL")
+        enabled = os.getenv("SEALION_ENABLED", "false").lower() == "true"
+        if not enabled or not api_key or not base_url:
+            return None
+
+        system_prompt = (
+            "You generate Travel Information & Localisation for a trip itinerary place.\n"
+            "Return ONLY valid JSON with keys:\n"
+            "transport_systems (array), currency_exchange (array), holidays_and_crowds (array), attraction_info (array).\n\n"
+            "Rules (very important):\n"
+            "1) Be SPECIFIC for the given country/city. Prefer naming real systems/apps/cards.\n"
+            "   - Examples: metro/rail operator names, transit card names, common ride-hailing apps.\n"
+            "2) Currency exchange MUST include: currency code + currency name + at least one practical tip.\n"
+            "3) Holidays & crowds MUST name at least 2 real public holidays for that country.\n"
+            "   - If trip dates are provided, prefer holidays near that window.\n"
+            "4) Attraction info:\n"
+            "   - If known_opening_hours is provided, you may restate it.\n"
+            "   - If NOT provided, DO NOT invent exact opening times.\n"
+            "   - You MAY give location-specific constraints (e.g., altitude, weather, reservations, last train patterns).\n"
+            "5) If you are unsure about an exact proper noun, you MUST still provide a helpful near-equivalent.\n"
+            "   - Example: say 'the national rail operator / city metro' instead of leaving it generic.\n"
+            "6) Keep each bullet <= 2 sentences, practical, and traveler-focused.\n"
+            "7) Output 3–6 bullets per section.\n"
+        ) 
+
+        # Give the model enough context to be concrete
+        user_payload = {
+            "place_name": place_name,
+            "address": address,
+            "city": city,
+            "country": country,
+            "trip_window": {"start": trip_start, "end": trip_end},
+            "known_opening_hours": opening_hours,  # may be None
+            "official_website": website,           # may be None
+            "instruction": (
+                "Infer transport systems/apps/currency/holidays for the given country/city. "
+                "Do not invent exact opening hours if not provided. "
+                "Prefer naming real apps/systems; if unsure, say to confirm locally rather than guessing."
+            ),
+        }
+
+        expected_schema = {
+            "transport_systems": ["string"],
+            "currency_exchange": ["string"],
+            "holidays_and_crowds": ["string"],
+            "attraction_info": ["string"],
+        }
+
+        payload = {
+            "model": "sealion-travel",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+            ],
+            "response_format": {"type": "json", "schema": expected_schema},
+            "temperature": 0.25,
+            "max_tokens": 700,
+        }
+
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+        try:
+            r = requests.post(f"{base_url}/chat/completions", headers=headers, json=payload, timeout=14)
+            if r.status_code != 200:
+                return None
+
+            data = r.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content")
+            if not content:
+                return None
+
+            try:
+                parsed = json.loads(content)
+            except Exception:
+                m = re.search(r"\{.*\}", content, flags=re.DOTALL)
+                if not m:
+                    return None
+                parsed = json.loads(m.group(0))
+
+            if not isinstance(parsed, dict):
+                return None
+
+            # Ensure lists
+            for k in ["transport_systems", "currency_exchange", "holidays_and_crowds", "attraction_info"]:
+                v = parsed.get(k)
+                if v is None:
+                    parsed[k] = []
+                elif not isinstance(v, list):
+                    parsed[k] = []
+
+            # Safety: if it "invented" exact hours while we provided none, remove them lightly
+            if not opening_hours and parsed.get("attraction_info"):
+                cleaned = []
+                for line in parsed["attraction_info"]:
+                    if isinstance(line, str) and re.search(r"\b\d{1,2}(:\d{2})?\s?(am|pm)\b", line, flags=re.I):
+                        # replace with a safer variant
+                        cleaned.append("Check the official listing for today’s opening hours and last entry time.")
+                    else:
+                        cleaned.append(line)
+                parsed["attraction_info"] = cleaned
+
+            return parsed
+        except Exception:
+            return None
+
+
