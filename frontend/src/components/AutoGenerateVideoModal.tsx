@@ -1,5 +1,5 @@
 // frontend/src/components/AutoGenerateVideoModal.tsx
-// ENHANCED: Starting location + background music
+// ENHANCED: Starting location + background music + REMOVED PLACEHOLDER BUTTON
 
 import React, { useState, useEffect } from "react";
 import { X, MapPin, Music, Upload as UploadIcon, Plane, Train, Car, Ship } from "lucide-react";
@@ -74,18 +74,12 @@ export default function AutoGenerateVideoModal({
   const [transportModes, setTransportModes] = useState<Record<string, string>>({});
   const [excludedPhotos, setExcludedPhotos] = useState<Set<number>>(new Set());
   
-  // 🆕 Starting location states
+  // ✅ Starting location states (for airport/station before first stop)
   const [useStartingLocation, setUseStartingLocation] = useState(false);
   const [startingLocation, setStartingLocation] = useState<string>("");
   const [customStartLat, setCustomStartLat] = useState("");
   const [customStartLon, setCustomStartLon] = useState("");
   const [firstStopTransport, setFirstStopTransport] = useState("plane");
-  
-  // 🆕 Music states
-  const [useMusicMode, setUseMusicMode] = useState<"none" | "youtube" | "upload">("none");
-  const [youtubeUrl, setYoutubeUrl] = useState("");
-  const [audioFile, setAudioFile] = useState<File | null>(null);
-  const [uploadedAudioUrl, setUploadedAudioUrl] = useState("");
 
   useEffect(() => {
     if (show) {
@@ -94,28 +88,28 @@ export default function AutoGenerateVideoModal({
   }, [show, photos, stops]);
 
   const autoGroupPhotos = () => {
-    const stopsWithPhotos = stops
-      .map(stop => ({
-        stop,
-        photos: photos.filter(p => p.itinerary_item === stop.id && !excludedPhotos.has(p.id)),
-      }))
-      .filter(group => group.photos.length > 0);
+    // ✅ NEW: Show ALL stops, not just stops with photos
+    const allStopsWithPhotos = stops.map(stop => ({
+      stop,
+      photos: photos.filter(p => p.itinerary_item === stop.id && !excludedPhotos.has(p.id)),
+    }));
+    // Don't filter out stops without photos - keep all stops
+    
+    setPhotoGroups(allStopsWithPhotos);
 
-    setPhotoGroups(stopsWithPhotos);
-
-    // Auto-set transport modes between stops
+    // Auto-set transport modes between ALL consecutive stops
     const modes: Record<string, string> = {};
-    for (let i = 0; i < stopsWithPhotos.length - 1; i++) {
-      const from = stopsWithPhotos[i].stop;
-      const to = stopsWithPhotos[i + 1].stop;
+    for (let i = 0; i < allStopsWithPhotos.length - 1; i++) {
+      const from = allStopsWithPhotos[i].stop;
+      const to = allStopsWithPhotos[i + 1].stop;
       modes[`${from.id}-${to.id}`] = "plane";
     }
     setTransportModes(modes);
   };
 
-  const handleGenerate = async (generateReal: boolean) => {
+  const handleGenerate = async () => {
     if (photoGroups.length === 0) {
-      alert("Please upload photos first");
+      alert("Please add stops to your itinerary first");
       return;
     }
 
@@ -123,14 +117,14 @@ export default function AutoGenerateVideoModal({
       g.stop.lat === null || g.stop.lon === null
     );
     
-    if (invalidStops.length > 0 && generateReal) {
+    if (invalidStops.length > 0) {
       alert(`Cannot generate map video: ${invalidStops.length} stop(s) missing GPS coordinates`);
       return;
     }
 
-    // 🆕 Prepare starting location
+    // ✅ Prepare starting location if selected
     let startLocation = undefined;
-    if (useStartingLocation && generateReal) {
+    if (useStartingLocation) {
       const selected = popularStartingPoints.find(p => p.title === startingLocation);
       if (selected) {
         startLocation = selected;
@@ -143,49 +137,20 @@ export default function AutoGenerateVideoModal({
       }
     }
 
-    // 🆕 Prepare music URL
-    let musicUrl = undefined;
-    if (generateReal) {
-      if (useMusicMode === "youtube" && youtubeUrl) {
-        musicUrl = youtubeUrl;
-      } else if (useMusicMode === "upload" && uploadedAudioUrl) {
-        musicUrl = uploadedAudioUrl;
-      }
-    }
-
     const defaultTitle = photoGroups.length > 0
       ? `Trip to ${photoGroups[photoGroups.length - 1].stop.title}`
       : "Trip Video";
 
+    // ✅ Generate video with starting location
     onGenerate(
       photoGroups, 
       transportModes, 
       title || defaultTitle, 
-      generateReal,
-      startLocation,
-      firstStopTransport,
-      musicUrl
+      true,  // Always generate real video
+      startLocation,  // Pass starting location
+      firstStopTransport,  // Pass transport from starting location to first stop
+      undefined   // No music
     );
-  };
-
-  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.match(/^audio\//)) {
-      alert("Please upload an audio file");
-      return;
-    }
-
-    if (file.size > 20 * 1024 * 1024) {
-      alert("Audio file too large (max 20MB)");
-      return;
-    }
-
-    setAudioFile(file);
-    // Create temporary URL for preview
-    const url = URL.createObjectURL(file);
-    setUploadedAudioUrl(url);
   };
 
   if (!show) return null;
@@ -303,94 +268,14 @@ export default function AutoGenerateVideoModal({
             )}
           </div>
 
-          {/* 🆕 Background Music Section */}
-          <div style={section}>
-            <div style={sectionHeader}>
-              <Music size={18} style={{ color: "#8b5cf6" }} />
-              <span style={sectionTitle}>Background Music (Optional)</span>
-            </div>
-
-            <div style={musicModeButtons}>
-              <button
-                onClick={() => setUseMusicMode("none")}
-                style={{
-                  ...musicModeButton,
-                  ...(useMusicMode === "none" ? musicModeButtonActive : {}),
-                }}
-                disabled={generating}
-              >
-                No Music
-              </button>
-              <button
-                onClick={() => setUseMusicMode("youtube")}
-                style={{
-                  ...musicModeButton,
-                  ...(useMusicMode === "youtube" ? musicModeButtonActive : {}),
-                }}
-                disabled={generating}
-              >
-                YouTube Link
-              </button>
-              <button
-                onClick={() => setUseMusicMode("upload")}
-                style={{
-                  ...musicModeButton,
-                  ...(useMusicMode === "upload" ? musicModeButtonActive : {}),
-                }}
-                disabled={generating}
-              >
-                Upload Audio
-              </button>
-            </div>
-
-            {useMusicMode === "youtube" && (
-              <div style={subSection}>
-                <label style={smallLabel}>YouTube URL:</label>
-                <input
-                  type="url"
-                  value={youtubeUrl}
-                  onChange={(e) => setYoutubeUrl(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  style={input}
-                  disabled={generating}
-                />
-                <div style={hint}>
-                  ℹ️ Note: YouTube audio extraction requires server-side processing
-                </div>
-              </div>
-            )}
-
-            {useMusicMode === "upload" && (
-              <div style={subSection}>
-                <label style={uploadLabel}>
-                  <UploadIcon size={16} />
-                  <span>{audioFile ? audioFile.name : "Choose audio file (MP3, WAV, OGG)"}</span>
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    onChange={handleAudioUpload}
-                    style={{ display: "none" }}
-                    disabled={generating}
-                  />
-                </label>
-                {audioFile && (
-                  <audio controls style={audioPreview}>
-                    <source src={uploadedAudioUrl} type={audioFile.type} />
-                  </audio>
-                )}
-                <div style={hint}>
-                  Max 20MB • MP3, WAV, OGG supported
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* Auto-Generated Route */}
           <div style={section}>
             <div style={routeHeader}>
-              <span style={routeTitle}>Auto-Generated Route</span>
+              <span style={routeTitle}>Journey Route</span>
               <div style={routeStats}>
-                • {photoGroups.length} stops with photos
+                • {photoGroups.length} stops total
+                <br />
+                • {photoGroups.filter(g => g.photos.length > 0).length} stops with photos
                 <br />
                 • {totalPhotos} photos total
                 <br />
@@ -403,7 +288,11 @@ export default function AutoGenerateVideoModal({
                 <div style={stopNumber}>{idx + 1}</div>
                 <div style={stopInfo}>
                   <div style={stopName}>{group.stop.title}</div>
-                  <div style={stopPhotos}>{group.photos.length} photo{group.photos.length > 1 ? 's' : ''}</div>
+                  <div style={stopPhotos}>
+                    {group.photos.length > 0 
+                      ? `${group.photos.length} photo${group.photos.length > 1 ? 's' : ''}`
+                      : 'No photos (map only)'}
+                  </div>
                 </div>
                 
                 {/* Transport selection between stops */}
@@ -447,21 +336,18 @@ export default function AutoGenerateVideoModal({
           )}
         </div>
 
-        {/* Action Buttons */}
+        {/* Action Buttons - ✅ ONLY ONE BUTTON NOW */}
         <div style={modalFooter}>
           <button
-            onClick={() => handleGenerate(false)}
-            style={placeholderButton}
+            onClick={handleGenerate}
+            style={generateButton}
             disabled={generating || photoGroups.length === 0}
           >
-            Quick Generate (Placeholder)
-          </button>
-          <button
-            onClick={() => handleGenerate(true)}
-            style={realButton}
-            disabled={generating || photoGroups.length === 0}
-          >
-            {generating ? "Generating..." : "Generate Real Video"}
+            {generating ? (
+              <>🎬 Generating Video...</>
+            ) : (
+              <>🎬 Generate Video</>
+            )}
           </button>
         </div>
       </div>
@@ -792,27 +678,17 @@ const modalFooter: React.CSSProperties = {
   borderTop: "1px solid #e5e7eb",
 };
 
-const placeholderButton: React.CSSProperties = {
-  flex: 1,
-  padding: "12px 24px",
-  borderRadius: 12,
-  border: "1px solid #e5e7eb",
-  background: "white",
-  color: "#111827",
-  fontWeight: 700,
-  fontSize: 14,
-  cursor: "pointer",
-};
-
-const realButton: React.CSSProperties = {
-  flex: 1,
-  padding: "12px 24px",
+// ✅ NEW: Single generate button style (full width, prominent)
+const generateButton: React.CSSProperties = {
+  width: "100%",
+  padding: "14px 24px",
   borderRadius: 12,
   border: "none",
   background: "linear-gradient(135deg, #f59e0b, #f97316)",
   color: "white",
   fontWeight: 700,
-  fontSize: 14,
+  fontSize: 16,
   cursor: "pointer",
   boxShadow: "0 4px 12px rgba(245, 158, 11, 0.3)",
+  transition: "all 0.2s ease",
 };

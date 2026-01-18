@@ -1,5 +1,5 @@
 // frontend/src/pages/mediaHighlights.tsx
-// ✅ FIXED: Per-day timeline, proper trip filtering, map shows only current trip photos
+// ✅ FIXED: Exactly matching RecommendationsPage pattern - no waiting, direct render
 
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -83,7 +83,6 @@ interface PhotoFormData {
   itinerary_item: number | null;
 }
 
-// ✅ NEW: Photo grouped by day
 interface PhotosByDay {
   dayId: number;
   dayIndex: number;
@@ -95,28 +94,19 @@ export default function MediaHighlights() {
   const { tripId } = useParams();
   const navigate = useNavigate();
 
+  // ✅ EXACTLY like RecommendationsPage - simple state
   const [trip, setTrip] = useState<Trip | null>(null);
+  const [items, setItems] = useState<ItineraryItem[]>([]);
+  const [days, setDays] = useState<TripDay[]>([]);
   const [photos, setPhotos] = useState<TripPhoto[]>([]);
   const [highlights, setHighlights] = useState<MediaHighlight[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  // ✅ ADD: Separate state for items and days (like notesAndChecklistPage)
-  const [items, setItems] = useState<ItineraryItem[]>([]);
-  const [days, setDays] = useState<TripDay[]>([]);
-
   // Modals
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-
-  // Debug: Log modal state changes
-  React.useEffect(() => {
-    console.log("=== MODAL STATE ===");
-    console.log("  showGenerateModal:", showGenerateModal);
-    console.log("  showUploadModal:", showUploadModal);
-    console.log("  showEditModal:", showEditModal);
-  }, [showGenerateModal, showUploadModal, showEditModal]);
 
   // Upload state
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -163,69 +153,66 @@ export default function MediaHighlights() {
     getCurrentUser();
   }, []);
 
+  // ✅ EXACTLY like RecommendationsPage - single useEffect for data loading
   useEffect(() => {
     if (!tripId) return;
+
+    const loadData = async () => {
+      try {
+        setLoading(true);
+
+        console.log("=== 📦 Loading Media Highlights Data ===");
+        console.log(`Trip ID: ${tripId}`);
+
+        // Load trip data
+        const tripData = await apiFetch(`/f1/trips/${tripId}/`, { method: "GET" });
+        console.log("Trip loaded:", {
+          id: tripData.id,
+          title: tripData.title,
+          main_city: tripData.main_city,
+          days: tripData.days?.length,
+          items: tripData.items?.length,
+        });
+
+        setTrip(tripData);
+        setItems(tripData.items || []);
+        setDays(tripData.days || []);
+        
+        console.log(`✅ Set ${(tripData.items || []).length} items and ${(tripData.days || []).length} days to state`);
+
+        // Load photos
+        const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
+        const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
+        
+        const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
+        console.log(`📸 Photos loaded: ${tripPhotos.length} (filtered from ${photosList.length})`);
+        
+        if (tripPhotos.length > 0) {
+          console.log("Sample photo:", {
+            id: tripPhotos[0].id,
+            trip: tripPhotos[0].trip,
+            lat: tripPhotos[0].lat,
+            lon: tripPhotos[0].lon,
+            itinerary_item: tripPhotos[0].itinerary_item,
+          });
+        }
+        
+        setPhotos(tripPhotos);
+
+        // Load highlights
+        const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
+        setHighlights(Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || []);
+        
+        console.log("=== ✅ Data Loading Complete ===\n");
+      } catch (error) {
+        console.error("Failed to load data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     loadData();
   }, [tripId]);
-
-  async function loadData() {
-    if (!tripId) return;
-
-    try {
-      setLoading(true);
-
-      console.log("=== 📦 Loading Media Highlights Data ===");
-      console.log(`Trip ID: ${tripId}`);
-
-      const tripData = await apiFetch(`/f1/trips/${tripId}/`, { method: "GET" });
-      console.log("Trip loaded:", {
-        id: tripData.id,
-        title: tripData.title,
-        main_city: tripData.main_city,
-        days: tripData.days?.length,
-        items: tripData.items?.length,
-      });
-
-      setTrip(tripData);
-      
-      // ✅ SET: Separate state for items and days (like notesAndChecklistPage)
-      const safeDays = Array.isArray(tripData?.days) ? tripData.days : [];
-      const safeItems = Array.isArray(tripData?.items) ? tripData.items : [];
-      setDays(safeDays);
-      setItems(safeItems);
-      
-      console.log(`✅ Set ${safeItems.length} items and ${safeDays.length} days to state`);
-
-      // ✅ CRITICAL: Filter photos by trip ID
-      const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
-      const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
-      
-      // ✅ Double-check: Only keep photos from THIS trip
-      const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
-      console.log(`📸 Photos loaded: ${tripPhotos.length} (filtered from ${photosList.length})`);
-      
-      if (tripPhotos.length > 0) {
-        console.log("Sample photo:", {
-          id: tripPhotos[0].id,
-          trip: tripPhotos[0].trip,
-          lat: tripPhotos[0].lat,
-          lon: tripPhotos[0].lon,
-          itinerary_item: tripPhotos[0].itinerary_item,
-        });
-      }
-      
-      setPhotos(tripPhotos);
-
-      const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
-      setHighlights(Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || []);
-      
-      console.log("=== ✅ Data Loading Complete ===\n");
-    } catch (error) {
-      console.error("Failed to load data:", error);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   const deleteHighlight = async (highlightId: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -390,7 +377,16 @@ export default function MediaHighlights() {
         }
       }
 
-      await loadData();
+      // Reload data
+      const tripData = await apiFetch(`/f1/trips/${tripId}/`, { method: "GET" });
+      setItems(tripData.items || []);
+      setDays(tripData.days || []);
+
+      const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
+      const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
+      const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
+      setPhotos(tripPhotos);
+
       setSelectedFiles([]);
       setPhotoForms(new Map());
       setShowUploadModal(false);
@@ -423,7 +419,7 @@ export default function MediaHighlights() {
   };
 
   const handleEditPhoto = async () => {
-    if (!editingPhoto) return;
+    if (!editingPhoto || !tripId) return;
 
     try {
       const selectedItem = items.find(item => item.id === editItemId);
@@ -443,7 +439,12 @@ export default function MediaHighlights() {
         body: JSON.stringify(updateData),
       });
 
-      await loadData();
+      // Reload photos
+      const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
+      const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
+      const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
+      setPhotos(tripPhotos);
+
       setShowEditModal(false);
       setEditingPhoto(null);
     } catch (error: any) {
@@ -572,7 +573,10 @@ export default function MediaHighlights() {
         body: JSON.stringify(highlightData),
       });
 
-      await loadData();
+      // Reload highlights
+      const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
+      setHighlights(Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || []);
+
       setShowGenerateModal(false);
       
       const message = generateReal 
@@ -591,14 +595,12 @@ export default function MediaHighlights() {
     }
   };
 
-  // ✅ NEW: Wrapper function to match AutoGenerateVideoModal's expected signature
   const handleModalGenerate = (
     groups: any,
     transportModes: any,
     title: string,
     generateReal: boolean
   ) => {
-    // Convert groups back to segments format
     const segments = Array.isArray(groups) ? groups.map((group: any, idx: number) => ({
       stop_id: group.stop?.id || group.id,
       stop_title: group.stop?.title || group.title,
@@ -608,7 +610,6 @@ export default function MediaHighlights() {
         : undefined,
     })) : [];
 
-    // Call the original function
     handleGenerateWithSegments(segments, title, generateReal);
   };
 
@@ -635,7 +636,7 @@ export default function MediaHighlights() {
     return item?.title || "";
   }
 
-  // ✅ Use state variables (like notesAndChecklistPage)
+  // ✅ EXACTLY like RecommendationsPage - prepare map items (computed, no waiting)
   const dayIndexMap = new Map(days.map((d) => [d.id, d.day_index]));
   
   const itemsInTripOrder = [...items].sort((a, b) => {
@@ -659,13 +660,7 @@ export default function MediaHighlights() {
     };
   });
 
-  console.log("🗺️ Media Highlights - mapItems:", mapItems.length);
-  console.log("  - Items with coords:", mapItems.filter(i => i.lat && i.lon).length);
-  if (mapItems.length > 0 && mapItems[0].lat && mapItems[0].lon) {
-    console.log("  - First item:", mapItems[0].title, `[${mapItems[0].lat}, ${mapItems[0].lon}]`);
-  }
-
-  // ✅ Prepare photo markers for map (if you want photos on map)
+  // Prepare photo markers
   const photoMarkers = photos
     .filter((p) => p.lat && p.lon && p.trip === parseInt(tripId || "0"))
     .map((p) => ({
@@ -676,15 +671,15 @@ export default function MediaHighlights() {
       caption: p.caption,
     }));
 
+  console.log("🗺️ mapItems:", mapItems.length, "items,", mapItems.filter(i => i.lat && i.lon).length, "with coords");
   console.log("📸 Photo markers:", photoMarkers.length);
 
-  // ✅ NEW: Group photos by day
+  // Group photos by day
   const photosByDay: PhotosByDay[] = React.useMemo(() => {
     if (days.length === 0) return [];
     
     const dayMap = new Map<number, PhotosByDay>();
 
-    // Initialize all days
     days.forEach(day => {
       dayMap.set(day.id, {
         dayId: day.id,
@@ -694,7 +689,6 @@ export default function MediaHighlights() {
       });
     });
 
-    // Group photos by day
     photos.forEach(photo => {
       if (photo.itinerary_item) {
         const item = items.find(i => i.id === photo.itinerary_item);
@@ -707,9 +701,8 @@ export default function MediaHighlights() {
       }
     });
 
-    // Convert to array and sort by day_index
     return Array.from(dayMap.values())
-      .filter(day => day.photos.length > 0) // Only show days with photos
+      .filter(day => day.photos.length > 0)
       .sort((a, b) => a.dayIndex - b.dayIndex);
   }, [photos, days, items]);
 
@@ -745,29 +738,37 @@ export default function MediaHighlights() {
       `}</style>
 
       <div style={pageContainer}>
-        <div style={mainGrid}>
-          <div style={mapSection}>
-            {/* ✅ Map shows itinerary route + photo thumbnails */}
-            {loading ? (
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center', 
-                height: '100%',
-                background: '#f3f4f6' 
-              }}>
-                <div className="spinner" />
-              </div>
-            ) : (
-              <ItineraryMap 
-                key={`map-${items.length}-${days.length}-${photos.length}`}
-                items={mapItems}
-                photos={photoMarkers}
-              />
-            )}
+        {/* ✅ EXACTLY like RecommendationsPage grid */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 2fr) minmax(0, 2fr)",
+          columnGap: "0rem",
+          alignItems: "flex-start",
+          width: "100%",
+          margin: 0,
+          padding: 0,
+        }}>
+          {/* LEFT: Map - ✅ NO WAITING, direct render like RecommendationsPage */}
+          <div style={{
+            position: "sticky",
+            top: 90,
+            height: "calc(90vh - 90px)",
+            background: "#e5e7eb",
+            borderRadius: 0,
+            overflow: "hidden",
+            boxShadow: "none",
+          }}>
+            <ItineraryMap items={mapItems} photos={photoMarkers} />
           </div>
 
-          <div style={sidebarSection}>
+          {/* RIGHT: Content */}
+          <div style={{
+            height: "calc(90vh - 90px)",
+            backgroundColor: "white",
+            padding: "1.25rem 1.25rem 1rem",
+            boxShadow: "0 8px 20px rgba(15,23,42,0.08)",
+            overflowY: "auto",
+          }}>
             <div style={actionButtons}>
               <button onClick={() => setShowUploadModal(true)} style={uploadButton}>
                 <Upload size={16} strokeWidth={2.5} />
@@ -775,9 +776,6 @@ export default function MediaHighlights() {
               </button>
               <button 
                 onClick={() => {
-                  console.log("Create Highlight Video clicked!");
-                  console.log("Photos:", photos.length);
-                  console.log("Generating:", generating);
                   if (photos.length === 0) {
                     alert("⚠️ Please upload photos first!");
                     return;
@@ -796,7 +794,6 @@ export default function MediaHighlights() {
               </button>
             </div>
 
-            {/* ✅ NEW: Per-day timeline */}
             <div style={timelineCard}>
               <div style={cardTitle}>
                 <Clock size={18} />
@@ -815,7 +812,6 @@ export default function MediaHighlights() {
                 <div style={photoList}>
                   {photosByDay.map((dayGroup) => (
                     <div key={dayGroup.dayId} style={{ marginBottom: 16 }}>
-                      {/* Day header */}
                       <div style={dayHeader}>
                         <Calendar size={14} />
                         Day {dayGroup.dayIndex}
@@ -832,7 +828,6 @@ export default function MediaHighlights() {
                         </span>
                       </div>
 
-                      {/* Photos for this day */}
                       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
                         {dayGroup.photos.map((photo) => (
                           <div key={photo.id} style={photoItem}>
@@ -953,19 +948,41 @@ export default function MediaHighlights() {
           style={{
             position: "fixed",
             inset: 0,
-            backgroundColor: "rgba(0,0,0,0.7)",
+            backgroundColor: "rgba(0,0,0,0.85)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            zIndex: 1000,
+            zIndex: 2000,
             padding: "20px",
           }}
           onClick={() => setSelectedPhoto(null)}
         >
+          <button
+            onClick={() => setSelectedPhoto(null)}
+            style={{
+              position: "absolute",
+              top: 20,
+              right: 20,
+              width: 44,
+              height: 44,
+              borderRadius: "50%",
+              border: "none",
+              background: "rgba(255,255,255,0.9)",
+              color: "#111827",
+              display: "grid",
+              placeItems: "center",
+              cursor: "pointer",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+              zIndex: 2001,
+            }}
+          >
+            <X size={24} />
+          </button>
+
           <div
             style={{
-              maxWidth: "90%",
-              maxHeight: "90%",
+              maxWidth: "90vw",
+              maxHeight: "90vh",
               background: "white",
               borderRadius: "16px",
               overflow: "hidden",
@@ -979,20 +996,63 @@ export default function MediaHighlights() {
               style={{
                 width: "100%",
                 height: "auto",
-                maxHeight: "70vh",
+                maxHeight: "calc(90vh - 120px)",
                 objectFit: "contain",
+                display: "block",
               }}
             />
-            {selectedPhoto.caption && (
+            
+            {(selectedPhoto.caption || selectedPhoto.itinerary_item) && (
               <div
                 style={{
-                  padding: "16px",
-                  fontSize: "14px",
-                  color: "#111827",
-                  fontWeight: 600,
+                  padding: "20px",
+                  background: "white",
+                  borderTop: "1px solid #e5e7eb",
                 }}
               >
-                {selectedPhoto.caption}
+                {selectedPhoto.caption && (
+                  <div
+                    style={{
+                      fontSize: "16px",
+                      color: "#111827",
+                      fontWeight: 600,
+                      marginBottom: 8,
+                    }}
+                  >
+                    {selectedPhoto.caption}
+                  </div>
+                )}
+                
+                {selectedPhoto.itinerary_item && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: "13px",
+                      color: "#6b7280",
+                    }}
+                  >
+                    <MapPin size={14} />
+                    {getStopTitle(selectedPhoto.itinerary_item)}
+                  </div>
+                )}
+                
+                {selectedPhoto.taken_at && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: "13px",
+                      color: "#6b7280",
+                      marginTop: 4,
+                    }}
+                  >
+                    <Clock size={14} />
+                    {formatDateTime(selectedPhoto.taken_at)}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1193,20 +1253,19 @@ export default function MediaHighlights() {
           }))}
           photos={photos.map(p => ({
             id: p.id,
-            url: p.file_url,  // ✅ Transform file_url to url
+            url: p.file_url,
             caption: p.caption,
+            itinerary_item: p.itinerary_item,
           }))}
           onClose={() => {
-            console.log("❌ Closing AutoGenerateVideoModal");
             setShowGenerateModal(false);
           }}
           onGenerate={handleModalGenerate}
           generating={generating}
+          generateProgress={generateProgress}
+          generateStatus={generateStatus}
         />
       )}
-
-      {/* DEBUG: Show modal state */}
-      {console.log("🔍 Render check - showGenerateModal:", showGenerateModal, "photos:", photos.length)}
     </>
   );
 }
@@ -1214,29 +1273,13 @@ export default function MediaHighlights() {
 // Styles
 const loadingContainer: React.CSSProperties = { minHeight: "calc(100vh - 90px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#f9fafb" };
 const pageContainer: React.CSSProperties = { background: "#f9fafb", minHeight: "calc(100vh - 90px)", padding: 0, fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' };
-const mainGrid: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 400px", height: "calc(100vh - 90px)", gap: 0 };
-const mapSection: React.CSSProperties = { position: "relative", height: "100%" };
-const sidebarSection: React.CSSProperties = { background: "white", borderLeft: "1px solid #e5e7eb", overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: 16 };
-const actionButtons: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10 };
+const actionButtons: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 };
 const uploadButton: React.CSSProperties = { padding: "10px 16px", borderRadius: 12, border: "none", background: "linear-gradient(135deg, #f59e0b 0%, #f97316 100%)", color: "white", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", boxShadow: "0 4px 12px rgba(245, 158, 11, 0.25)" };
 const generateButton: React.CSSProperties = { padding: "10px 16px", borderRadius: 12, border: "1px solid #e5e7eb", background: "white", color: "#111827", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" };
-const timelineCard: React.CSSProperties = { background: "#fafafa", borderRadius: 16, padding: 16, border: "1px solid #e5e7eb" };
+const timelineCard: React.CSSProperties = { background: "#fafafa", borderRadius: 16, padding: 16, border: "1px solid #e5e7eb", marginBottom: 16 };
 const cardTitle: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 12 };
 const photoList: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10, maxHeight: 400, overflowY: "auto" };
-
-// ✅ NEW: Day header style
-const dayHeader: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 6,
-  padding: "8px 12px",
-  background: "#f3f4f6",
-  borderRadius: 8,
-  fontSize: 13,
-  fontWeight: 700,
-  color: "#374151",
-};
-
+const dayHeader: React.CSSProperties = { display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "#f3f4f6", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#374151" };
 const photoItem: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, padding: 10, background: "white", borderRadius: 12, border: "1px solid #e5e7eb", transition: "all 0.2s ease", position: "relative" };
 const photoItemTitle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 const photoItemMeta: React.CSSProperties = { fontSize: 11, color: "#6b7280", marginTop: 2 };
@@ -1254,8 +1297,6 @@ const highlightThumbnail: React.CSSProperties = { width: 60, height: 60, borderR
 const highlightTitleStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "#111827" };
 const highlightMeta: React.CSSProperties = { fontSize: 11, color: "#6b7280", marginTop: 2 };
 const emptyState: React.CSSProperties = { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "30px 20px", color: "#9ca3af", textAlign: "center" };
-
-// Modal styles
 const modalOverlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(15,23,42,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 };
 const modalContent: React.CSSProperties = { background: "white", borderRadius: 16, padding: 24, maxWidth: 600, width: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" };
 const modalHeader: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 };

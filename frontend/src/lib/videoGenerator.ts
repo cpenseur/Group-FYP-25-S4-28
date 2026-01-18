@@ -1,5 +1,6 @@
 // frontend/src/lib/videoGenerator.ts
 // OPTIMIZED VERSION - Faster, smoother, more like reference video
+// ✅ FIXED: Smaller fonts that fit within video frame
 
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -32,13 +33,13 @@ interface GenerateVideoOptions {
   musicUrl?: string;
 }
 
-const CANVAS_WIDTH = 1280; // 🔥 Reduced from 1920 (saves 44% space)
-const CANVAS_HEIGHT = 720;  // 🔥 Reduced from 1080 (720p instead of 1080p)
-const FPS = 24; // 🔥 Reduced from 30 (saves 20% frames)
-const TRAVEL_DURATION = 3; // 🔥 REDUCED: 3 seconds instead of 5
-const PHOTO_DURATION = 2.5; // 🔥 OPTIMIZED: 2.5 seconds per photo
-const TRANSITION_DURATION = 0.5; // 🔥 FASTER: 0.5 seconds transitions
-const TITLE_DURATION = 2; // 🔥 SHORTER: 2 second title
+const CANVAS_WIDTH = 1280;
+const CANVAS_HEIGHT = 720;
+const FPS = 24;
+const TRAVEL_DURATION = 3;
+const PHOTO_DURATION = 2.5;
+const TRANSITION_DURATION = 0.5;
+const TITLE_DURATION = 2;
 
 const transportEmojis: Record<string, string> = {
   plane: "✈️",
@@ -78,7 +79,7 @@ export class MapVideoGenerator {
       const stream = this.canvas.captureStream(FPS);
       this.mediaRecorder = new MediaRecorder(stream, {
         mimeType: "video/webm;codecs=vp9",
-        videoBitsPerSecond: 3000000, // 🔥 3 Mbps instead of 8 Mbps (saves 62% size!)
+        videoBitsPerSecond: 3000000,
       });
 
       this.recordedChunks = [];
@@ -92,16 +93,14 @@ export class MapVideoGenerator {
       // Calculate total frames
       let totalFrames = FPS * TITLE_DURATION;
       for (let i = 0; i < groups.length; i++) {
-        // Travel animation (skip for first stop)
         if (i > 0) {
-          totalFrames += 5 * FPS; // 5 seconds for travel animation
+          totalFrames += 5 * FPS;
         }
-        // Photo display
-        totalFrames += TRANSITION_DURATION * FPS; // Entry
-        totalFrames += groups[i].photos.length * PHOTO_DURATION * FPS; // Photos
-        totalFrames += TRANSITION_DURATION * FPS; // Exit
+        totalFrames += TRANSITION_DURATION * FPS;
+        totalFrames += groups[i].photos.length * PHOTO_DURATION * FPS;
+        totalFrames += TRANSITION_DURATION * FPS;
       }
-      totalFrames += FPS * 2; // End slide
+      totalFrames += FPS * 2;
 
       let currentFrame = 0;
 
@@ -116,15 +115,39 @@ export class MapVideoGenerator {
       for (let i = 0; i < groups.length; i++) {
         const group = groups[i];
 
-        // 🔥 FIRST STOP: NO map animation - go straight to photos!
+        // ✅ FIRST STOP: Check if we have a starting location
         if (i === 0) {
-          if (onProgress) {
-            const progress = (currentFrame / totalFrames) * 100;
-            onProgress(progress, `Starting at ${group.stop.title}...`);
+          if (options.startingLocation) {
+            // Show journey from starting location to first stop
+            if (onProgress) {
+              const progress = (currentFrame / totalFrames) * 100;
+              const transport = options.firstStopTransport || "plane";
+              onProgress(progress, `${transportEmojis[transport]} from ${options.startingLocation.title} to ${group.stop.title}...`);
+            }
+
+            await this.renderMapJourney(
+              {
+                id: -1,
+                title: options.startingLocation.title,
+                lat: options.startingLocation.lat,
+                lon: options.startingLocation.lon,
+              },
+              group.stop,
+              options.firstStopTransport || "plane",
+              5
+            );
+            currentFrame += 5 * FPS;
+          } else {
+            // No starting location, just show first stop briefly
+            if (onProgress) {
+              const progress = (currentFrame / totalFrames) * 100;
+              onProgress(progress, `Arriving at ${group.stop.title}...`);
+            }
+            await this.renderMapLocation(group.stop, 2);
+            currentFrame += 2 * FPS;
           }
-          // Skip map completely for first stop - no frames added
         } else {
-          // 🔥 TRAVEL ANIMATION: 5 seconds with clear transport icon
+          // ✅ TRAVEL ANIMATION between stops
           const prevGroup = groups[i - 1];
           const key = `${prevGroup.stop.id}-${group.stop.id}`;
           const transport = transportModes[key] || "plane";
@@ -134,7 +157,6 @@ export class MapVideoGenerator {
             onProgress(progress, `${transportEmojis[transport]} to ${group.stop.title}...`);
           }
 
-          // 5 SECONDS for clear visibility of route and transport
           await this.renderMapJourney(
             prevGroup.stop,
             group.stop,
@@ -144,20 +166,30 @@ export class MapVideoGenerator {
           currentFrame += 5 * FPS;
         }
 
-        // Photos at this location
-        if (onProgress) {
-          const progress = (currentFrame / totalFrames) * 100;
-          onProgress(progress, `Photos at ${group.stop.title}...`);
-        }
+        // ✅ Photos at this location (if any)
+        if (group.photos.length > 0) {
+          if (onProgress) {
+            const progress = (currentFrame / totalFrames) * 100;
+            onProgress(progress, `Photos at ${group.stop.title}...`);
+          }
 
-        await this.render3DPhotoCarousel(group.photos, group.stop.title);
-        currentFrame += 
-          TRANSITION_DURATION * FPS + 
-          group.photos.length * PHOTO_DURATION * FPS + 
-          TRANSITION_DURATION * FPS;
+          await this.render3DPhotoCarousel(group.photos, group.stop.title);
+          currentFrame += 
+            TRANSITION_DURATION * FPS + 
+            group.photos.length * PHOTO_DURATION * FPS + 
+            TRANSITION_DURATION * FPS;
+        } else {
+          // ✅ No photos - just show location briefly
+          if (onProgress) {
+            const progress = (currentFrame / totalFrames) * 100;
+            onProgress(progress, `Visiting ${group.stop.title}...`);
+          }
+          
+          await this.renderMapLocation(group.stop, 2);
+          currentFrame += 2 * FPS;
+        }
       }
 
-      // End slide
       if (onProgress) onProgress(95, "Finishing...");
       await this.renderEndSlide();
       currentFrame += FPS * 2;
@@ -213,7 +245,7 @@ export class MapVideoGenerator {
 
     await new Promise<void>((resolve) => {
       this.map!.on('load', () => {
-        setTimeout(() => resolve(), 500); // Wait for tiles
+        setTimeout(() => resolve(), 500);
       });
     });
   }
@@ -235,13 +267,41 @@ export class MapVideoGenerator {
       ctx.save();
       ctx.globalAlpha = opacity;
       ctx.fillStyle = "white";
-      ctx.font = "bold 120px Arial";
+      
+      // ✅ FIXED: Smaller title font (80px instead of 120px)
+      ctx.font = "bold 80px Arial";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(title, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+      
+      // ✅ Word wrap for long titles
+      const maxWidth = CANVAS_WIDTH - 100;
+      const words = title.split(' ');
+      const lines: string[] = [];
+      let currentLine = words[0];
+      
+      for (let j = 1; j < words.length; j++) {
+        const testLine = currentLine + ' ' + words[j];
+        const metrics = ctx.measureText(testLine);
+        if (metrics.width > maxWidth) {
+          lines.push(currentLine);
+          currentLine = words[j];
+        } else {
+          currentLine = testLine;
+        }
+      }
+      lines.push(currentLine);
+      
+      // Draw lines centered
+      const lineHeight = 90;
+      const startY = CANVAS_HEIGHT / 2 - ((lines.length - 1) * lineHeight) / 2;
+      lines.forEach((line, idx) => {
+        ctx.fillText(line, CANVAS_WIDTH / 2, startY + idx * lineHeight);
+      });
 
-      ctx.font = "60px Arial";
-      ctx.fillText("✈️ Trip Highlights 🎬", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 150);
+      // ✅ FIXED: Smaller subtitle (40px instead of 60px)
+      ctx.font = "40px Arial";
+      ctx.fillText("✈️ Trip Highlights 🎬", CANVAS_WIDTH / 2, startY + lines.length * lineHeight + 60);
+      
       ctx.restore();
 
       await this.waitFrame();
@@ -304,9 +364,9 @@ export class MapVideoGenerator {
         'line-cap': 'round',
       },
       paint: {
-        'line-color': '#f59e0b', // Orange color
-        'line-width': 8, // 🔥 THICKER - 8px instead of 4px
-        'line-dasharray': [3, 3], // 🔥 BIGGER dashes for better visibility
+        'line-color': '#f59e0b',
+        'line-width': 8,
+        'line-dasharray': [3, 3],
       },
     });
 
@@ -350,7 +410,6 @@ export class MapVideoGenerator {
   private async render3DPhotoCarousel(photos: Photo[], locationTitle: string) {
     const ctx = this.ctx;
 
-    // 🔥 FASTER Entry animation
     const entryFrames = TRANSITION_DURATION * FPS;
     for (let i = 0; i < entryFrames; i++) {
       const progress = this.easeInOutCubic(i / entryFrames);
@@ -367,13 +426,11 @@ export class MapVideoGenerator {
       await this.waitFrame();
     }
 
-    // 🔥 ENHANCED 3D carousel - like reference video
     for (let photoIdx = 0; photoIdx < photos.length; photoIdx++) {
       const photo = photos[photoIdx];
       const img = await this.loadImage(photo.url);
       const frames = PHOTO_DURATION * FPS;
 
-      // Preload next photos for smooth transitions
       const nextPhotos: HTMLImageElement[] = [];
       for (let offset = -1; offset <= 1; offset++) {
         const idx = photoIdx + offset;
@@ -385,22 +442,18 @@ export class MapVideoGenerator {
       for (let i = 0; i < frames; i++) {
         const progress = i / frames;
 
-        // Dark background
         ctx.fillStyle = "rgba(17, 24, 39, 0.95)";
         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-        // 🔥 3D carousel - show 3 photos at once
         for (let offset = -1; offset <= 1; offset++) {
           const idx = photoIdx + offset;
           if (idx < 0 || idx >= photos.length) continue;
 
           const isCenter = offset === 0;
           
-          // 3D effect parameters
-          const rotationY = offset * 25; // Rotation angle
+          const rotationY = offset * 25;
           const perspective = 1 - Math.abs(offset) * 0.3;
           
-          // 🔥 BREATHING animation on center photo
           const breathScale = isCenter 
             ? 1 + Math.sin(progress * Math.PI * 2) * 0.03 
             : 1;
@@ -412,7 +465,6 @@ export class MapVideoGenerator {
           const imgWidth = CANVAS_WIDTH * 0.7 * scale;
           const imgHeight = CANVAS_HEIGHT * 0.7 * scale;
           
-          // Horizontal offset for 3D effect
           const offsetX = offset * 500 * (1 - Math.abs(offset) * 0.2);
           const imgX = (CANVAS_WIDTH - imgWidth) / 2 + offsetX;
           const imgY = (CANVAS_HEIGHT - imgHeight) / 2;
@@ -420,15 +472,12 @@ export class MapVideoGenerator {
           ctx.save();
           ctx.globalAlpha = opacity;
 
-          // Shadow
           ctx.fillStyle = "rgba(0,0,0,0.5)";
           ctx.fillRect(imgX + 15, imgY + 15, imgWidth, imgHeight);
 
-          // Draw photo
           const imgToDraw = isCenter ? img : (nextPhotos[offset] || img);
           ctx.drawImage(imgToDraw, imgX, imgY, imgWidth, imgHeight);
           
-          // Border
           if (isCenter) {
             ctx.strokeStyle = "white";
             ctx.lineWidth = 8;
@@ -438,30 +487,50 @@ export class MapVideoGenerator {
           ctx.restore();
         }
 
-        // Location title
-        this.drawLocationLabel(locationTitle, CANVAS_WIDTH / 2, 100);
+        this.drawLocationLabel(locationTitle, CANVAS_WIDTH / 2, 80);
 
-        // Photo counter
+        // ✅ FIXED: Smaller counter font (36px instead of 48px)
         ctx.fillStyle = "white";
-        ctx.font = "bold 48px Arial";
+        ctx.font = "bold 36px Arial";
         ctx.textAlign = "center";
         ctx.fillText(
           `${photoIdx + 1} / ${photos.length}`,
           CANVAS_WIDTH / 2,
-          CANVAS_HEIGHT - 100
+          CANVAS_HEIGHT - 80
         );
 
-        // Caption
+        // ✅ FIXED: Smaller caption font (28px instead of 36px)
         if (photo.caption) {
-          ctx.font = "36px Arial";
-          ctx.fillText(photo.caption, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 180);
+          ctx.font = "28px Arial";
+          
+          // Word wrap for long captions
+          const maxCaptionWidth = CANVAS_WIDTH - 200;
+          const words = photo.caption.split(' ');
+          const lines: string[] = [];
+          let currentLine = words[0];
+          
+          for (let j = 1; j < words.length; j++) {
+            const testLine = currentLine + ' ' + words[j];
+            const metrics = ctx.measureText(testLine);
+            if (metrics.width > maxCaptionWidth) {
+              lines.push(currentLine);
+              currentLine = words[j];
+            } else {
+              currentLine = testLine;
+            }
+          }
+          lines.push(currentLine);
+          
+          // Draw caption lines
+          lines.forEach((line, idx) => {
+            ctx.fillText(line, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 140 - (lines.length - 1 - idx) * 35);
+          });
         }
 
         await this.waitFrame();
       }
     }
 
-    // 🔥 FASTER Exit animation
     const exitFrames = TRANSITION_DURATION * FPS;
     for (let i = 0; i < exitFrames; i++) {
       const progress = this.easeInOutCubic(i / exitFrames);
@@ -493,7 +562,9 @@ export class MapVideoGenerator {
       ctx.save();
       ctx.globalAlpha = opacity;
       ctx.fillStyle = "white";
-      ctx.font = "bold 100px Arial";
+      
+      // ✅ FIXED: Smaller end font (70px instead of 100px)
+      ctx.font = "bold 70px Arial";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText("Thanks for watching! 🎉", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
@@ -509,13 +580,20 @@ export class MapVideoGenerator {
     ctx.save();
     ctx.globalAlpha = opacity;
     
+    // ✅ FIXED: Smaller location label font (36px instead of 48px)
+    ctx.font = "bold 36px Arial";
+    const metrics = ctx.measureText(text);
+    const textWidth = metrics.width;
+    const padding = 20;
+    const boxWidth = textWidth + padding * 2;
+    const boxHeight = 55;
+    
     ctx.fillStyle = "rgba(17, 24, 39, 0.85)";
     ctx.beginPath();
-    ctx.roundRect(x - 200, y - 35, 400, 70, 35);
+    ctx.roundRect(x - boxWidth/2, y - boxHeight/2, boxWidth, boxHeight, 28);
     ctx.fill();
 
     ctx.fillStyle = "white";
-    ctx.font = "bold 48px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text, x, y);
@@ -529,36 +607,29 @@ export class MapVideoGenerator {
     const point = this.map.project([lng, lat]);
     const ctx = this.ctx;
 
-    // 🔥 BIGGER bounce for more visibility
     const bounce = Math.sin(progress * Math.PI * 3) * 20;
 
     ctx.save();
     
-    // 🔥 BIGGER ICON - 120px instead of 80px
     const iconSize = 120;
     const yOffset = -80 + bounce;
     
-    // 🔥 ADD BACKGROUND CIRCLE for better visibility
-    ctx.fillStyle = "rgba(245, 158, 11, 0.9)"; // Orange background
+    ctx.fillStyle = "rgba(245, 158, 11, 0.9)";
     ctx.beginPath();
     ctx.arc(point.x, point.y + yOffset, iconSize/2 + 10, 0, Math.PI * 2);
     ctx.fill();
     
-    // White border around circle
     ctx.strokeStyle = "white";
     ctx.lineWidth = 4;
     ctx.stroke();
     
-    // 🔥 TRANSPORT ICON
     ctx.font = `${iconSize}px Arial`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     
-    // Shadow for depth
     ctx.fillStyle = "rgba(0,0,0,0.3)";
     ctx.fillText(emoji, point.x + 3, point.y + yOffset + 3);
     
-    // Main icon
     ctx.fillStyle = "white";
     ctx.fillText(emoji, point.x, point.y + yOffset);
     
