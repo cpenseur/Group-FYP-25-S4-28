@@ -26,6 +26,7 @@ import TripSubHeader from "../components/TripSubHeader";
  *
  * - FX:
  *    GET /f3/fx/latest/?base=SGD
+ *    GET /f3/fx/currencies/
  */
 
 type TripMember = {
@@ -64,22 +65,30 @@ type TripBudget = {
   actual_total: any;
 };
 
+type CurrencyOption = {
+  code: string;
+  name: string;
+};
+
 type ModalType = "budget" | "expense" | "balances" | null;
 
-const currencyOptions = [
-  "SGD",
-  "USD",
-  "EUR",
-  "GBP",
-  "JPY",
-  "AUD",
-  "CAD",
-  "MYR",
-  "THB",
-  "IDR",
-  "CNY",
-  "INR",
-  "KRW",
+const fallbackCurrencies: CurrencyOption[] = [
+  { code: "SGD", name: "Singapore Dollar" },
+  { code: "USD", name: "US Dollar" },
+  { code: "EUR", name: "Euro" },
+  { code: "GBP", name: "British Pound" },
+  { code: "JPY", name: "Japanese Yen" },
+  { code: "AUD", name: "Australian Dollar" },
+  { code: "MYR", name: "Malaysian Ringgit" },
+  { code: "THB", name: "Thai Baht" },
+  { code: "IDR", name: "Indonesian Rupiah" },
+  { code: "CNY", name: "Chinese Yuan" },
+  { code: "INR", name: "Indian Rupee" },
+  { code: "KRW", name: "South Korean Won" },
+  { code: "HKD", name: "Hong Kong Dollar" },
+  { code: "PHP", name: "Philippine Peso" },
+  { code: "CHF", name: "Swiss Franc" },
+  { code: "TWD", name: "New Taiwan Dollar" },
 ];
 
 const categoryOptions = [
@@ -324,7 +333,7 @@ const pageStyles = `
   cursor:pointer;
 }
 
-/* --- Category chart (like screenshot #1) --- */
+/* --- Category chart --- */
 .cat-chart-wrap {
   margin-top: 12px;
   border: 1px solid #e5e7eb;
@@ -401,7 +410,6 @@ function memberLabel(m: TripMember) {
   return (m.full_name && m.full_name.trim()) || (m.email && m.email.trim()) || `User #${m.id}`;
 }
 
-// ƒo. Handles string/number safely
 function fmt(amount: any) {
   const n = Number(amount);
   if (!Number.isFinite(n)) return "0.00";
@@ -443,7 +451,6 @@ function CategoryBarChart({
 
       <div className="cat-chart" style={{ minWidth: 0 }}>
         <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Category breakdown chart">
-          {/* grid + ticks */}
           {tickValues.map((tv, i) => {
             const x = xScale(tv);
             return (
@@ -456,10 +463,8 @@ function CategoryBarChart({
             );
           })}
 
-          {/* x-axis */}
           <line x1={leftPad} y1={H - bottomPad} x2={W - rightPad} y2={H - bottomPad} stroke="#6b7280" />
 
-          {/* bars + labels */}
           {categoryList.map((cat, idx) => {
             const val = categoryTotals[cat] || 0;
             const y = topPad + idx * rowH;
@@ -532,10 +537,48 @@ export default function BudgetPage() {
   const [formDate, setFormDate] = useState("");
   const [formDescription, setFormDescription] = useState("");
 
+  const [currencyOptions, setCurrencyOptions] = useState<CurrencyOption[]>(fallbackCurrencies);
+
+  const currencyByCode = useMemo(() => {
+    const map = new Map<string, string>();
+    currencyOptions.forEach((c) => map.set(c.code, c.name));
+    return map;
+  }, [currencyOptions]);
+
+  const currencyLabel = (code: string) => {
+    const name = currencyByCode.get(code);
+    return name ? `${code} - ${name}` : code;
+  };
+
   const convertAmount = (amount: number, from: string, to: string) => {
     const fromRate = sgdPerUnit[from] ?? 1;
     const toRate = sgdPerUnit[to] ?? 1;
     return (amount * fromRate) / toRate;
+  };
+
+  const loadCurrencies = async () => {
+    try {
+      const data = await apiFetch(`/f3/fx/currencies/`);
+      const list = Array.isArray(data?.currencies) ? data.currencies : null;
+      if (!list) {
+        setCurrencyOptions(fallbackCurrencies);
+        return;
+      }
+
+      const deduped: CurrencyOption[] = [];
+      const seen = new Set<string>();
+      list.forEach((item: any) => {
+        const code = String(item?.code || "").trim().toUpperCase();
+        const name = String(item?.name || "").trim();
+        if (!code || seen.has(code)) return;
+        seen.add(code);
+        deduped.push({ code, name: name || code });
+      });
+
+      setCurrencyOptions(deduped.length ? deduped : fallbackCurrencies);
+    } catch {
+      setCurrencyOptions(fallbackCurrencies);
+    }
   };
 
   const reloadAll = async () => {
@@ -597,8 +640,16 @@ export default function BudgetPage() {
 
   useEffect(() => {
     reloadAll();
+    loadCurrencies();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId]);
+
+  useEffect(() => {
+    if (!currency) return;
+    if (!sgdPerUnit[currency] && !fxWarning) {
+      setFxWarning(`FX rate missing for ${currency}. Using 1:1 conversion.`);
+    }
+  }, [currency, sgdPerUnit, fxWarning]);
 
   const plannedTotal = Number(budget?.planned_total ?? 0);
 
@@ -870,7 +921,6 @@ export default function BudgetPage() {
         {fxWarning && <div className="warn">{fxWarning}</div>}
 
         <div className="page-grid">
-          {/* LEFT */}
           <div className="panel">
             <h2>Budgeting</h2>
 
@@ -905,7 +955,6 @@ export default function BudgetPage() {
             </button>
           </div>
 
-          {/* RIGHT */}
           <div className="panel">
             <div className="exp-header">
               <h2 style={{ margin: 0 }}>Expenses</h2>
@@ -970,7 +1019,6 @@ export default function BudgetPage() {
           </div>
         </div>
 
-        {/* Budget modal */}
         {activeModal === "budget" && (
           <div className="modal-backdrop" onMouseDown={() => setActiveModal(null)}>
             <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
@@ -986,8 +1034,8 @@ export default function BudgetPage() {
                   <label>Budget currency</label>
                   <select value={formCurrency} onChange={(e) => setFormCurrency(e.target.value)}>
                     {currencyOptions.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
+                      <option key={c.code} value={c.code}>
+                        {currencyLabel(c.code)}
                       </option>
                     ))}
                   </select>
@@ -1006,7 +1054,6 @@ export default function BudgetPage() {
           </div>
         )}
 
-        {/* Expense modal */}
         {activeModal === "expense" && (
           <div className="modal-backdrop" onMouseDown={() => setActiveModal(null)}>
             <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
@@ -1036,8 +1083,8 @@ export default function BudgetPage() {
                     onChange={(e) => setFormExpenseCurrency(e.target.value)}
                   >
                     {currencyOptions.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
+                      <option key={c.code} value={c.code}>
+                        {currencyLabel(c.code)}
                       </option>
                     ))}
                   </select>
@@ -1117,7 +1164,6 @@ export default function BudgetPage() {
           </div>
         )}
 
-        {/* Balances modal */}
         {activeModal === "balances" && (
           <div className="modal-backdrop" onMouseDown={() => setActiveModal(null)}>
             <div className="modal balances-modal" onMouseDown={(e) => e.stopPropagation()}>
