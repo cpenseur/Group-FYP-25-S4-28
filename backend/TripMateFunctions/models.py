@@ -43,7 +43,8 @@ class AppUser(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
+    last_active_at = models.DateTimeField(blank=True, null=True)
+    
     class Meta:
         db_table = "app_user"
 

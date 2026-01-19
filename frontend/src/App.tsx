@@ -1,8 +1,9 @@
 // frontend/src/App.tsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import TopBar from "./components/TopBar";
+import { supabase } from "./lib/supabaseClient";
 
 // Vania
 import Dashboard from "./pages/DashboardPage";
@@ -58,6 +59,27 @@ export default function App() {
 
   const closeLogin = () => setShowLogin(false);  
   console.log("Sealion Key Loaded:", import.meta.env.VITE_SEALION_API_KEY);
+
+  useEffect(() => {
+  const updateLastActive = async () => {
+    const { data } = await supabase.auth.getSession();
+    const user = data.session?.user;
+
+    if (!user) return;
+
+    await supabase
+      .from("app_user")
+      .update({ last_active_at: new Date().toISOString() })
+      .eq("auth_user_id", user.id);
+  };
+
+  updateLastActive();
+
+  // optional: refresh activity every 5 minutes
+  const interval = setInterval(updateLastActive, 5 * 60 * 1000);
+
+  return () => clearInterval(interval);
+}, []);
 
 
   return (
