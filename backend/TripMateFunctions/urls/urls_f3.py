@@ -6,7 +6,8 @@ from ..views.f3_1_views import (
     F31TripBudgetViewSet,
     F31TripExpenseViewSet,
     F31ExpenseSplitViewSet,
-    fx_latest,  # ✅ add
+    fx_latest,
+    fx_currencies,
 )
 
 from ..views.f3_2_views import (
@@ -37,6 +38,6 @@ router.register(r"tags", F33ItineraryItemTagViewSet, basename="f3-tag")
 router.register(r"documents", F33TravelDocumentViewSet, basename="f3-doc")
 
 urlpatterns = [
-    path("fx/latest/", fx_latest),  # ✅ so /api/f3/fx/latest/ works
+    path("fx/latest/", fx_latest),
+    path("fx/currencies/", fx_currencies),
 ] + router.urls
-

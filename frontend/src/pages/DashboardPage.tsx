@@ -1,9 +1,11 @@
 // frontend/src/pages/DashboardPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
 import TripCard, { type TripOverview } from "../components/TripCard";
 import planbotSmall from "../assets/planbotSmall.png";
+import Onboarding from "../components/onboarding";
 import {
   Plus,
   Search,
@@ -233,6 +235,24 @@ export default function DashboardPage() {
 
   const [trips, setTrips] = useState<TripOverview[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth?.user) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("onboarding_completed")
+        .eq("id", auth.user.id)
+        .maybeSingle();
+
+      if (!profile?.onboarding_completed) {
+        setShowOnboarding(true);
+      }
+    })();
+  }, []);
 
   async function loadTrips() {
     setLoading(true);
@@ -282,6 +302,10 @@ export default function DashboardPage() {
 
   return (
     <div style={pageBg}>
+    <Onboarding
+      isOpen={showOnboarding}
+      onClose={() => setShowOnboarding(false)}
+    />     
       <div style={container}>
         {/* Header */}
         <div style={{ marginTop: 8 }}>

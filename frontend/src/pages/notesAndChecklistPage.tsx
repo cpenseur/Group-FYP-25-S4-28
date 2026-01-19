@@ -53,6 +53,13 @@ interface Note {
   updated_at?: string;
 }
 
+interface ItineraryItemTag {
+  id: number;
+  item: number;
+  tag: string;
+  created_at?: string;
+}
+
 interface ChecklistItem {
   id: number;
   checklist?: number;
@@ -103,6 +110,10 @@ export default function NotesAndChecklistPage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [newNote, setNewNote] = useState("");
   const [editingNote, setEditingNote] = useState<Note | null>(null);
+
+  const [tagsByItem, setTagsByItem] = useState<Record<number, ItineraryItemTag[]>>({});
+  const [newTagsInput, setNewTagsInput] = useState("");
+  const [tagError, setTagError] = useState<string | null>(null);
 
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [newChecklistName, setNewChecklistName] = useState("");
@@ -216,13 +227,48 @@ export default function NotesAndChecklistPage() {
     }
   };
 
+  const parseTags = (raw: string) =>
+    raw
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+  const refreshTagsByTrip = async () => {
+    if (!tripIdNum || Number.isNaN(tripIdNum)) return;
+    try {
+      const data = await apiFetch(`/f3/tags/?trip=${tripIdNum}`);
+      const grouped: Record<number, ItineraryItemTag[]> = {};
+      if (Array.isArray(data)) {
+        data.forEach((t) => {
+          if (!grouped[t.item]) grouped[t.item] = [];
+          grouped[t.item].push(t);
+        });
+      }
+      setTagsByItem(grouped);
+    } catch {
+      setTagsByItem({});
+    }
+  };
+
   /* =========================
-     Load notes & checklists (F3)
+     Load + poll notes & checklists (F3)
   ========================= */
   useEffect(() => {
     if (!tripIdNum || Number.isNaN(tripIdNum)) return;
-    refreshNotes();
-    refreshChecklists();
+
+    let isActive = true;
+    const poll = async () => {
+      if (!isActive) return;
+      await Promise.all([refreshNotes(), refreshChecklists(), refreshTagsByTrip()]);
+    };
+
+    poll();
+    const intervalId = window.setInterval(poll, 5000);
+
+    return () => {
+      isActive = false;
+      window.clearInterval(intervalId);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripIdNum]);
 
@@ -269,6 +315,20 @@ export default function NotesAndChecklistPage() {
           body: JSON.stringify({ item: itemId, content: newNote }),
         });
         setNotes((prev) => [created, ...prev]);
+      }
+      const parsedTags = parseTags(newTagsInput);
+      if (parsedTags.length > 0) {
+        await Promise.all(
+          parsedTags.map((tag) =>
+            apiFetch(`/f3/tags/`, {
+              method: "POST",
+              body: JSON.stringify({ item: itemId, tag }),
+            }).catch(() => null)
+          )
+        );
+        await refreshTagsByTrip();
+        setNewTagsInput("");
+        setTagError(null);
       }
       setNewNote("");
       return true;
@@ -402,6 +462,8 @@ export default function NotesAndChecklistPage() {
     setEditingChecklist(null);
     setDeleteTarget(null);
     setNewNote("");
+    setNewTagsInput("");
+    setTagError(null);
     setNewChecklistName("");
     setEditingChecklistItems([]);
   };
@@ -475,6 +537,26 @@ export default function NotesAndChecklistPage() {
       >
         <div style={{ fontSize: 12, color: "#64748b", fontWeight: 700, marginBottom: 6 }}>
           {itemTitle}
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+          {(tagsByItem[n.item] || []).map((t) => (
+            <span
+              key={t.id}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "3px 10px",
+                borderRadius: 999,
+                background: "#e5e7eb",
+                color: "#4b5563",
+                fontSize: 11,
+                fontWeight: 600,
+              }}
+            >
+              {t.tag}
+            </span>
+          ))}
         </div>
 
         <div style={{ color: "#111827", whiteSpace: "pre-wrap", fontSize: 14 }}>
@@ -565,7 +647,14 @@ export default function NotesAndChecklistPage() {
     <>
       <TripSubHeader />
 
-      <div style={{ background: "#f5f7fb", minHeight: "100vh" }}>
+      <div
+        style={{
+          background: "#f5f7fb",
+          minHeight: "100vh",
+          fontFamily:
+            'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+        }}
+      >
         <div
           style={{
             maxWidth: 1400,
@@ -875,6 +964,19 @@ export default function NotesAndChecklistPage() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#374151", marginBottom: 6 }}>
+                Tags (comma separated)
+              </div>
+              <input
+                value={newTagsInput}
+                onChange={(e) => setNewTagsInput(e.target.value)}
+                placeholder="Cafe, Zoo, Landmark"
+                style={inputStyle}
+              />
+              {tagError && <div style={{ color: "#b91c1c", fontSize: 12, marginTop: 6 }}>{tagError}</div>}
             </div>
 
             <textarea

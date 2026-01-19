@@ -108,7 +108,7 @@ export default function Login({
           navigate("/admin-dashboard",  { replace: true });
         } else {
           setStatus("Login successful. Redirecting to dashboard…");
-          navigate("/dashboard",  { replace: true });
+          navigate("/dashboard",  { replace: true , state: { showOnboarding: true } });
         }
 
         onClose();
