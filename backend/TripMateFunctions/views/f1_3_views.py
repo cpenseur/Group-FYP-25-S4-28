@@ -30,9 +30,7 @@ from ..serializers.f1_3_serializers import (
     F13SoloTripGenerateResponseSerializer,
 )
 
-# ✅ REMOVED: Circular import that was causing the error
 # from ..views.f2_2_views import F22GroupTripGeneratorView
-
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +91,7 @@ def _call_sea_lion(messages, temperature=0.4, max_tokens=None, timeout=40):
 
 def _call_gemini(messages, temperature=0.4, max_tokens=None, timeout=40):
     """
-    ✅ FIXED: Removed systemInstruction parameter that caused 400 error
+    Removed systemInstruction parameter that caused 400 error
     Now injects system prompt as first user message instead
     """
     api_key = getattr(settings, "GEMINI_API_KEY", None) or os.environ.get(
@@ -104,7 +102,7 @@ def _call_gemini(messages, temperature=0.4, max_tokens=None, timeout=40):
     if not api_key:
         return None, "missing_api_key"
 
-    # ✅ NEW: Build contents array with system prompt injected as first message
+    # Build contents array with system prompt injected as first message
     contents = []
     system_prompt_found = False
     
@@ -115,7 +113,7 @@ def _call_gemini(messages, temperature=0.4, max_tokens=None, timeout=40):
             continue
         
         if role == "system":
-            # ✅ Inject system prompt as first user message + model acknowledgment
+            # Inject system prompt as first user message + model acknowledgment
             contents.append({
                 "role": "user",
                 "parts": [{"text": content}]
@@ -143,9 +141,7 @@ def _call_gemini(messages, temperature=0.4, max_tokens=None, timeout=40):
     if max_tokens is not None:
         payload["generationConfig"]["maxOutputTokens"] = max_tokens
 
-    # ✅ REMOVED: systemInstruction parameter (this was causing the 400 error)
-    # Old code: payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
-
+   
     endpoint = (
         f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
         f"?key={api_key}"
@@ -182,7 +178,7 @@ def _call_gemini(messages, temperature=0.4, max_tokens=None, timeout=40):
 
 def _generate_with_fallback(messages, temperature=0.4, max_tokens=None, timeout=40):
     """
-    ✅ This function is used by both f1_3_views and f2_2_views
+    This function is used by both f1_3_views and f2_2_views
     It must stay in f1_3_views to avoid circular imports
     """
     answer, primary_error = _call_sea_lion(
@@ -380,8 +376,8 @@ class F13SaveTripPreferenceView(APIView):
             "budget_min": data.get("budget_min"),
             "budget_max": data.get("budget_max"),
             "additional_info": data.get("additional_info", ""),
-            "start_date": data.get("start_date"),  # ✅ Save dates in preferences
-            "end_date": data.get("end_date"),      # ✅ Save dates in preferences
+            "start_date": data.get("start_date"),  
+            "end_date": data.get("end_date"),      
         }
 
         # Update trip dates

@@ -1195,10 +1195,7 @@ class SavedTripGuide(models.Model):
         except TripGuideMetadata.DoesNotExist:
             pass
 
-# ============================================================================
-# END OF F1.5 RECOMMENDATIONS MODELS
-# ============================================================================
-
+# F1.5 RECOMMENDATIONS MODELS
 
 class GroupPreference(models.Model):
     """

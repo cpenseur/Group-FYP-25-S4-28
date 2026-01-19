@@ -1,12 +1,4 @@
 // frontend/src/pages/RecommendationsPage.tsx
-/**
- * F1.5 - AI Recommendations Page (FINAL FIX)
- * 
- * FIXES:
- * - Prevent duplicate API calls
- * - Better day change handling
- * - Debounced location detection
- */
 
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
@@ -217,7 +209,7 @@ export default function RecommendationsPage() {
         
         const sortedCities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]);
         detectedLocation = sortedCities[0][0];
-        console.log(`✅ LOCATION DETECTED: "${detectedLocation}"`);
+        console.log(`LOCATION DETECTED: "${detectedLocation}"`);
       } else {
         console.log(`⚠️ No cities found, using default: ${destination}`);
       }
@@ -238,11 +230,11 @@ export default function RecommendationsPage() {
       return;
     }
     
-    console.log(`\n🔄 Scheduling recommendations refresh for: ${currentDayLocation} (Day ${selectedDay + 1})`);
+    console.log(`\nScheduling recommendations refresh for: ${currentDayLocation} (Day ${selectedDay + 1})`);
     
     // Cancel any pending request
     if (abortControllerRef.current) {
-      console.log("🚫 Cancelling previous request");
+      console.log("Cancelling previous request");
       abortControllerRef.current.abort();
     }
     
@@ -251,7 +243,7 @@ export default function RecommendationsPage() {
       if (!loadingRef.current) {
         loadRecommendations();
       } else {
-        console.log("⏸️ Already loading, skipping duplicate request");
+        console.log("⏸Already loading, skipping duplicate request");
       }
     }, 300); // 300ms debounce
     
@@ -295,7 +287,7 @@ export default function RecommendationsPage() {
           culture: [],
         };
         
-        console.log("✅ Recommendations loaded:");
+        console.log("Recommendations loaded:");
         console.log(`  - Nearby: ${newCategories.nearby.length}`);
         console.log(`  - Food: ${newCategories.food.length}`);
         console.log(`  - Culture: ${newCategories.culture.length}`);
@@ -313,7 +305,7 @@ export default function RecommendationsPage() {
         console.log("⏸️ Request was cancelled");
         return;
       }
-      console.error("❌ Failed to load recommendations:", err);
+      console.error("Failed to load recommendations:", err);
       setError(err.message || "Failed to load recommendations");
       setCategories({
         nearby: [],
@@ -347,7 +339,7 @@ export default function RecommendationsPage() {
       });
       
       if (response.success) {
-        alert(`✅ ${response.message}`);
+        alert(`${response.message}`);
         
         // Reload trip
         const data: TripResponse = await apiFetch(`/f1/trips/${tripId}/`);
@@ -357,8 +349,8 @@ export default function RecommendationsPage() {
         await loadRecommendations();
       }
     } catch (err: any) {
-      alert(`❌ Failed to add: ${err.message}`);
-      console.error("❌ Failed to add:", err);
+      alert(`Failed to add: ${err.message}`);
+      console.error("Failed to add:", err);
     }
   };
   

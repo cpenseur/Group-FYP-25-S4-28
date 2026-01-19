@@ -1,5 +1,6 @@
 // frontend/src/pages/mediaHighlights.tsx
-// ✅ FIXED: Exactly matching RecommendationsPage pattern - no waiting, direct render
+// ✅ FIXED: Using mapItems state pattern from notesAndChecklistPage + larger map
+// ✅ FIXED: All TypeScript implicit 'any' errors resolved
 
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -7,7 +8,7 @@ import { apiFetch } from "../lib/apiClient";
 import { supabase } from "../lib/supabaseClient";
 import { generateMapTripVideo } from "../lib/videoGenerator";
 import TripSubHeader from "../components/TripSubHeader";
-import ItineraryMap from "../components/ItineraryMap";
+import ItineraryMap, { MapItineraryItem } from "../components/ItineraryMap";
 import AutoGenerateVideoModal from "../components/AutoGenerateVideoModal";
 import {
   Upload,
@@ -94,10 +95,11 @@ export default function MediaHighlights() {
   const { tripId } = useParams();
   const navigate = useNavigate();
 
-  // ✅ EXACTLY like RecommendationsPage - simple state
+  // ✅ EXACTLY like notesAndChecklistPage - with mapItems state
   const [trip, setTrip] = useState<Trip | null>(null);
   const [items, setItems] = useState<ItineraryItem[]>([]);
   const [days, setDays] = useState<TripDay[]>([]);
+  const [mapItems, setMapItems] = useState<MapItineraryItem[]>([]); // ✅ NEW!
   const [photos, setPhotos] = useState<TripPhoto[]>([]);
   const [highlights, setHighlights] = useState<MediaHighlight[]>([]);
   const [loading, setLoading] = useState(true);
@@ -153,7 +155,7 @@ export default function MediaHighlights() {
     getCurrentUser();
   }, []);
 
-  // ✅ EXACTLY like RecommendationsPage - single useEffect for data loading
+  // ✅ EXACTLY like notesAndChecklistPage - load trip and set mapItems
   useEffect(() => {
     if (!tripId) return;
 
@@ -174,11 +176,36 @@ export default function MediaHighlights() {
           items: tripData.items?.length,
         });
 
+        const safeDays = Array.isArray(tripData?.days) ? tripData.days : [];
+        const safeItems = Array.isArray(tripData?.items) ? tripData.items : [];
+
         setTrip(tripData);
-        setItems(tripData.items || []);
-        setDays(tripData.days || []);
+        setItems(safeItems);
+        setDays(safeDays);
         
-        console.log(`✅ Set ${(tripData.items || []).length} items and ${(tripData.days || []).length} days to state`);
+        console.log(`✅ Set ${safeItems.length} items and ${safeDays.length} days to state`);
+
+        // ✅ FIXED: Add explicit type annotation to forEach callback
+        const dayIndexMap = new Map<number, number>();
+        safeDays.forEach((d: TripDay) => dayIndexMap.set(d.id, d.day_index));
+
+        // ✅ FIXED: Add explicit type annotations to filter, sort, and map callbacks
+        const mapped: MapItineraryItem[] = safeItems
+          .filter((it: ItineraryItem) => it.lat != null && it.lon != null)
+          .sort((a: ItineraryItem, b: ItineraryItem) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+          .map((it: ItineraryItem) => ({
+            id: it.id,
+            title: it.title,
+            address: it.address ?? null,
+            lat: it.lat!,
+            lon: it.lon!,
+            sort_order: it.sort_order ?? null,
+            day_index: it.day ? dayIndexMap.get(it.day) ?? null : null,
+            stop_index: null,
+          }));
+
+        setMapItems(mapped);
+        console.log(`🗺️ Set ${mapped.length} map items`);
 
         // Load photos
         const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
@@ -186,16 +213,6 @@ export default function MediaHighlights() {
         
         const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
         console.log(`📸 Photos loaded: ${tripPhotos.length} (filtered from ${photosList.length})`);
-        
-        if (tripPhotos.length > 0) {
-          console.log("Sample photo:", {
-            id: tripPhotos[0].id,
-            trip: tripPhotos[0].trip,
-            lat: tripPhotos[0].lat,
-            lon: tripPhotos[0].lon,
-            itinerary_item: tripPhotos[0].itinerary_item,
-          });
-        }
         
         setPhotos(tripPhotos);
 
@@ -206,6 +223,10 @@ export default function MediaHighlights() {
         console.log("=== ✅ Data Loading Complete ===\n");
       } catch (error) {
         console.error("Failed to load data:", error);
+        setTrip(null);
+        setDays([]);
+        setItems([]);
+        setMapItems([]);
       } finally {
         setLoading(false);
       }
@@ -636,42 +657,21 @@ export default function MediaHighlights() {
     return item?.title || "";
   }
 
-  // ✅ EXACTLY like RecommendationsPage - prepare map items (computed, no waiting)
-  const dayIndexMap = new Map(days.map((d) => [d.id, d.day_index]));
-  
-  const itemsInTripOrder = [...items].sort((a, b) => {
-    const da = dayIndexMap.get(a.day ?? 0) ?? 0;
-    const db = dayIndexMap.get(b.day ?? 0) ?? 0;
-    if (da !== db) return da - db;
-    return (a.sort_order ?? 0) - (b.sort_order ?? 0);
-  });
-
-  const mapItems = itemsInTripOrder.map((it, idx) => {
-    const dayIdx = dayIndexMap.get(it.day ?? 0) ?? null;
-    return {
-      id: it.id,
-      title: it.title,
-      address: it.address,
-      lat: it.lat,
-      lon: it.lon,
-      sort_order: idx + 1,
-      day_index: dayIdx,
-      stop_index: null,
-    };
-  });
-
   // Prepare photo markers
-  const photoMarkers = photos
-    .filter((p) => p.lat && p.lon && p.trip === parseInt(tripId || "0"))
-    .map((p) => ({
-      id: p.id,
-      file_url: p.file_url,
-      lat: p.lat!,
-      lon: p.lon!,
-      caption: p.caption,
-    }));
+  // FIX: Memoize photoMarkers to prevent unnecessary re-renders
+  const photoMarkers = React.useMemo(() => {
+    return photos
+      .filter((p: TripPhoto) => p.lat && p.lon && p.trip === parseInt(tripId || "0"))
+      .map((p: TripPhoto) => ({
+        id: p.id,
+        file_url: p.file_url,
+        lat: p.lat!,
+        lon: p.lon!,
+        caption: p.caption,
+      }));
+  }, [photos, tripId]);
 
-  console.log("🗺️ mapItems:", mapItems.length, "items,", mapItems.filter(i => i.lat && i.lon).length, "with coords");
+  console.log("🗺️ mapItems:", mapItems.length, "items");
   console.log("📸 Photo markers:", photoMarkers.length);
 
   // Group photos by day
@@ -738,36 +738,34 @@ export default function MediaHighlights() {
       `}</style>
 
       <div style={pageContainer}>
-        {/* ✅ EXACTLY like RecommendationsPage grid */}
+        {/* ✅ NEW: Three column layout - BIG MAP on left */}
         <div style={{
+          maxWidth: 1400,
+          margin: "0 auto",
+          padding: 24,
           display: "grid",
-          gridTemplateColumns: "minmax(0, 2fr) minmax(0, 2fr)",
-          columnGap: "0rem",
-          alignItems: "flex-start",
-          width: "100%",
-          margin: 0,
-          padding: 0,
+          gridTemplateColumns: "1.2fr 0.8fr", // ✅ Bigger map column
+          gap: 20,
+          alignItems: "start",
         }}>
-          {/* LEFT: Map - ✅ NO WAITING, direct render like RecommendationsPage */}
+          {/* LEFT: BIG MAP (like notesAndChecklistPage) */}
           <div style={{
-            position: "sticky",
-            top: 90,
-            height: "calc(90vh - 90px)",
-            background: "#e5e7eb",
-            borderRadius: 0,
+            background: "#fff",
+            borderRadius: 18,
+            border: "1px solid #e8edff",
+            boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)",
             overflow: "hidden",
-            boxShadow: "none",
+            minHeight: 700, // ✅ Taller map
           }}>
+            {/* ✅ EXACTLY like notesAndChecklistPage */}
             <ItineraryMap items={mapItems} photos={photoMarkers} />
           </div>
 
           {/* RIGHT: Content */}
           <div style={{
-            height: "calc(90vh - 90px)",
-            backgroundColor: "white",
-            padding: "1.25rem 1.25rem 1rem",
-            boxShadow: "0 8px 20px rgba(15,23,42,0.08)",
-            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
           }}>
             <div style={actionButtons}>
               <button onClick={() => setShowUploadModal(true)} style={uploadButton}>
@@ -1272,12 +1270,12 @@ export default function MediaHighlights() {
 
 // Styles
 const loadingContainer: React.CSSProperties = { minHeight: "calc(100vh - 90px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#f9fafb" };
-const pageContainer: React.CSSProperties = { background: "#f9fafb", minHeight: "calc(100vh - 90px)", padding: 0, fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' };
-const actionButtons: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 };
+const pageContainer: React.CSSProperties = { background: "#f5f7fb", minHeight: "100vh", padding: 0, fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' };
+const actionButtons: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10, background: "#fff", borderRadius: 16, padding: "16px 18px", boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)", border: "1px solid #e8edff" };
 const uploadButton: React.CSSProperties = { padding: "10px 16px", borderRadius: 12, border: "none", background: "linear-gradient(135deg, #f59e0b 0%, #f97316 100%)", color: "white", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer", boxShadow: "0 4px 12px rgba(245, 158, 11, 0.25)" };
 const generateButton: React.CSSProperties = { padding: "10px 16px", borderRadius: 12, border: "1px solid #e5e7eb", background: "white", color: "#111827", fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, cursor: "pointer" };
-const timelineCard: React.CSSProperties = { background: "#fafafa", borderRadius: 16, padding: 16, border: "1px solid #e5e7eb", marginBottom: 16 };
-const cardTitle: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 12 };
+const timelineCard: React.CSSProperties = { background: "#fff", borderRadius: 16, padding: "16px 18px", border: "1px solid #e8edff", boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)" };
+const cardTitle: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700, color: "#1a2b4d", marginBottom: 12 };
 const photoList: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10, maxHeight: 400, overflowY: "auto" };
 const dayHeader: React.CSSProperties = { display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "#f3f4f6", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#374151" };
 const photoItem: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, padding: 10, background: "white", borderRadius: 12, border: "1px solid #e5e7eb", transition: "all 0.2s ease", position: "relative" };
@@ -1286,7 +1284,7 @@ const photoItemMeta: React.CSSProperties = { fontSize: 11, color: "#6b7280", mar
 const photoItemLocation: React.CSSProperties = { fontSize: 11, color: "#f59e0b", marginTop: 2, display: "flex", alignItems: "center", gap: 4 };
 const editButton: React.CSSProperties = { width: 28, height: 28, borderRadius: 8, border: "none", background: "#dbeafe", color: "#2563eb", display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0 };
 const deleteButton: React.CSSProperties = { width: 28, height: 28, borderRadius: 8, border: "none", background: "#fee2e2", color: "#ef4444", display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0 };
-const highlightsCard: React.CSSProperties = { background: "#fafafa", borderRadius: 16, padding: 16, border: "1px solid #e5e7eb" };
+const highlightsCard: React.CSSProperties = { background: "#fff", borderRadius: 16, padding: "16px 18px", border: "1px solid #e8edff", boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)" };
 const highlightsList: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10 };
 const highlightItem: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", padding: 10, background: "white", borderRadius: 12, border: "1px solid #e5e7eb", transition: "all 0.2s ease" };
 const highlightMainContent: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, flex: 1, cursor: "pointer" };
@@ -1303,6 +1301,6 @@ const modalHeader: React.CSSProperties = { display: "flex", alignItems: "center"
 const closeButton: React.CSSProperties = { width: 32, height: 32, borderRadius: 8, border: "none", background: "#f3f4f6", display: "grid", placeItems: "center", cursor: "pointer" };
 const dropZone: React.CSSProperties = { border: "2px dashed #d1d5db", borderRadius: 12, padding: "40px 20px", textAlign: "center", cursor: "pointer", transition: "all 0.2s ease", color: "#6b7280" };
 const dropZoneActive: React.CSSProperties = { borderColor: "#f59e0b", background: "#fffbeb", color: "#f59e0b" };
-const filesList: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 12, maxHeight: 400, overflowY: "auto" };
+const filesList: React.CSSStyles = { display: "flex", flexDirection: "column", gap: 12, maxHeight: 400, overflowY: "auto" };
 const fileItem: React.CSSProperties = { display: "flex", gap: 12, padding: 12, border: "1px solid #e5e7eb", borderRadius: 12, background: "white" };
 const inputStyle: React.CSSProperties = { width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none" };

@@ -1,7 +1,4 @@
 // frontend/src/lib/videoGenerator.ts
-// OPTIMIZED VERSION - Faster, smoother, more like reference video
-// ✅ FIXED: Smaller fonts that fit within video frame
-
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -115,7 +112,7 @@ export class MapVideoGenerator {
       for (let i = 0; i < groups.length; i++) {
         const group = groups[i];
 
-        // ✅ FIRST STOP: Check if we have a starting location
+        // FIRST STOP: Check if we have a starting location
         if (i === 0) {
           if (options.startingLocation) {
             // Show journey from starting location to first stop
@@ -147,7 +144,7 @@ export class MapVideoGenerator {
             currentFrame += 2 * FPS;
           }
         } else {
-          // ✅ TRAVEL ANIMATION between stops
+          // TRAVEL ANIMATION between stops
           const prevGroup = groups[i - 1];
           const key = `${prevGroup.stop.id}-${group.stop.id}`;
           const transport = transportModes[key] || "plane";
@@ -166,7 +163,7 @@ export class MapVideoGenerator {
           currentFrame += 5 * FPS;
         }
 
-        // ✅ Photos at this location (if any)
+        // Photos at this location (if any)
         if (group.photos.length > 0) {
           if (onProgress) {
             const progress = (currentFrame / totalFrames) * 100;
@@ -179,7 +176,7 @@ export class MapVideoGenerator {
             group.photos.length * PHOTO_DURATION * FPS + 
             TRANSITION_DURATION * FPS;
         } else {
-          // ✅ No photos - just show location briefly
+          // No photos - just show location briefly
           if (onProgress) {
             const progress = (currentFrame / totalFrames) * 100;
             onProgress(progress, `Visiting ${group.stop.title}...`);
@@ -268,12 +265,10 @@ export class MapVideoGenerator {
       ctx.globalAlpha = opacity;
       ctx.fillStyle = "white";
       
-      // ✅ FIXED: Smaller title font (80px instead of 120px)
       ctx.font = "bold 80px Arial";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       
-      // ✅ Word wrap for long titles
       const maxWidth = CANVAS_WIDTH - 100;
       const words = title.split(' ');
       const lines: string[] = [];
@@ -298,7 +293,6 @@ export class MapVideoGenerator {
         ctx.fillText(line, CANVAS_WIDTH / 2, startY + idx * lineHeight);
       });
 
-      // ✅ FIXED: Smaller subtitle (40px instead of 60px)
       ctx.font = "40px Arial";
       ctx.fillText("✈️ Trip Highlights 🎬", CANVAS_WIDTH / 2, startY + lines.length * lineHeight + 60);
       
@@ -489,7 +483,6 @@ export class MapVideoGenerator {
 
         this.drawLocationLabel(locationTitle, CANVAS_WIDTH / 2, 80);
 
-        // ✅ FIXED: Smaller counter font (36px instead of 48px)
         ctx.fillStyle = "white";
         ctx.font = "bold 36px Arial";
         ctx.textAlign = "center";
@@ -499,7 +492,6 @@ export class MapVideoGenerator {
           CANVAS_HEIGHT - 80
         );
 
-        // ✅ FIXED: Smaller caption font (28px instead of 36px)
         if (photo.caption) {
           ctx.font = "28px Arial";
           
@@ -563,7 +555,7 @@ export class MapVideoGenerator {
       ctx.globalAlpha = opacity;
       ctx.fillStyle = "white";
       
-      // ✅ FIXED: Smaller end font (70px instead of 100px)
+      // Smaller end font (70px instead of 100px)
       ctx.font = "bold 70px Arial";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -580,7 +572,6 @@ export class MapVideoGenerator {
     ctx.save();
     ctx.globalAlpha = opacity;
     
-    // ✅ FIXED: Smaller location label font (36px instead of 48px)
     ctx.font = "bold 36px Arial";
     const metrics = ctx.measureText(text);
     const textWidth = metrics.width;

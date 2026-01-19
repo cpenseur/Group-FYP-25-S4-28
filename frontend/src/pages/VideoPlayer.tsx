@@ -1,5 +1,4 @@
 // src/pages/VideoPlayer.tsx
-// Enhanced video player with DOWNLOAD button
 
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -72,7 +71,6 @@ export default function VideoPlayer() {
     videoRef.current.requestFullscreen();
   };
 
-  // 🔥 NEW: Download video function
   const handleDownload = async () => {
     if (!highlight) return;
 
@@ -95,10 +93,10 @@ export default function VideoPlayer() {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
-      alert("✅ Video downloaded successfully!");
+      alert("Video downloaded successfully!");
     } catch (error) {
       console.error("Download failed:", error);
-      alert("❌ Failed to download video. Please try again.");
+      alert("Failed to download video. Please try again.");
     } finally {
       setDownloading(false);
     }
@@ -182,7 +180,7 @@ export default function VideoPlayer() {
           {/* Video title */}
           <div style={videoTitle}>{highlight.title}</div>
 
-          {/* 🔥 NEW: Download button */}
+          {/*Download button */}
           <button
             onClick={handleDownload}
             style={downloadButton}
@@ -326,7 +324,7 @@ const videoTitle: React.CSSProperties = {
   textAlign: "center",
 };
 
-// 🔥 NEW: Download button styles
+//Download button styles
 const downloadButton: React.CSSProperties = {
   display: "flex",
   alignItems: "center",

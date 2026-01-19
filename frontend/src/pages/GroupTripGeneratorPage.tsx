@@ -77,7 +77,6 @@ export default function GroupTripGeneratorPage() {
 
   const [durationDays, setDurationDays] = useState(3);
 
-  // ✅ EXPANDED: More destination type options
   const destinationTypeOptions: ChipValue[] = [
     "Tropical",
     "Beach/Coastal",
@@ -95,7 +94,6 @@ export default function GroupTripGeneratorPage() {
   ];
   const [selectedDestinationTypes, setSelectedDestinationTypes] = useState<ChipValue[]>([]);
 
-  // ✅ EXPANDED: More activity options
   const activityOptions: ChipValue[] = [
     "Luxury/Shopping",
     "Adventure",
@@ -119,13 +117,10 @@ export default function GroupTripGeneratorPage() {
   ];
   const [selectedActivities, setSelectedActivities] = useState<ChipValue[]>([]);
 
-  // ✅ NEW: Activities expansion state
   const [activitiesExpanded, setActivitiesExpanded] = useState(false);
 
-  // ✅ NEW: Destination types expansion state
   const [destTypesExpanded, setDestTypesExpanded] = useState(false);
 
-  // ✅ NEW: Currency selector
   const [selectedCurrency, setSelectedCurrency] = useState("USD");
   const [currencyModalOpen, setCurrencyModalOpen] = useState(false);
   
@@ -435,7 +430,7 @@ export default function GroupTripGeneratorPage() {
     }
   };
 
-  // ✅ Sparkles SVG Icon for Done button
+  // Sparkles SVG Icon for Done button
   const SparklesIcon = () => (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M12 2L13.09 7.26L15.18 3.82L14.82 9.54L19.07 5.93L16.18 10.18L21.5 9.5L16.88 12L21.5 14.5L16.18 13.82L19.07 18.07L14.82 14.46L15.18 20.18L13.09 16.74L12 22L10.91 16.74L8.82 20.18L9.18 14.46L4.93 18.07L7.82 13.82L2.5 14.5L7.12 12L2.5 9.5L7.82 10.18L4.93 5.93L9.18 9.54L8.82 3.82L10.91 7.26L12 2Z" 
@@ -807,7 +802,6 @@ export default function GroupTripGeneratorPage() {
     },
   };
 
-  // ✅ Add CSS animations
   React.useEffect(() => {
     const styleSheet = document.createElement("style");
     styleSheet.textContent = `

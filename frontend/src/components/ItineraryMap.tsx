@@ -1,5 +1,4 @@
 // frontend/src/components/ItineraryMap.tsx
-// ✅ FIXED: Better bounds handling, ensure numbered markers and routes are always visible
 import React, { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -69,77 +68,50 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
   const boundsAppliedRef = useRef(false);
 
   const [selectedPhoto, setSelectedPhoto] = useState<PhotoMarker | null>(null);
+  // FIX: Add state to trigger re-render when map style loads
+  const [styleReady, setStyleReady] = useState(false);
 
-  // ✅ Compute bounds from items and photos
+  // Compute bounds from items and photos
   const computedBounds = React.useMemo(() => {
-    console.log("🔍 Computing bounds from items and photos...");
-    console.log("  - items:", items.length);
-    console.log("  - photos:", photos.length);
-    
     const allPoints: Array<{ lat: number; lon: number }> = [];
 
-    // Add item coordinates
     items.forEach(item => {
       if (item.lat != null && item.lon != null) {
         allPoints.push({ lat: item.lat, lon: item.lon });
       }
     });
 
-    // Add photo coordinates
     photos.forEach(photo => {
       if (photo.lat != null && photo.lon != null) {
         allPoints.push({ lat: photo.lat, lon: photo.lon });
       }
     });
 
-    console.log("  - Total points with coords:", allPoints.length);
-    if (allPoints.length > 0) {
-      console.log("  - Sample points:", allPoints.slice(0, 3));
-    }
-
-    if (allPoints.length === 0) {
-      console.log("⚠️ No points with coordinates!");
-      return null;
-    }
+    if (allPoints.length === 0) return null;
 
     const lats = allPoints.map(p => p.lat);
     const lons = allPoints.map(p => p.lon);
 
-    const boundsCalc = {
+    return {
       minLat: Math.min(...lats),
       maxLat: Math.max(...lats),
       minLon: Math.min(...lons),
       maxLon: Math.max(...lons),
     };
-
-    console.log("✅ Computed bounds:", boundsCalc);
-    return boundsCalc;
   }, [items, photos]);
 
-  // Use provided bounds or computed bounds
   const effectiveBounds = bounds || computedBounds;
-
-  console.log("🗺️ ItineraryMap render:", {
-    items: items.length,
-    photos: photos.length,
-    boundsProp: bounds,
-    computedBounds: computedBounds,
-    effectiveBounds: effectiveBounds
-  });
 
   // Init map once
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
-    console.log("🏗️ Initializing map...");
-
-    const styleUrl =
-      "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
+    const styleUrl = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
       style: styleUrl,
-      center: [139.6917, 35.6895], // Tokyo default
+      center: [139.6917, 35.6895],
       zoom: 10,
     });
 
@@ -149,15 +121,15 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
       console.error("MapLibre error:", (e as any).error);
     });
 
+    // FIX: Set React state to trigger re-render of effects
     map.on("load", () => {
-      console.log("✅ Map style loaded");
       styleReadyRef.current = true;
+      setStyleReady(true);
     });
 
     mapRef.current = map;
 
     return () => {
-      console.log("🧹 Cleaning up map");
       try {
         map.remove();
       } catch {
@@ -165,87 +137,42 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
       }
       mapRef.current = null;
       styleReadyRef.current = false;
+      setStyleReady(false);
       boundsAppliedRef.current = false;
     };
   }, []);
 
-  // ✅ Apply bounds when map is ready and bounds are available
+  // Apply bounds when ready
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !effectiveBounds) {
-      console.log("⏳ Waiting for map or bounds...");
-      return;
+    if (!map || !effectiveBounds || !styleReady) return;
+
+    const { minLat, maxLat, minLon, maxLon } = effectiveBounds;
+
+    try {
+      const bounds = new maplibregl.LngLatBounds(
+        [minLon, minLat],
+        [maxLon, maxLat]
+      );
+
+      map.fitBounds(bounds, {
+        padding: 80,
+        maxZoom: 13,
+        duration: 500,
+      });
+
+      boundsAppliedRef.current = true;
+    } catch (err) {
+      console.error("Failed to apply bounds:", err);
     }
+  }, [effectiveBounds, styleReady]);
 
-    console.log("🎯 Bounds effect triggered");
-    console.log("  - styleReady:", styleReadyRef.current);
-    console.log("  - boundsApplied:", boundsAppliedRef.current);
-    console.log("  - effectiveBounds:", effectiveBounds);
-
-    const applyBounds = () => {
-      if (!effectiveBounds) return;
-
-      const { minLat, maxLat, minLon, maxLon } = effectiveBounds;
-
-      console.log(`📐 Applying bounds: [${minLon}, ${minLat}] to [${maxLon}, ${maxLat}]`);
-
-      try {
-        const bounds = new maplibregl.LngLatBounds(
-          [minLon, minLat],
-          [maxLon, maxLat]
-        );
-
-        map.fitBounds(bounds, {
-          padding: 80,
-          maxZoom: 13,
-          duration: 500,
-        });
-
-        boundsAppliedRef.current = true;
-        console.log("✅ Bounds applied successfully!");
-      } catch (err) {
-        console.error("❌ Failed to apply bounds:", err);
-      }
-    };
-
-    if (styleReadyRef.current && map.isStyleLoaded?.()) {
-      console.log("✅ Style already loaded, applying bounds immediately");
-      applyBounds();
-    } else {
-      console.log("⏳ Waiting for style to load...");
-      const onLoad = () => {
-        console.log("✅ Style loaded, applying bounds");
-        styleReadyRef.current = true;
-        applyBounds();
-      };
-      
-      map.once("load", onLoad);
-      
-      return () => {
-        map.off("load", onLoad);
-      };
-    }
-  }, [effectiveBounds]);
-
-  // Update stop markers + route when items change
+  // Update markers and route - FIX: Wait for styleReady
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !styleReady) return;
 
-    console.log("🎨 Updating markers and routes...");
-
-    if (!styleReadyRef.current || !map.isStyleLoaded()) {
-      console.log("⏳ Style not ready yet, waiting...");
-      const onLoad = () => {
-        styleReadyRef.current = true;
-      };
-      map.once("load", onLoad);
-      return () => {
-        map.off("load", onLoad);
-      };
-    }
-
-    // Clear old stop markers
+    // Clear old markers
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
 
@@ -258,17 +185,14 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
       return a.id - b.id;
     });
 
-    console.log(`📍 Creating ${sorted.length} numbered markers...`);
-
     sorted.forEach((item, idx) => {
       if (item.lat == null || item.lon == null) return;
 
       const seq = item.sort_order ?? (idx + 1);
       const dayIdx = item.day_index ?? 1;
-
       const color = getMapDayColor(dayIdx);
 
-      // ✅ Create numbered circular marker
+      // Create numbered marker
       const el = document.createElement("div");
       el.style.width = "32px";
       el.style.height = "32px";
@@ -303,25 +227,15 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
 
       markersRef.current.push(marker);
       coords.push([item.lon, item.lat]);
-
-      console.log(`  ✅ Marker ${seq}: ${item.title} at [${item.lon}, ${item.lat}]`);
     });
 
-    // ✅ Route layer/source
+    // Create route
     const removeRoute = () => {
-      if (map.getLayer(ROUTE_ID)) {
-        console.log("🗑️ Removing old route layer");
-        map.removeLayer(ROUTE_ID);
-      }
-      if (map.getSource(ROUTE_ID)) {
-        console.log("🗑️ Removing old route source");
-        map.removeSource(ROUTE_ID);
-      }
+      if (map.getLayer(ROUTE_ID)) map.removeLayer(ROUTE_ID);
+      if (map.getSource(ROUTE_ID)) map.removeSource(ROUTE_ID);
     };
 
     if (coords.length >= 2) {
-      console.log(`🛣️ Creating route with ${coords.length} points`);
-
       const routeGeoJson: GeoJSON.Feature<GeoJSON.LineString> = {
         type: "Feature",
         geometry: { type: "LineString", coordinates: coords },
@@ -349,31 +263,24 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
           "line-opacity": 0.85,
         },
       });
-
-      console.log("✅ Route created!");
     } else {
-      console.log("⚠️ Not enough points for route");
       removeRoute();
     }
-  }, [items]);
+  }, [items, styleReady]); // FIX: Add styleReady dependency
 
-  // Add photo markers when photos change
+  // Add photo markers
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !styleReady) return;
 
-    // Clear old photo markers
     photoMarkersRef.current.forEach((m) => m.remove());
     photoMarkersRef.current = [];
 
     if (!photos || photos.length === 0) return;
 
-    console.log(`📸 Rendering ${photos.length} photo markers on map`);
-
     photos.forEach((photo) => {
       if (!photo.lat || !photo.lon) return;
 
-      // Create photo marker element (square thumbnail)
       const el = document.createElement("div");
       el.style.width = "50px";
       el.style.height = "50px";
@@ -388,7 +295,6 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
       el.style.transition = "transform 0.2s ease";
       el.style.zIndex = "50";
 
-      // Hover effect
       el.addEventListener("mouseenter", () => {
         el.style.transform = "scale(1.1)";
         el.style.zIndex = "200";
@@ -399,7 +305,6 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
         el.style.zIndex = "50";
       });
 
-      // Click to preview
       el.addEventListener("click", (e) => {
         e.stopPropagation();
         setSelectedPhoto(photo);
@@ -411,7 +316,7 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
 
       photoMarkersRef.current.push(marker);
     });
-  }, [photos]);
+  }, [photos, styleReady]); // FIX: Add styleReady dependency
 
   return (
     <>
@@ -420,7 +325,6 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
         style={{ width: "100%", height: "100%", minHeight: "520px" }}
       />
 
-      {/* Photo preview modal */}
       {selectedPhoto && (
         <div
           style={{

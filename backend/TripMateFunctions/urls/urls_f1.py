@@ -93,9 +93,7 @@ urlpatterns = [
         name="f1-adaptive-plan",
     ),
 
-    # ============================================================================
     # F1.5 - AI Recommendations (Simplified - Real-time AI, No Database)
-    # ============================================================================
     path(
         "recommendations/ai/",
         AIRecommendationsView.as_view(),
@@ -107,9 +105,7 @@ urlpatterns = [
         name="f15-quick-add",
     ),
 
-    # ============================================================================
     # F1.6 - Destination FAQ
-    # ============================================================================
     path(
         "destination-faq/",
         F16DestinationFAQView.as_view(),

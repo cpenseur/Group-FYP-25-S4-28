@@ -1,5 +1,4 @@
 // frontend/src/pages/groupWaitForFriends.tsx
-// ✅ FIXED: Reduced polling from 3s to 10s to prevent database connection exhaustion
 
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -39,10 +38,10 @@ export default function GroupWaitForFriends() {
       const tripData = await apiFetch(`/f1/trips/${tripId}/`);
 
       // Check if trip has been generated
-      console.log("📊 Trip travel_type:", tripData.travel_type);
+      console.log("Trip travel_type:", tripData.travel_type);
       
       if (tripData.travel_type === "group_ai") {
-        console.log("✅ Trip already generated! Navigating to summary...");
+        console.log("Trip already generated! Navigating to summary...");
         navigate(`/group-trip/${tripId}/summary`);
         return;
       }
@@ -53,7 +52,6 @@ export default function GroupWaitForFriends() {
         return;
       }
 
-      // ✅ Use correct endpoint to fetch group preferences
       let preferencesData: any[] = [];
       try {
         preferencesData = await apiFetch(`/f1/trips/${tripId}/group-preferences/`);
@@ -106,7 +104,6 @@ export default function GroupWaitForFriends() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId]);
 
-  // ✅ FIXED: Poll for status updates every 10 seconds (was 3 seconds)
   useEffect(() => {
     if (!tripId || loading) return;
 

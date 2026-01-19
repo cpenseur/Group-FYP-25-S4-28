@@ -303,12 +303,12 @@ export default function GroupItinerarySummary() {
 
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
 
-  // ✅ Background animations
+  //Background animations
   const seeded = useRef<number>(Math.floor(Math.random() * 1e9));
 
   const userExpandedDayRef = useRef<number | null>(null);
 
-  // ✅ Stars animation
+  // Stars animation
   const stars = useMemo(() => {
     return Array.from({ length: 90 }).map((_, i) => ({
       id: i,
@@ -320,7 +320,7 @@ export default function GroupItinerarySummary() {
     }));
   }, []);
 
-  // ✅ Flight paths animation
+  // Flight paths animation
   const flights = useMemo(
     () => [
       {
@@ -345,7 +345,7 @@ export default function GroupItinerarySummary() {
     []
   );
 
-  // ✅ Floaters animation
+  // Floaters animation
   const floaters = useMemo(() => {
     const seed = seeded.current;
     const keywords = groupPreferences.flatMap(p => p.preferences).slice(0, 20);
@@ -1180,7 +1180,7 @@ export default function GroupItinerarySummary() {
 
   return (
     <div style={styles.page}>
-      {/* ✅ BACKGROUND ANIMATIONS */}
+      {/* BACKGROUND ANIMATIONS */}
       <div style={styles.magicBg}>
         <div style={styles.aurora} />
         <div style={styles.mist} />
@@ -1283,13 +1283,13 @@ export default function GroupItinerarySummary() {
       </div>
 
       <div style={styles.container}>
-        {/* ✅ AI BADGE */}
+        {/* AI BADGE */}
         <div style={styles.aiBadge}>
           <span style={{ fontSize: "20px" }}>✨</span>
           <span>AI-GENERATED ITINERARY</span>
         </div>
 
-        {/* ✅ HERO SECTION */}
+        {/* HERO SECTION */}
         <div style={styles.heroSection}>
           <img 
             src={getDestinationImage(destination)} 
@@ -1303,7 +1303,7 @@ export default function GroupItinerarySummary() {
               <span>Personalized {tripDays}-day adventure powered by AI</span>
             </div>
 
-            {/* ✅ STATS BAR */}
+            {/* STATS BAR */}
             <div style={styles.statsBar}>
               <div style={styles.statItem}>
                 <div style={styles.statValue}>{tripDays}</div>
@@ -1478,7 +1478,7 @@ export default function GroupItinerarySummary() {
                       DAY {day.day} · {day.date}
                     </span>
                     
-                    {/* ✅ NEW: + / - ICON */}
+                    {/* NEW: + / - ICON */}
                     <div 
                       style={{
                         ...styles.expandButton,

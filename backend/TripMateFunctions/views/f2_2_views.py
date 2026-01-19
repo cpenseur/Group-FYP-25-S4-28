@@ -56,7 +56,7 @@ class TripGroupPreferencesAPIView(APIView):
 class F22GroupTripGeneratorView(APIView):
     """
     POST /api/f2/trips/{trip_id}/generate-group-itinerary/
-    ✅ NOW SUPPORTS MULTI-CITY ITINERARIES (e.g., London + Edinburgh)
+    NOW SUPPORTS MULTI-CITY ITINERARIES (e.g., London + Edinburgh)
     """
     permission_classes = [IsAuthenticated]
 
@@ -83,7 +83,7 @@ class F22GroupTripGeneratorView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # ✅ Set intermediate status for regeneration
+        # Set intermediate status for regeneration
         trip.travel_type = "group_generating"
         trip.save()
         logger.info(f"✅ Trip {trip_id} status: group_generating")
@@ -124,7 +124,7 @@ class F22GroupTripGeneratorView(APIView):
                 budget_min = prefs_data.get("budget_min")
                 budget_max = prefs_data.get("budget_max")
                 
-                # ✅ Read dates AND duration from preferences
+                # Read dates AND duration from preferences
                 start_date_str = prefs_data.get("start_date")
                 end_date_str = prefs_data.get("end_date")
                 duration_days = prefs_data.get("duration_days")
@@ -150,37 +150,37 @@ class F22GroupTripGeneratorView(APIView):
                     except (ValueError, TypeError):
                         pass
                 
-                # ✅ Parse start date
+                # Parse start date
                 if start_date_str:
                     try:
                         if isinstance(start_date_str, str):
                             start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
                             start_dates.append(start_date)
-                            logger.info(f"✅ Parsed start_date: {start_date}")
+                            logger.info(f"Parsed start_date: {start_date}")
                         else:
                             start_dates.append(start_date_str)
                     except (ValueError, TypeError) as e:
-                        logger.error(f"❌ Failed to parse start_date: {start_date_str}, error: {e}")
+                        logger.error(f"Failed to parse start_date: {start_date_str}, error: {e}")
                 
-                # ✅ Parse end date
+                # Parse end date
                 if end_date_str:
                     try:
                         if isinstance(end_date_str, str):
                             end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
                             end_dates.append(end_date)
-                            logger.info(f"✅ Parsed end_date: {end_date}")
+                            logger.info(f"Parsed end_date: {end_date}")
                         else:
                             end_dates.append(end_date_str)
                     except (ValueError, TypeError) as e:
-                        logger.error(f"❌ Failed to parse end_date: {end_date_str}, error: {e}")
+                        logger.error(f"Failed to parse end_date: {end_date_str}, error: {e}")
                 
-                # ✅ Collect duration_days
+                # Collect duration_days
                 if duration_days:
                     try:
                         duration_days_list.append(int(duration_days))
-                        logger.info(f"✅ Parsed duration_days: {duration_days}")
+                        logger.info(f"Parsed duration_days: {duration_days}")
                     except (ValueError, TypeError) as e:
-                        logger.error(f"❌ Failed to parse duration_days: {duration_days}, error: {e}")
+                        logger.error(f"Failed to parse duration_days: {duration_days}, error: {e}")
 
         logger.info(f"📅 Collected data:")
         logger.info(f"  Start dates: {start_dates}")
@@ -188,10 +188,10 @@ class F22GroupTripGeneratorView(APIView):
         logger.info(f"  Duration days: {duration_days_list}")
         logger.info(f"  All destinations: {all_countries}")
 
-        # ✅ Use duration_days from preferences instead of calculating from dates
+        # Use duration_days from preferences instead of calculating from dates
         if duration_days_list:
             duration = min(duration_days_list)
-            logger.info(f"✅ Using user-selected duration: {duration} days")
+            logger.info(f"Using user-selected duration: {duration} days")
         else:
             if start_dates and end_dates:
                 if len(start_dates) > 1:
@@ -203,24 +203,24 @@ class F22GroupTripGeneratorView(APIView):
                         duration = 5
                 else:
                     duration = (end_dates[0] - start_dates[0]).days + 1
-                logger.info(f"✅ Calculated duration from dates: {duration} days")
+                logger.info(f"Calculated duration from dates: {duration} days")
             else:
                 duration = 5
                 logger.warning(f"⚠️ No duration or dates found, using default: {duration} days")
 
-        # ✅ Set trip start_date
+        # Set trip start_date
         if start_dates:
             trip.start_date = min(start_dates)
-            logger.info(f"✅ Set trip start_date: {trip.start_date}")
+            logger.info(f"Set trip start_date: {trip.start_date}")
         else:
             trip.start_date = datetime.now().date()
             logger.warning(f"⚠️ No start date found, using today: {trip.start_date}")
 
-        # ✅ Calculate end_date based on duration
+        # Calculate end_date based on duration
         trip.end_date = trip.start_date + timedelta(days=duration - 1)
-        logger.info(f"✅ Calculated end_date: {trip.end_date}")
+        logger.info(f"Calculated end_date: {trip.end_date}")
 
-        # ✅ Enforce maximum duration limit
+        # Enforce maximum duration limit
         max_duration = 10
         if duration > max_duration:
             logger.warning(f"⚠️ Duration {duration} days exceeds limit, capping at {max_duration}")
@@ -239,7 +239,7 @@ class F22GroupTripGeneratorView(APIView):
         top_activities = [act for act, _ in Counter(all_activities).most_common(5)] if all_activities else ["Sightseeing", "Food"]
         top_destinations = [dest for dest, _ in Counter(all_destinations).most_common(3)] if all_destinations else ["Urban", "Cultural"]
         
-        # ========== ✅ NEW: MULTI-CITY DETECTION ==========
+        # ========== NEW: MULTI-CITY DETECTION ==========
         
         # Parse cities from "City, Country" format
         parsed_cities = []
@@ -271,7 +271,7 @@ class F22GroupTripGeneratorView(APIView):
             destination_str = f"{primary_city} and {', '.join(secondary_cities)}"
             main_city_for_db = primary_city
             
-            logger.info(f"✅ Multi-city trip detected: {destination_str}")
+            logger.info(f"Multi-city trip detected: {destination_str}")
             
         else:
             # Single city trip
@@ -283,7 +283,7 @@ class F22GroupTripGeneratorView(APIView):
                 destination_str = "Singapore"
                 main_city_for_db = "Singapore"
             
-            logger.info(f"✅ Single city trip: {destination_str}")
+            logger.info(f"Single city trip: {destination_str}")
         
         combined_additional_info = " ".join(all_additional_info) if all_additional_info else "No special requirements"
         
@@ -308,7 +308,7 @@ class F22GroupTripGeneratorView(APIView):
             "CAREFULLY READ and STRICTLY FOLLOW all special requirements from users."
         )
         
-        # ✅ NEW: Different prompt for multi-city vs single-city
+        # EW: Different prompt for multi-city vs single-city
         if is_multi_city:
             # Multi-city prompt
             cities_list = " → ".join(unique_cities)
@@ -400,35 +400,35 @@ REALISTIC DAILY SCHEDULE (5-6 stops per day):
 - 21:00-23:00: Evening activity (OPTIONAL - night markets, rooftop bars, night views)
 
 EXAMPLE VALID TIMES:
-✅ "start_time": "07:00", "end_time": "08:30" (breakfast - earliest)
-✅ "start_time": "08:00", "end_time": "09:00" (breakfast)
-✅ "start_time": "13:00", "end_time": "14:00" (lunch)
-✅ "start_time": "19:00", "end_time": "20:30" (dinner)
-✅ "start_time": "21:30", "end_time": "23:00" (evening activity)
-✅ "start_time": "22:00", "end_time": "23:00" (late evening - latest)
+"start_time": "07:00", "end_time": "08:30" (breakfast - earliest)
+"start_time": "08:00", "end_time": "09:00" (breakfast)
+"start_time": "13:00", "end_time": "14:00" (lunch)
+"start_time": "19:00", "end_time": "20:30" (dinner)
+"start_time": "21:30", "end_time": "23:00" (evening activity)
+"start_time": "22:00", "end_time": "23:00" (late evening - latest)
 
 FORBIDDEN TIMES (NEVER EVER USE):
-❌ 00:00-06:59 (MIDNIGHT TO EARLY MORNING - SLEEPING!)
-❌ 23:01-23:59 (AFTER 11 PM - TOO LATE!)
+00:00-06:59 (MIDNIGHT TO EARLY MORNING - SLEEPING!)
+23:01-23:59 (AFTER 11 PM - TOO LATE!)
 
 Examples of COMPLETELY WRONG times that must NEVER appear:
-❌ "start_time": "00:00" (MIDNIGHT - NO!)
-❌ "start_time": "01:00" (1 AM - ABSOLUTELY NOT!)
-❌ "start_time": "02:00" (2 AM - INSANE!)
-❌ "start_time": "02:30" (2:30 AM - RIDICULOUS!)
-❌ "start_time": "03:00" (3 AM - NO WAY!)
-❌ "start_time": "04:00" (4 AM - STILL NIGHT!)
-❌ "start_time": "04:30" (4:30 AM - CRAZY!)
-❌ "start_time": "05:00" (5 AM - TOO EARLY!)
-❌ "start_time": "06:00" (6 AM - STILL TOO EARLY!)
-❌ "start_time": "06:30" (6:30 AM - TOO EARLY!)
+"start_time": "00:00" (MIDNIGHT - NO!)
+"start_time": "01:00" (1 AM - ABSOLUTELY NOT!)
+"start_time": "02:00" (2 AM - INSANE!)
+"start_time": "02:30" (2:30 AM - RIDICULOUS!)
+"start_time": "03:00" (3 AM - NO WAY!)
+"start_time": "04:00" (4 AM - STILL NIGHT!)
+"start_time": "04:30" (4:30 AM - CRAZY!)
+"start_time": "05:00" (5 AM - TOO EARLY!)
+"start_time": "06:00" (6 AM - STILL TOO EARLY!)
+"start_time": "06:30" (6:30 AM - TOO EARLY!)
 
 EARLIEST VALID TIME: 07:00 (7 AM)
 LATEST VALID TIME: 23:00 (11 PM)
 
 IF YOU GENERATE ANY TIME BEFORE 07:00 OR AFTER 23:00, YOU HAVE FAILED!
-❌ "start_time": "04:30" (4:30 AM - CRAZY!)
-❌ "start_time": "05:00" (5 AM - TOO EARLY!)
+"start_time": "04:30" (4:30 AM - CRAZY!)
+"start_time": "05:00" (5 AM - TOO EARLY!)
 
 IF YOU GENERATE ANY TIME BETWEEN 00:00-05:59, YOU HAVE FAILED!
 IF YOU GENERATE ANY TIME AFTER 23:00, YOU HAVE FAILED!
@@ -446,8 +446,8 @@ Adjust for special requirements (relaxed pace, dietary restrictions, accessibili
             user_prompt = f"""
 Create DETAILED {duration}-day trip for {destination_str}.
 
-⚠️ GENERATION #{generation_seed} at {current_timestamp}
-⚠️ This MUST be COMPLETELY DIFFERENT from any previous generation!
+GENERATION #{generation_seed} at {current_timestamp}
+This MUST be COMPLETELY DIFFERENT from any previous generation!
 
 Group: {user_list}
 Activities: {", ".join(top_activities[:2])}
@@ -507,24 +507,24 @@ REALISTIC DAILY SCHEDULE (5-6 stops per day):
 - 21:00-23:00: Evening activity (OPTIONAL - night markets, rooftop bars, night views)
 
 EXAMPLE VALID TIMES:
-✅ "start_time": "07:00", "end_time": "08:30" (breakfast - earliest)
-✅ "start_time": "08:00", "end_time": "09:00" (breakfast)
-✅ "start_time": "13:00", "end_time": "14:00" (lunch)
-✅ "start_time": "19:00", "end_time": "20:30" (dinner)
-✅ "start_time": "22:00", "end_time": "23:00" (late evening - latest)
+"start_time": "07:00", "end_time": "08:30" (breakfast - earliest)
+"start_time": "08:00", "end_time": "09:00" (breakfast)
+"start_time": "13:00", "end_time": "14:00" (lunch)
+"start_time": "19:00", "end_time": "20:30" (dinner)
+"start_time": "22:00", "end_time": "23:00" (late evening - latest)
 
 FORBIDDEN TIMES (NEVER USE):
-❌ 00:00-06:59 (midnight to early morning - sleeping!)
-❌ 23:01-23:59 (after 11 PM - too late!)
+00:00-06:59 (midnight to early morning - sleeping!)
+23:01-23:59 (after 11 PM - too late!)
 Examples of WRONG times to AVOID:
-❌ "start_time": "02:30" (2:30 AM - NO!)
-❌ "start_time": "04:00" (4 AM - NO!)
-❌ "start_time": "06:00" (6 AM - TOO EARLY!)
+"start_time": "02:30" (2:30 AM - NO!)
+"start_time": "04:00" (4 AM - NO!)
+"start_time": "06:00" (6 AM - TOO EARLY!)
 
 EARLIEST VALID TIME: 07:00 (7 AM)
 LATEST VALID TIME: 23:00 (11 PM)
-❌ "start_time": "04:00" (4 AM - NO!)
-❌ "start_time": "01:00" (1 AM - NO!)
+"start_time": "04:00" (4 AM - NO!)
+"start_time": "01:00" (1 AM - NO!)
 
 Adjust for special requirements (relaxed pace, dietary restrictions, accessibility).
 """.strip()
@@ -545,7 +545,7 @@ Adjust for special requirements (relaxed pace, dietary restrictions, accessibili
         )
 
         if not ai_content:
-            logger.error(f"❌ Both AI providers failed: sealion={primary_error}, gemini={fallback_error}")
+            logger.error(f"Both AI providers failed: sealion={primary_error}, gemini={fallback_error}")
             trip.travel_type = "draft"
             trip.save()
             return Response(
@@ -553,7 +553,7 @@ Adjust for special requirements (relaxed pace, dietary restrictions, accessibili
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        logger.info(f"✅ AI response received from {provider}, length: {len(ai_content)}")
+        logger.info(f"AI response received from {provider}, length: {len(ai_content)}")
 
         # ========== CLEAN AND PARSE ==========
         
@@ -571,14 +571,14 @@ Adjust for special requirements (relaxed pace, dietary restrictions, accessibili
         is_truncated = not cleaned_ai_content.endswith('}')
         
         if is_truncated:
-            logger.warning("⚠️ AI response truncated, repairing...")
+            logger.warning("AI response truncated, repairing...")
             last_complete_item = cleaned_ai_content.rfind('},')
             if last_complete_item > 0:
                 cleaned_ai_content = cleaned_ai_content[:last_complete_item + 1]
                 cleaned_ai_content += '\n  ]\n}'
-                logger.info("✅ Repaired by removing incomplete items")
+                logger.info("Repaired by removing incomplete items")
             else:
-                logger.error("❌ Cannot repair truncated response")
+                logger.error("Cannot repair truncated response")
                 trip.travel_type = "draft"
                 trip.save()
                 return Response(
@@ -594,9 +594,9 @@ Adjust for special requirements (relaxed pace, dietary restrictions, accessibili
 
         try:
             itinerary = json.loads(cleaned_ai_content)
-            logger.info("✅ JSON parsed successfully")
+            logger.info("JSON parsed successfully")
         except Exception as e:
-            logger.error(f"❌ JSON parse failed: {str(e)}")
+            logger.error(f"JSON parse failed: {str(e)}")
             trip.travel_type = "draft"
             trip.save()
             return Response(
@@ -613,11 +613,11 @@ Adjust for special requirements (relaxed pace, dietary restrictions, accessibili
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        logger.info(f"✅ Successfully parsed {len(stops)} stops")
+        logger.info(f"Successfully parsed {len(stops)} stops")
 
         # ========== UPDATE DATABASE ==========
         
-        logger.info(f"💾 Creating itinerary in database...")
+        logger.info(f"Creating itinerary in database...")
         
         with transaction.atomic():
             trip.title = itinerary.get("title", f"Group Trip to {destination_str}")
@@ -626,26 +626,26 @@ Adjust for special requirements (relaxed pace, dietary restrictions, accessibili
             trip.travel_type = "group_ai"
             trip.save()
             
-            logger.info(f"✅ Updated trip: {trip.title}")
+            logger.info(f"Updated trip: {trip.title}")
             logger.info(f"  Dates: {trip.start_date} to {trip.end_date}")
             
             # Delete old itinerary for clean regeneration
             TripDay.objects.filter(trip=trip).delete()
             ItineraryItem.objects.filter(trip=trip).delete()
-            logger.info(f"🗑️ Deleted old itinerary data")
+            logger.info(f"Deleted old itinerary data")
             
             # Create days with correct dates
             trip_days = []
             for i in range(duration):
                 day_date = trip.start_date + timedelta(days=i)
-                logger.info(f"  📅 Creating Day {i+1}: {day_date}")
+                logger.info(f"Creating Day {i+1}: {day_date}")
                 
                 trip_days.append(
                     TripDay(trip=trip, day_index=i + 1, date=day_date)
                 )
             
             TripDay.objects.bulk_create(trip_days)
-            logger.info(f"✅ Created {len(trip_days)} days")
+            logger.info(f"Created {len(trip_days)} days")
             
             day_map = {d.day_index: d for d in TripDay.objects.filter(trip=trip)}
             

@@ -1,7 +1,4 @@
 // frontend/src/pages/groupAITripGeneratorWait.tsx
-// ✅ FIXED: 
-// 1. Polling interval is 5 seconds (was 3 seconds)
-// 2. Automatically triggers regeneration on page load
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -62,7 +59,7 @@ export default function GroupAITripGeneratorWait() {
     if (navigatedRef.current) return;
     navigatedRef.current = true;
     
-    console.log("✅ Navigating to summary page...");
+    console.log("Navigating to summary page...");
     setIsExiting(true);
     
     window.setTimeout(() => {
@@ -70,7 +67,6 @@ export default function GroupAITripGeneratorWait() {
     }, 420);
   };
 
-  // ✅ NEW: Trigger regeneration on page load
   useEffect(() => {
     if (!tripId || navigatedRef.current) return;
 
@@ -129,10 +125,10 @@ export default function GroupAITripGeneratorWait() {
         }
 
         const unique = Array.from(new Set(allKeywords)).slice(0, 20);
-        console.log("✅ Keywords loaded:", unique);
+        console.log("Keywords loaded:", unique);
         setKeywords(unique);
       } catch (error) {
-        console.error("❌ Failed to fetch preferences:", error);
+        console.error("Failed to fetch preferences:", error);
         setKeywords(["Adventure", "Sightseeing", "Culinary", "Urban"]);
       }
     };
@@ -161,7 +157,6 @@ export default function GroupAITripGeneratorWait() {
     };
   }, []);
 
-  // ✅ Poll for completion - FIXED: 5 seconds instead of 3
   useEffect(() => {
     if (!tripId || navigatedRef.current) return;
 

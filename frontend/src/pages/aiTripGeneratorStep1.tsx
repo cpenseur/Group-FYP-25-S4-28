@@ -75,7 +75,6 @@ const AiTripGeneratorStep1: React.FC = () => {
 
       console.log("📧 Sending invitations...");
       
-      // ✅ FIXED: Use correct /invite/ endpoint
       for (const email of groupMembers) {
         await apiFetch(`/f1/trips/${tripId}/invite/`, {
           method: "POST",
