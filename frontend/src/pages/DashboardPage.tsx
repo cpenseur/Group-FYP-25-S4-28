@@ -77,11 +77,6 @@ function buildDateTripMap(trips: TripOverview[]) {
     }
   }
 
-<<<<<<< HEAD
-  const goToLogin = () => {
-    navigate("/signin");
-  };
-=======
   return map;
 }
 
@@ -116,7 +111,6 @@ function TripsCalendar({
 
   const monthIdx = month.getMonth();
   const todayIso = formatISO(new Date());
->>>>>>> origin/mingyu-fix-merge-mingyu-su-vania
 
   return (
     <div style={calendarCard}>
