@@ -8,11 +8,13 @@ from django.views.generic import TemplateView
 
 # ✅ Only import the Supabase-backed "who am I" endpoint
 from TripMateFunctions.views.auth_views import WhoAmIView
+from TripMateFunctions.views.f8_views import admin_analytics
+
 
 urlpatterns = [
     # Django Admin
     path("admin/", admin.site.urls),
-
+    path("api/admin/analytics/", admin_analytics),
     # All feature-based API routes
     path("api/", include("TripMateFunctions.root_urls")),
 

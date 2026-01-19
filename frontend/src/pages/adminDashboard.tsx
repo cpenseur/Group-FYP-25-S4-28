@@ -6,6 +6,8 @@ import { isAdminEmail } from "../api/adminList";
 import AdminNavbar from "../components/adminNavbar";
 import AdminSidebar from "../components/adminSidebar";
 import { exportPDF as ExportPDF } from "../components/exportPDF";
+import AnalyticsView from "./adminAnalyticsView";
+
 
 // --- mock data --------------------------------------------------------------
 const initialModerationItems = [
@@ -69,10 +71,11 @@ type AdminUserRow = {
   email: string;
   status: string | null;
   created_at: string;
+
   role?: string | null;
   auth_user_id?: string | null;
+  last_active_at?: string | null;
 };
-
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -90,6 +93,10 @@ export default function AdminDashboard() {
 
   const [pdfOpen, setPdfOpen] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+
+  const [viewOpen, setViewOpen] = useState(false);
+  const [viewUser, setViewUser] = useState<AdminUserRow | null>(null);
+
 
   const emptyDelta: StatDelta = { direction: "flat", percent: 0, diff: 0, label: "" };
 
@@ -138,19 +145,35 @@ export default function AdminDashboard() {
     setUsersLoading(true);
     try {
       let q = supabase
-        .from("user_directory")
-        .select("id, name, email, role, status, auth_user_id, created_at")
+        .from("app_user")
+        .select(`id, email,role, status, auth_user_id, created_at, last_active_at, profiles:profiles!app_user_profiles_fk (name)`) 
         .order("created_at", { ascending: false });
 
       if (search.trim()) {
         const s = search.trim();
-        q = q.or(`name.ilike.%${s}%,email.ilike.%${s}%`);
+
+        // 1) find profile ids where name matches
+        const { data: profs, error: profErr } = await supabase
+          .from("profiles")
+          .select("id")
+          .ilike("name", `%${s}%`);
+
+        if (profErr) console.error("profiles search error", profErr);
+
+        const ids = (profs ?? []).map((p) => p.id);
+
+        // 2) apply OR: email match OR id in (matching profile ids)
+        if (ids.length > 0) {
+          q = q.or(`email.ilike.%${s}%,id.in.(${ids.join(",")})`);
+        } else {
+          q = q.ilike("email", `%${s}%`);
+        }
       }
 
       const { data, error } = await q;
 
-      console.log("users data:", data);
       console.log("users error:", error);
+      console.log("users error json:", JSON.stringify(error, null, 2));
 
       if (error) {
         console.error("fetchUsers error:", error);
@@ -158,15 +181,16 @@ export default function AdminDashboard() {
         return;
       }
 
-      const mapped: AdminUserRow[] = (data ?? []).map((u: any) => ({
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        status: u.status ?? (u.auth_user_id ? "verified" : "pending"),
-        created_at: u.created_at,
-        role: u.role,
-        auth_user_id: u.auth_user_id,
-      }));
+    const mapped: AdminUserRow[] = (data ?? []).map((u: any) => ({
+      id: u.id,
+      name: u.profiles?.name ?? null,
+      email: u.email,
+      status: u.status ?? (u.auth_user_id ? "verified" : "pending"),
+      created_at: u.created_at,
+      role: u.role ?? null,
+      auth_user_id: u.auth_user_id ?? null,
+      last_active_at: u.last_active_at ?? null,
+    }));
 
 
       setUsers(mapped);
@@ -311,8 +335,6 @@ export default function AdminDashboard() {
       setStatsLoading(false);
     }
   };
-  
-  const [viewUser, setViewUser] = useState<any | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -329,7 +351,7 @@ export default function AdminDashboard() {
       const email = (data.session?.user?.email ?? "").toLowerCase();
 
       if (!data.session || !isAdminEmail(email)) {
-        navigate("/dashboard", { replace: true });
+        navigate("/login", { replace: true });
         return;
       }
 
@@ -386,28 +408,40 @@ export default function AdminDashboard() {
   };
 
   const deleteUserRow = async (userId: string) => {
-    const ok = window.confirm("Delete this user record? This cannot be undone.");
+    const ok = window.confirm("Remove this user from the list?");
     if (!ok) return;
 
-    setRowBusy(userId, true);
-    try {
-      const { error } = await supabase
-        .from("app_user")
-        .delete()
-        .eq("id", userId);
-
-      if (error) throw error;
-
-      await fetchUsers(); // refresh list
-    } catch (e: any) {
-      console.error("Delete failed:", e);
-      alert(`Could not delete user: ${e?.message ?? e}`);
-    } finally {
-      setRowBusy(userId, false);
-    }
+    setUsers((prev) => prev.filter((u) => u.id !== userId));
   };
 
+  const openViewUser = (u: AdminUserRow) => {
+  setViewUser(u);
+  setViewOpen(true);
+  };
 
+  const ViewRow = ({
+    label,
+    value,
+    mono,
+    pill,
+    pillClass,
+  }: {
+    label: string;
+    value: string;
+    mono?: boolean;
+    pill?: boolean;
+    pillClass?: string;
+  }) => {
+    return (
+      <div className="view-row">
+        <div className="view-label">{label}</div>
+        <div className={"view-value " + (mono ? "view-mono" : "")}>
+          {pill ? <span className={pillClass ?? ""}>{value}</span> : value}
+        </div>
+      </div>
+    );
+  };
+  
 
   return (
     <>
@@ -651,11 +685,6 @@ export default function AdminDashboard() {
                       <div className="users-card">
                         {/* header */}
                         <div className="users-top">
-                          <div>
-                            <h2 className="users-title">User Accounts</h2>
-                          </div>
-
-                          <button className="btn btn-primary users-add">+ Add User</button>
                         </div>
 
                         {/* search */}
@@ -670,6 +699,7 @@ export default function AdminDashboard() {
                             <span className="users-search-icon">🔍</span>
                             {usersLoading ? "Searching..." : "Search"}
                           </button>
+                          <button className="btn btn-primary users-add">+ Add User</button>                          
                         </div>
 
                         {/* table */}
@@ -678,6 +708,7 @@ export default function AdminDashboard() {
                             <thead>
                               <tr>
                                 <th>User</th>
+                                <th>Name</th>
                                 <th>Email</th>
                                 <th>Status</th>
                                 <th>Joined</th>
@@ -688,13 +719,13 @@ export default function AdminDashboard() {
                             <tbody>
                               {usersLoading ? (
                                 <tr>
-                                  <td colSpan={5} className="users-empty">
+                                  <td colSpan={6} className="users-empty">
                                     Loading...
                                   </td>
                                 </tr>
                               ) : users.length === 0 ? (
                                 <tr>
-                                  <td colSpan={5} className="users-empty">
+                                  <td colSpan={6} className="users-empty">
                                     No users found
                                   </td>
                                 </tr>
@@ -718,10 +749,12 @@ export default function AdminDashboard() {
                                       <td>
                                         <div className="users-usercell">
                                           <div className="users-avatar">{initials}</div>
-                                          <div className="users-name">{u.name ?? "-"}</div>
                                         </div>
                                       </td>
-
+    
+<td className="users-name">
+  {u.name && u.name.trim() !== "" ? u.name : "-"}
+</td>
                                       <td className="users-email">{u.email}</td>
 
                                       <td>
@@ -739,7 +772,7 @@ export default function AdminDashboard() {
 
                                       <td>
                                         <div className="users-actions">
-                                          <button className="users-action-btn" title="View" onClick={() => setViewUser(u)} 
+                                          <button className="users-action-btn" title="View" onClick={() => openViewUser(u)} // or open a modal
                                            disabled={!!rowActionLoading[u.id]}>
                                             👁️
                                           </button>
@@ -800,52 +833,24 @@ export default function AdminDashboard() {
 
               {/* ANALYTICS VIEW */}
               {activeSidebarItem === "analytics" && (
-                <>
                   <div className="card card-analytics">
-                    <div className="card-header">
-                      <h2>Analytics Overview</h2>
-                    </div>
-
-                    <div className="analytics-grid">
-                      <div className="analytics-card">
-                        <p className="analytics-label">Daily Active Users</p>
-                        <p className="analytics-number">1,284</p>
-                        <div className="mini-chart" />
-                      </div>
-                      <div className="analytics-card">
-                        <p className="analytics-label">New Signups</p>
-                        <p className="analytics-number">92</p>
-                        <div className="mini-chart mini-chart--pink" />
-                      </div>
-                      <div className="analytics-card">
-                        <p className="analytics-label">Avg. Session Length</p>
-                        <p className="analytics-number">7.4 min</p>
-                        <div className="mini-chart mini-chart--green" />
-                      </div>
-                    </div>
+                    <AnalyticsView
+                      stats={stats}
+                      onApplyFilter={(from, to) => {
+                        console.log("apply filter", from, to);
+                        // later call your fetchAnalytics(from,to)
+                      }}
+                    />
                   </div>
-
-                  <aside className="card card-side">
-                    <h2>Top Destinations</h2>
-                    <ul className="simple-list">
-                      <li>Bali, Indonesia</li>
-                      <li>Tokyo, Japan</li>
-                      <li>Barcelona, Spain</li>
-                    </ul>
-                  </aside>
-                </>
-              )}
-
+                )}              
               {/* USER MANAGEMENT VIEW */}
               {activeSidebarItem === "users" && (
                 <>
-                  <div className="card users-card">
+                  <div className="card usersM-card">
                     <div className="users-top">
                       <div>
                         <h2 className="users-title">User Accounts</h2>
                       </div>
-
-                      <button className="btn btn-primary users-add">+ Add User</button>
                     </div>
 
                     <div className="users-search-row">
@@ -859,6 +864,7 @@ export default function AdminDashboard() {
                         <span className="users-search-icon">🔍</span>
                         {usersLoading ? "Searching..." : "Search"}
                       </button>
+                      <button className="btn btn-primary users-add">+ Add User</button>
                     </div>
 
                     <div className="users-table-wrap">
@@ -866,6 +872,7 @@ export default function AdminDashboard() {
                         <thead>
                           <tr>
                             <th>User</th>
+                            <th>Name</th>
                             <th>Email</th>
                             <th>Status</th>
                             <th>Joined</th>
@@ -876,13 +883,13 @@ export default function AdminDashboard() {
                         <tbody>
                           {usersLoading ? (
                             <tr>
-                              <td colSpan={5} className="users-empty">
+                              <td colSpan={6} className="users-empty">
                                 Loading...
                               </td>
                             </tr>
                           ) : users.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="users-empty">
+                              <td colSpan={6} className="users-empty">
                                 No users found
                               </td>
                             </tr>
@@ -906,10 +913,10 @@ export default function AdminDashboard() {
                                   <td>
                                     <div className="users-usercell">
                                       <div className="users-avatar">{initials}</div>
-                                      <div className="users-name">{u.name ?? "-"}</div>
                                     </div>
                                   </td>
-
+                                  
+                                  <td className="users-name">{u.name ?? "-"}</td>
                                   <td className="users-email">{u.email}</td>
 
                                   <td>
@@ -927,7 +934,7 @@ export default function AdminDashboard() {
 
                                   <td>
                                       <div className="users-actions">
-                                        <button className="users-action-btn" title="View" onClick={() => setViewUser(u)} 
+                                        <button className="users-action-btn" title="View" onClick={() => openViewUser(u)} // or open a modal
                                           disabled={!!rowActionLoading[u.id]}>
                                           👁️
                                         </button>
@@ -1192,59 +1199,101 @@ export default function AdminDashboard() {
               )}
             </section>
           </div>
-          {viewUser && (
-          <div
-            onClick={() => setViewUser(null)}
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(0,0,0,0.45)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              zIndex: 9999,
-              padding: 24,
-            }}
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                width: "100%",
-                maxWidth: 520,
-                background: "#fff",
-                borderRadius: 16,
-                padding: 20,
-                boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <h3>User Details</h3>
-                <button
-                  onClick={() => setViewUser(null)}
-                  style={{ border: "none", background: "transparent", fontSize: 18 }}
-                >
-                  ✕
-                </button>
-              </div>
-              <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-                <div><b>ID:</b> {viewUser.id}</div>
-                <div><b>Name:</b> {viewUser.name ?? "-"}</div>
-                <div><b>Email:</b> {viewUser.email ?? "-"}</div>
-                <div><b>Role:</b> {viewUser.role ?? "-"}</div>
-                <div><b>Status:</b> {viewUser.status ?? "-"}</div>
-                <div><b>Joined:</b> {viewUser.created_at}</div>
-
-                {viewUser.auth_user_id && (
-                  <div><b>Auth User ID:</b> {viewUser.auth_user_id}</div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
         </main>
       </div>
 
       <ExportPDF open={pdfOpen} onClose={() => setPdfOpen(false)} onExport={handleExportPDF} />
+      {viewOpen && viewUser && (
+        <div className="modal-backdrop" onClick={() => setViewOpen(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <h2 className="modal-title">User Account</h2>
+                <p className="modal-sub">View user details</p>
+              </div>
+              <button className="modal-close" onClick={() => setViewOpen(false)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="view-grid">
+                <ViewRow label="User ID" value={viewUser.id} mono />
+                <ViewRow label="Name" value={viewUser.name ?? "-"} />
+                <ViewRow label="Email" value={viewUser.email} />
+                <ViewRow label="Role" value={viewUser.role ?? "-"} />
+                <ViewRow
+                  label="Status"
+                  value={(viewUser.status ?? "verified").toString()}
+                  pill
+                  pillClass={"users-status users-status--" + (viewUser.status ?? "verified").toLowerCase()}
+                />
+                <ViewRow label="Auth User ID" value={viewUser.auth_user_id ?? "-"} mono />
+                <ViewRow label="Joined" value={new Date(viewUser.created_at).toLocaleString()} />
+                <ViewRow
+                  label="Last Active"
+                  value={viewUser.last_active_at ? new Date(viewUser.last_active_at).toLocaleString() : "-"}
+                />
+              </div>
+
+              <div className="modal-actions">
+                <button className="btn btn-outline" onClick={() => setViewOpen(false)}>
+                  Close
+                </button>
+
+                {/* quick actions inside view */}
+                {((viewUser.status ?? "verified").toLowerCase() === "pending") ? (
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      await updateUserStatus(viewUser.id, "verified");
+                      setViewOpen(false);
+                    }}
+                    disabled={!!rowActionLoading[viewUser.id]}
+                  >
+                    Approve
+                  </button>
+                ) : ((viewUser.status ?? "verified").toLowerCase() === "suspended") ? (
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      await updateUserStatus(viewUser.id, "verified");
+                      setViewOpen(false);
+                    }}
+                    disabled={!!rowActionLoading[viewUser.id]}
+                  >
+                    Unsuspend
+                  </button>
+                ) : (
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      await updateUserStatus(viewUser.id, "suspended");
+                      setViewOpen(false);
+                    }}
+                    disabled={!!rowActionLoading[viewUser.id]}
+                  >
+                    Suspend
+                  </button>
+                )}
+
+                <button
+                  className="btn"
+                  style={{ borderColor: "#fecaca", color: "#b91c1c" }}
+                  onClick={async () => {
+                    await deleteUserRow(viewUser.id);
+                    setViewOpen(false);
+                  }}
+                  disabled={!!rowActionLoading[viewUser.id]}
+                  title="Delete user"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CSS INLINE */}
       <style>{`
@@ -1625,6 +1674,13 @@ export default function AdminDashboard() {
           color: var(--text-muted);
         }
 
+        .card-analytics{
+          grid-column: 1 / -1;
+          background: transparent;
+          box-shadow: none;
+          padding: 0;
+        }
+          
         .tabs--underline {
           display: flex;
           gap: 1.5rem;
@@ -1753,9 +1809,12 @@ export default function AdminDashboard() {
         }
 
         .users-card {
-          padding: 1.25rem 1.3rem;
+          padding: 0;
         }
 
+        .usersM-card {
+          padding: 1.25rem 1.3rem;
+        }
         .users-top {
           display: flex;
           align-items: center;
@@ -1926,6 +1985,98 @@ export default function AdminDashboard() {
           border-color: #c7d2fe;
         }
 
+        .modal-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(15, 23, 42, 0.45);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 18px;
+          z-index: 9999;
+        }
+
+        .modal-card {
+          width: min(760px, 96vw);
+          background: #ffffff;
+          border-radius: 18px;
+          box-shadow: 0 30px 80px rgba(15, 23, 42, 0.25);
+          border: 1px solid rgba(229, 231, 235, 0.9);
+          overflow: hidden;
+        }
+
+        .modal-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          padding: 16px 18px;
+          border-bottom: 1px solid #eef2f7;
+        }
+
+        .modal-title {
+          margin: 0;
+          font-size: 1.05rem;
+        }
+
+        .modal-sub {
+          margin: 0.2rem 0 0;
+          font-size: 0.82rem;
+          color: #6b7280;
+        }
+
+        .modal-close {
+          width: 36px;
+          height: 36px;
+          border-radius: 12px;
+          border: 1px solid #e5e7eb;
+          background: #fff;
+          cursor: pointer;
+        }
+
+        .modal-body {
+          padding: 16px 18px 18px;
+        }
+
+        .view-grid {
+          display: grid;
+          gap: 10px;
+          margin-bottom: 16px;
+        }
+
+        .view-row {
+          display: grid;
+          grid-template-columns: 160px 1fr;
+          gap: 12px;
+          align-items: center;
+        }
+
+        .view-label {
+          font-size: 0.78rem;
+          color: #6b7280;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+
+        .view-value {
+          font-size: 0.92rem;
+          color: #111827;
+          word-break: break-word;
+        }
+
+        .view-mono {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+          font-size: 0.88rem;
+        }
+
+        .modal-actions {
+          display: flex;
+          gap: 10px;
+          justify-content: flex-end;
+          flex-wrap: wrap;
+        }
+
+
         .status-pill {
           padding: 0.25rem 0.5rem;
           border-radius: var(--radius-pill);
@@ -2004,36 +2155,6 @@ export default function AdminDashboard() {
           margin: 0.5rem 0 0;
           font-size: 0.78rem;
           color: #1d4ed8;
-        }
-
-        .card-analytics {
-          min-height: 180px;
-        }
-
-        .analytics-grid {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 0.75rem;
-          margin-top: 0.8rem;
-        }
-
-        .analytics-card {
-          border-radius: 12px;
-          border: 1px solid var(--border-subtle);
-          padding: 0.7rem 0.8rem;
-          background: #f9fafb;
-        }
-
-        .analytics-label {
-          font-size: 0.78rem;
-          color: var(--text-muted);
-          margin: 0 0 0.2rem;
-        }
-
-        .analytics-number {
-          font-size: 1.1rem;
-          font-weight: 600;
-          margin: 0 0 0.4rem;
         }
 
         .mini-chart {
