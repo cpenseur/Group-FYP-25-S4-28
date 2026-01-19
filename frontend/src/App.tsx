@@ -25,6 +25,7 @@ import AdminDashboard from "./pages/adminDashboard";
 import Profile from "./pages/profile";
 import Login from "./components/login";
 import ResetPassword from "./pages/resetPassword";
+import SuspendAcct from "./components/suspendAcct";
 
 // KK
 import DiscoveryLocal from "./pages/discoveryLocal";
@@ -113,6 +114,8 @@ export default function App() {
         <Route path="/profile" element={<Profile />} />
         <Route path="/signin" element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login"/>} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/suspendAcct" element={<SuspendAcct />} />
+
         
         {/* Vania */}
         <Route path="/dashboard" element={<Dashboard />} />

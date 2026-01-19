@@ -35,6 +35,45 @@ from ..serializers.f1_3_serializers import (
 logger = logging.getLogger(__name__)
 
 
+def _clean_ai_json_text(ai_text: str) -> str:
+    """
+    Strip common markdown fences and leading language tags so we can parse JSON safely.
+    """
+    cleaned = (ai_text or "").strip()
+
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`").strip()
+
+    # Drop a leading "json" or "JSON" language tag if present
+    if cleaned.lower().startswith("json"):
+        cleaned = cleaned[4:].lstrip()
+
+    return cleaned
+
+
+def _slice_first_json_block(text: str) -> str | None:
+    """
+    Best-effort extraction of the first JSON-looking block (object or array) from free text.
+    """
+    if not text:
+        return None
+
+    brace = text.find("{")
+    bracket = text.find("[")
+    candidates = [i for i in [brace, bracket] if i != -1]
+    if not candidates:
+        return None
+
+    start = min(candidates)
+    start_char = text[start]
+    end_char = "}" if start_char == "{" else "]"
+    end = text.rfind(end_char)
+    if end == -1 or end <= start:
+        return None
+
+    return text[start : end + 1]
+
+
 def _call_sea_lion(messages, temperature=0.4, max_tokens=None, timeout=40):
     api_key = getattr(settings, "SEA_LION_API_KEY", None) or os.environ.get(
         "SEA_LION_API_KEY"
@@ -442,7 +481,9 @@ class F13SoloAITripGenerateCreateView(APIView):
 
         system_prompt = (
             "You are a travel planning AI. "
-            "Return ONLY valid JSON. No markdown. No commentary."
+            "Return ONLY a single valid JSON object. No markdown. No commentary. "
+            "Do not wrap in code fences. Do not add prose before or after the JSON. "
+            "Ensure the JSON is syntactically valid (no trailing commas, proper quotes)."
         )
 
         availability_line = ""
@@ -464,6 +505,15 @@ Activities: {", ".join(data["activities"])}
 Destination types: {", ".join(data["destination_types"])}
 Budget: {data.get("budget_min")} - {data.get("budget_max")}
 Additional info: {data.get("additional_info", "")}
+
+Constraints to keep JSON short and valid:
+- Every stop title must be a real POI name that can appear in Mapbox/Wikipedia/Wikimedia search results (e.g., \"Ubud Palace\", \"Tegalalang Rice Terrace\", \"Tanah Lot Temple\", \"La Favela\", \"IKEA Tampines\"). No adjectives or marketing fluff in titles.
+- Titles should follow map-friendly naming (like Google Maps place names); no descriptive phrases.
+- At most 3 stops per day (max {duration * 3} stops total).
+- Keep descriptions <= 140 characters.
+- Use 24h times in HH:MM.
+- No trailing commas anywhere.
+- Do not include any text outside the JSON object.
 
 Return JSON in this format:
 {{
@@ -493,7 +543,8 @@ Return JSON in this format:
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
-            max_tokens=800,
+            # Allow more room so responses don't truncate mid-JSON
+            max_tokens=min(1600, 400 + duration * 150),
             timeout=60,
         )
 
@@ -503,17 +554,68 @@ Return JSON in this format:
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        cleaned_ai_content = ai_content.strip()
-        if cleaned_ai_content.startswith("```"):
-            cleaned_ai_content = cleaned_ai_content.strip("`")
-            cleaned_ai_content = cleaned_ai_content.replace("json", "", 1).strip()
+        cleaned_ai_content = _clean_ai_json_text(ai_content)
 
-        try:
-            itinerary = json.loads(cleaned_ai_content)
-        except Exception:
+        itinerary = None
+        parse_errors = []
+
+        candidates = [cleaned_ai_content]
+        sliced = _slice_first_json_block(cleaned_ai_content)
+        if sliced and sliced != cleaned_ai_content:
+            candidates.append(sliced)
+
+        for candidate in candidates:
+            if not candidate:
+                continue
+            try:
+                itinerary = json.loads(candidate)
+                break
+            except Exception as exc:
+                parse_errors.append(str(exc))
+
+        # Retry once with a stricter, shorter format if parsing failed
+        if not itinerary:
+            retry_prompt = f"""
+Return ONLY valid JSON. One object. No prose, no code fences.
+Keep descriptions <= 90 chars. Max 2 stops per day (max {duration * 2} stops).
+Fields: title (string), main_city (string), main_country (string), days (int), stops (array of objects with day_index:int, title:string, description:string, item_type:string, start_time:"HH:MM", end_time:"HH:MM", address:string|null, lat:float|null, lon:float|null).
+JSON only, nothing else.
+""".strip()
+
+            retry_content, _, _, _ = _generate_with_fallback(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": retry_prompt},
+                ],
+                temperature=0.25,
+                max_tokens=min(1200, 300 + duration * 120),
+                timeout=45,
+            )
+
+            if retry_content:
+                retry_clean = _clean_ai_json_text(retry_content)
+                retry_candidates = [retry_clean]
+                retry_slice = _slice_first_json_block(retry_clean)
+                if retry_slice and retry_slice != retry_clean:
+                    retry_candidates.append(retry_slice)
+                for candidate in retry_candidates:
+                    if not candidate:
+                        continue
+                    try:
+                        itinerary = json.loads(candidate)
+                        break
+                    except Exception as exc:
+                        parse_errors.append(str(exc))
+
+        if not itinerary:
+            logger.warning(
+                "AI JSON parse failed for ai-solo-trip after retry. errors=%s raw_preview=%s",
+                parse_errors or ["unknown_error"],
+                (ai_content or "")[:400],
+            )
             return Response(
-                {"detail": "AI returned invalid JSON"},
-                status=status.HTTP_502_BAD_GATEWAY,
+                {"detail": "AI service returned an invalid itinerary. Please try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
         # ---------- create DB objects ----------

@@ -1,6 +1,7 @@
 // frontend/src/pages/itineraryEditor.tsx
-import { useEffect, useRef, useState, ReactNode } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
 
 import {
   DndContext,
@@ -21,11 +22,14 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
+import PlaceAboutTab from "../components/PlaceAboutTab";
 import PlaceSearchBar from "../components/PlaceSearchBar";
+import PlaceTravelTab from "../components/PlaceTravelTab";
 import TripSubHeader from "../components/TripSubHeader";
 import { apiFetch } from "../lib/apiClient";
 import ItineraryMap from "../components/ItineraryMap";
 import planbotSmall from "../assets/planbotSmall.png";
+
 
 /* -------------------- Time Edit Modal -------------------- */
 
@@ -180,6 +184,8 @@ type TripResponse = {
   main_country: string | null;
   start_date: string | null;
   end_date: string | null;
+  notes_summary?: string | null;
+  preferences_text?: string | null;
   days: TripDayResponse[];
   items: ItineraryItem[];
 };
@@ -197,6 +203,56 @@ type SelectedPlace = {
   address: string;
   lat: number;
   lon: number;
+};
+
+type NearbyPOI = {
+  xid: string;
+  name: string;
+  kinds: string | null;
+  dist_m?: number | null;
+  image_url?: string | null;
+  wikipedia?: string | null;
+};
+
+type PlaceDetails = {
+  item_id: number;
+  xid?: string | null;
+
+  name: string;
+  description: string | null;
+
+  notes_summary?: string | null;
+  preferences_text?: string | null;
+
+  about?: {
+    why_go?: string[];
+    know_before_you_go?: string[];
+    getting_there?: string | null;
+    best_time?: string | null;
+    tips?: string[];
+  };
+
+  image_url: string | null;
+  images?: string[];
+
+  wikipedia: string | null;
+  kinds: string | null;
+  source: "opentripmap" | "wikipedia" | "none";
+
+  address?: string | null;
+  website?: string | null;
+  phone?: string | null;
+  opening_hours?: string | null;
+
+  nearby?: NearbyPOI[];
+
+  travel?: {
+    transport_systems?: string[];
+    currency_exchange?: string[];
+    holidays_and_crowds?: string[];
+    attraction_info?: string[];
+  };
+
 };
 
 /* -------------------- Helpers -------------------- */
@@ -248,6 +304,11 @@ function getItemThumbnail(item: ItineraryItem): string | null {
   return anyItem.photo_url || anyItem.thumbnail_url || null;
 }
 
+function hasAnyThumbnail(item: ItineraryItem): boolean {
+  const u = getItemThumbnail(item);
+  return typeof u === "string" && u.trim().length > 0;
+}
+
 function getItemsForDay(
   allItems: ItineraryItem[],
   dayId: number | null
@@ -274,6 +335,19 @@ function getDayColor(dayIndex: number | null | undefined): string {
     ((dayIndex - 1) % dayColorPalette.length + dayColorPalette.length) %
     dayColorPalette.length;
   return dayColorPalette[idx];
+}
+
+/* -------------------- Formatters -------------------- */
+function formatMeters(m?: number | null) {
+  if (!m || m <= 0) return "";
+  if (m >= 1000) return `${(m / 1000).toFixed(1)} km`;
+  return `${Math.round(m)} m`;
+}
+
+function normalizeUrl(u?: string | null) {
+  if (!u) return null;
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  return `https://${u}`;
 }
 
 
@@ -349,6 +423,46 @@ export default function ItineraryEditor() {
 
   const [trip, setTrip] = useState<TripResponse | null>(null);
   const [items, setItems] = useState<ItineraryItem[]>([]);
+
+  const fetchedThumbIdsRef = useRef<Set<number>>(new Set());
+
+  useEffect(() => {
+    if (!items || items.length === 0) return;
+
+    // Only hydrate a few at a time to avoid hammering backend
+    const missing = items.filter((it) => !hasAnyThumbnail(it)).slice(0, 10);
+
+    for (const it of missing) {
+      if (!it?.id) continue;
+      if (fetchedThumbIdsRef.current.has(it.id)) continue;
+      fetchedThumbIdsRef.current.add(it.id);
+
+      (async () => {
+        try {
+          const details: any = await apiFetch(
+            `/f1/itinerary-items/${it.id}/place-details/?include_images=0`
+          );
+
+          const url =
+            (typeof details?.image_url === "string" && details.image_url.trim())
+              ? details.image_url.trim()
+              : (Array.isArray(details?.images) && details.images.length > 0 ? details.images[0] : null);
+
+          if (!url) return;
+
+          setItems((prev) =>
+            prev.map((x) =>
+              x.id === it.id ? ({ ...(x as any), thumbnail_url: url } as any) : x
+            )
+          );
+        } catch {
+          // ignore; keep fallback gradient UI
+        }
+      })();
+    }
+  }, [items]);
+
+
   const [days, setDays] = useState<TripDayResponse[]>([]);
   const [legs, setLegs] = useState<LegInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -358,7 +472,198 @@ export default function ItineraryEditor() {
   const [isOptimisingFull, setIsOptimisingFull] = useState(false);
 
   // NEW: Photos for map display
-  const [photos, setPhotos] = useState<any[]>([]);
+  const [mediaHighlightPhotos, setPhotos] = useState<any[]>([]);
+  // Place overlay state
+  const [placeOverlay, setPlaceOverlay] = useState<PlaceDetails | null>(null);
+  const [placeOverlayLoading, setPlaceOverlayLoading] = useState(false);
+  const [placeOverlayError, setPlaceOverlayError] = useState<string | null>(null);
+  const [placeTab, setPlaceTab] = useState<"about" | "travel" | "nearby" | "photos">("about");
+  const [openverseLoading, setOpenverseLoading] = useState(false);
+  const [photosLoading, setPhotosLoading] = useState(false);
+
+  // Lightbox (photo overlay)
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+
+  const photos = placeOverlay?.images || [];
+
+  const openLightbox = (idx: number) => {
+    setLightboxIndex(idx);
+    setLightboxOpen(true);
+  };
+
+  const closeLightbox = () => setLightboxOpen(false);
+
+  const showPrev = () => setLightboxIndex((i) => (i - 1 + photos.length) % photos.length);
+  const showNext = () => setLightboxIndex((i) => (i + 1) % photos.length);
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeLightbox();
+      if (e.key === "ArrowLeft") showPrev();
+      if (e.key === "ArrowRight") showNext();
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [lightboxOpen, photos.length]);
+
+  useEffect(() => {
+    if (!placeOverlay) return;
+    if (placeTab !== "photos") return;
+
+    const alreadyHasGallery = (placeOverlay.images?.length ?? 0) > 0;
+    if (alreadyHasGallery) return;
+
+    (async () => {
+      setPhotosLoading(true);
+      try {
+        const data: PlaceDetails = await apiFetch(
+          `/f1/itinerary-items/${placeOverlay.item_id}/place-details/?include_images=12`
+        );
+
+        setPlaceOverlay((prev) => {
+          if (!prev || prev.item_id !== data.item_id) return prev;
+          return {
+            ...prev,
+            image_url: prev.image_url || data.image_url,
+            images: data.images || [],
+          };
+        });
+
+        const missingAllImages =
+          (!data.image_url || data.image_url.trim() === "") &&
+          ((data.images?.length ?? 0) === 0);
+
+        if (missingAllImages) {
+          await fetchOpenverseImages(data);
+        }
+      } catch (err) {
+        console.error("Failed to load photos:", err);
+      } finally {
+        setPhotosLoading(false);
+      }
+    })();
+  }, [placeTab, placeOverlay?.item_id]);
+
+
+
+  //* -------------------- Open place overlay -------------------- */
+  async function openPlaceOverlay(item: ItineraryItem) {
+    setLightboxOpen(false);
+    setLightboxIndex(0);
+    setPlaceOverlayLoading(true);
+    setPlaceOverlayError(null);
+    setPlaceTab("about");
+    setOpenverseLoading(false);
+    setPhotosLoading(false);
+
+    try {
+      const data: PlaceDetails = await apiFetch(
+        `/f1/itinerary-items/${item.id}/place-details/?include_images=0`
+      );
+
+      setPlaceOverlay(data);
+
+      // If we got a hero image, store it as the item's thumbnail so the list shows it too
+      if (data?.image_url && !hasAnyThumbnail(item)) {
+        setItems((prev) =>
+          prev.map((x) =>
+            x.id === item.id ? ({ ...(x as any), thumbnail_url: data.image_url } as any) : x
+          )
+        );
+      }
+
+    } catch (err: any) {
+      console.error("Failed to load place details:", err);
+      setPlaceOverlay(null);
+      setPlaceOverlayError("Could not load place details.");
+    } finally {
+      setPlaceOverlayLoading(false);
+    }
+  }
+
+  const pickImageUrls = (results: any[]): string[] => {
+    const urls = (results || [])
+      .map((r) => {
+        // Openverse images typically provide 'thumbnail' (direct image),
+        // and sometimes 'url' (landing page) — prefer thumbnail.
+        return (
+          r?.thumbnail ||
+          r?.url ||
+          r?.foreign_landing_url ||
+          r?.detail_url ||
+          null
+        );
+      })
+      .filter((u): u is string => typeof u === "string" && u.length > 0);
+
+    // dedupe preserving order
+    const seen = new Set<string>();
+    const deduped: string[] = [];
+    for (const u of urls) {
+      if (!seen.has(u)) {
+        seen.add(u);
+        deduped.push(u);
+      }
+    }
+    return deduped;
+  };
+
+  async function fetchOpenverseImages(details: PlaceDetails) {
+    const queryParts = [
+      details.name,
+      trip?.main_city,
+      "landmark",
+    ].filter(Boolean);
+
+    if (queryParts.length === 0) return;
+
+    setOpenverseLoading(true);
+    setPhotosLoading(true);
+
+    try {
+      const searchUrl = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(
+        queryParts.join(" ")
+      )}&page_size=12`;
+
+      const resp = await fetch(searchUrl);
+      if (!resp.ok) throw new Error(`Openverse status ${resp.status}`);
+
+      const json = await resp.json();
+      const urls = pickImageUrls(json?.results || []);
+      if (urls.length === 0) return;
+
+      setPlaceOverlay((prev) => {
+        if (!prev || prev.item_id !== details.item_id) return prev;
+
+        const merged = [
+          ...(prev.images || []),
+          ...urls,
+        ];
+        const unique = Array.from(new Set(merged));
+
+        return {
+          ...prev,
+          image_url: prev.image_url || unique[0],
+          images: unique,
+        };
+      });
+    } catch (err) {
+      console.error("Openverse fallback failed:", err);
+    } finally {
+      setOpenverseLoading(false);
+      setPhotosLoading(false);
+    }
+  }
 
   /* -------------------- Apply updated items after optimisation -------------------- */
   const applyUpdatedItems = (
@@ -422,6 +727,11 @@ export default function ItineraryEditor() {
   const itineraryScrollRef = useRef<HTMLDivElement | null>(null);
 
   const DAY_STICKY_OFFSET = 63; // pixels under the main header inside the card
+
+  // Track the last drag preview arrangement so we don't setState with the same shape repeatedly
+  const lastPreviewSigRef = useRef<string | null>(null);
+  // Throttle drag-over previews so we don't synchronously chain updates during layout effects
+  const previewRafRef = useRef<number | null>(null);
 
   // --- Global numbering + map items ---
   // Day index lookup: TripDay.id -> day_index (1,2,3...)
@@ -731,10 +1041,10 @@ export default function ItineraryEditor() {
     prevItems: ItineraryItem[],
     activeId: number,
     overId: string | number
-  ): ItineraryItem[] => {
+  ): ItineraryItem[] | null => {
     const itemsCopy = prevItems.map((i) => ({ ...i }));
     const activeItem = itemsCopy.find((i) => i.id === activeId);
-    if (!activeItem) return prevItems;
+    if (!activeItem) return null;
 
     let targetDayId: number | null = null;
     let targetIndex = 0;
@@ -746,10 +1056,10 @@ export default function ItineraryEditor() {
     } else {
       const destItemId = Number(overId);
       const destItem = itemsCopy.find((i) => i.id === destItemId);
-      if (!destItem) return prevItems;
+      if (!destItem) return null;
 
       targetDayId = destItem.day ?? null;
-      if (!targetDayId) return prevItems;
+      if (!targetDayId) return null;
 
       const destList = getItemsForDay(itemsCopy, targetDayId);
       const idx = destList.findIndex((i) => i.id === destItemId);
@@ -757,10 +1067,10 @@ export default function ItineraryEditor() {
     }
 
     const sourceDayId = activeItem.day;
-    if (!sourceDayId || !targetDayId) return prevItems;
+    if (!sourceDayId || !targetDayId) return null;
 
     if (sourceDayId === targetDayId && activeId === Number(overId)) {
-      return prevItems;
+      return null;
     }
 
     const byDay: Record<number, ItineraryItem[]> = {};
@@ -773,7 +1083,7 @@ export default function ItineraryEditor() {
       sourceDayId === targetDayId ? sourceList : byDay[targetDayId] ?? [];
 
     const sourceIndex = sourceList.findIndex((i) => i.id === activeId);
-    if (sourceIndex === -1) return prevItems;
+    if (sourceIndex === -1) return null;
 
     if (sourceDayId === targetDayId) {
       const reordered = arrayMove(sourceList, sourceIndex, targetIndex);
@@ -813,21 +1123,44 @@ export default function ItineraryEditor() {
       return (a.sort_order ?? 0) - (b.sort_order ?? 0);
     });
 
-    return updated;
+    // Skip state updates if nothing about day or order actually changed
+    // to avoid endless drag-over re-renders.
+    const prevMap = new Map(prevItems.map((i) => [i.id, i]));
+    const changed = updated.some((it) => {
+      const prev = prevMap.get(it.id);
+      if (!prev) return true;
+      return prev.day !== it.day || prev.sort_order !== it.sort_order;
+    });
+
+    return changed ? updated : null;
+  };
+
+  const makeItemsSignature = (list: ItineraryItem[]): string => {
+    // signature based on each item's day+sort_order keyed by id (order-independent)
+    return [...list]
+      .sort((a, b) => a.id - b.id)
+      .map((it) => `${it.id}:${it.day ?? "null"}:${it.sort_order ?? 0}`)
+      .join("|");
   };
 
   /* ------------- Drag & Drop handler (dnd-kit) ------------- */
 
   const handleDragStart = () => {
     dragOriginRef.current = items;
+    lastPreviewSigRef.current = makeItemsSignature(items);
   };
 
   const handleDragCancel = () => {
+    if (previewRafRef.current) {
+      cancelAnimationFrame(previewRafRef.current);
+      previewRafRef.current = null;
+    }
     if (dragOriginRef.current) {
       setItems(dragOriginRef.current);
       setLegs([]);
     }
     dragOriginRef.current = null;
+    lastPreviewSigRef.current = null;
   };
 
   const handleDragOver = (event: DragOverEvent) => {
@@ -839,15 +1172,28 @@ export default function ItineraryEditor() {
     if (!activeId || !overId) return;
 
     const nextItems = computeReorderedItems(items, activeId, overId);
-    if (nextItems !== items) {
+    if (!nextItems) return;
+
+    const sig = makeItemsSignature(nextItems);
+    if (sig === lastPreviewSigRef.current) return;
+    lastPreviewSigRef.current = sig;
+
+    if (previewRafRef.current) cancelAnimationFrame(previewRafRef.current);
+    previewRafRef.current = requestAnimationFrame(() => {
       setItems(nextItems);
       setLegs([]);
-    }
+      previewRafRef.current = null;
+    });
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const origin = dragOriginRef.current;
     dragOriginRef.current = null;
+    lastPreviewSigRef.current = null;
+    if (previewRafRef.current) {
+      cancelAnimationFrame(previewRafRef.current);
+      previewRafRef.current = null;
+    }
 
     if (!origin) return;
 
@@ -1004,7 +1350,7 @@ export default function ItineraryEditor() {
           <div
             style={{
               position: "sticky",
-              top: 90, // adjust if your header height is different
+              top: 90,
               height: "calc(90vh - 90px)",
               background: "#e5e7eb",
               borderRadius: 0,
@@ -1012,7 +1358,539 @@ export default function ItineraryEditor() {
               boxShadow: "none",
             }}
           >
+<<<<<<< HEAD
             <ItineraryMap items={mapItems} photos={photos} />
+=======
+            <div style={{ position: "relative", width: "100%", height: "100%" }}>
+              <ItineraryMap items={mapItems} />
+
+              {/* Bottom place overlay */}
+              {(placeOverlay || placeOverlayLoading || placeOverlayError) && (
+                <div
+                  style={{
+                    position: "absolute",
+                    left: 12,
+                    right: 12,
+                    bottom: 12,
+                    zIndex: 50,
+                    borderRadius: 18,
+                    background: "rgba(255,255,255,0.96)",
+                    border: "1px solid rgba(229,231,235,0.9)",
+                    boxShadow: "0 18px 45px rgba(15,23,42,0.22)",
+                    overflow: "hidden",
+                    backdropFilter: "blur(10px)",
+                  }}
+                >
+                  <div style={{ padding: 12 }}>
+                    {/* TOP ROW: Image + Title + Close */}
+                    <div style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
+                      {/* image */}
+                      <div
+                        style={{
+                          width: 98,
+                          minWidth: 98,
+                          borderRadius: 14,
+                          background: placeOverlay?.image_url
+                            ? `url(${placeOverlay.image_url}) center/cover no-repeat`
+                            : "linear-gradient(135deg,#bfdbfe,#a5b4fc)",
+                        }}
+                      />
+
+                      {/* title + meta */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <div
+                            style={{
+                              fontSize: "0.95rem",
+                              fontWeight: 750,
+                              color: "#111827",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {placeOverlayLoading ? "Loading…" : (placeOverlay?.name || "Place")}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPlaceOverlay(null);
+                              setPlaceOverlayError(null);
+                              setOpenverseLoading(false);
+                            }}
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              cursor: "pointer",
+                              color: "#6b7280",
+                              fontSize: 18,
+                              lineHeight: "18px",
+                            }}
+                            title="Close"
+                          >
+                            ×
+                          </button>
+                        </div>
+
+                        {/* quick meta line */}
+                        {!placeOverlayLoading && !placeOverlayError && (
+                          <div style={{ marginTop: 6, fontSize: "0.78rem", color: "#6b7280" }}>
+                            {placeOverlay?.kinds ? placeOverlay.kinds : "—"}
+                            {placeOverlay?.address ? ` · ${placeOverlay.address}` : ""}
+                          </div>
+                        )}
+
+                        {/* ✅ Notes + Preferences (under address) */}
+                        {(placeOverlay?.notes_summary || placeOverlay?.preferences_text) && (
+                          <div
+                            style={{
+                              marginTop: 8,
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 6,
+                            }}
+                          >
+                            {placeOverlay?.notes_summary && (
+                              <div
+                                style={{
+                                  fontSize: "0.78rem",
+                                  color: "#374151",
+                                  background: "#f3f4f6",
+                                  border: "1px solid #e5e7eb",
+                                  padding: "8px 10px",
+                                  borderRadius: 12,
+                                  lineHeight: 1.35,
+                                }}
+                              >
+                                <div style={{ fontWeight: 800, fontSize: "0.72rem", color: "#6b7280", marginBottom: 4 }}>
+                                  Notes summary
+                                </div>
+                                {placeOverlay.notes_summary}
+                              </div>
+                            )}
+
+                            {placeOverlay?.preferences_text && (
+                              <div
+                                style={{
+                                  fontSize: "0.78rem",
+                                  color: "#374151",
+                                  background: "#eef2ff",
+                                  border: "1px solid #c7d2fe",
+                                  padding: "8px 10px",
+                                  borderRadius: 12,
+                                  lineHeight: 1.35,
+                                }}
+                              >
+                                <div style={{ fontWeight: 800, fontSize: "0.72rem", color: "#6b7280", marginBottom: 4 }}>
+                                  Preferences
+                                </div>
+                                {placeOverlay.preferences_text}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* TAB BAR */}
+                    <div style={{ display: "flex", gap: 10, paddingTop: 10 }}>
+                      {(["about", "travel", "nearby", "photos"] as const).map((t) => (
+                        <button
+                          key={t}
+                          onClick={() => setPlaceTab(t)}
+                          style={{
+                            border: "none",
+                            background: placeTab === t ? "#eef2ff" : "transparent",
+                            color: placeTab === t ? "#4338ca" : "#6b7280",
+                            fontWeight: 750,
+                            fontSize: "0.78rem",
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {t === "about"
+                            ? "About"
+                            : t === "travel"
+                            ? "Travel"
+                            : t === "nearby"
+                            ? "Nearby"
+                            : "Photos"}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* TAB CONTENT */}
+                    <div style={{ marginTop: 10 }}>
+                      {/* ERROR */}
+                      {placeOverlayError && (
+                        <div style={{ fontSize: "0.85rem", color: "#b91c1c" }}>
+                          {placeOverlayError}
+                        </div>
+                      )}
+
+                      {/* LOADING */}
+                      {!placeOverlayError && placeOverlayLoading && (
+                        <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+                          Fetching place info…
+                        </div>
+                      )}
+
+                      {/* ABOUT */}
+                      {!placeOverlayError && !placeOverlayLoading && placeTab === "about" && placeOverlay && (
+                        <div
+                          style={{
+                            maxHeight: 190,
+                            overflowY: "auto",
+                            paddingRight: 6,
+                            position: "relative",
+
+                            fontSize: "0.8rem",
+                            color: "#6b7280",
+                            lineHeight: 1.45,
+                          }}
+                        >
+                          <PlaceAboutTab place={placeOverlay as any} hideHeroImage />
+
+                          {/* extra info chips */}
+                          <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8 }}>
+                            {placeOverlay?.opening_hours && (
+                              <span
+                                style={{
+                                  fontSize: "0.75rem",
+                                  color: "#374151",
+                                  background: "#f3f4f6",
+                                  padding: "5px 10px",
+                                  borderRadius: 999,
+                                }}
+                              >
+                                ⏰ {placeOverlay.opening_hours}
+                              </span>
+                            )}
+
+                            {placeOverlay?.phone && (
+                              <span
+                                style={{
+                                  fontSize: "0.75rem",
+                                  color: "#374151",
+                                  background: "#f3f4f6",
+                                  padding: "5px 10px",
+                                  borderRadius: 999,
+                                }}
+                              >
+                                📞 {placeOverlay.phone}
+                              </span>
+                            )}
+
+                            {placeOverlay?.website && normalizeUrl(placeOverlay.website) && (
+                              <a
+                                href={normalizeUrl(placeOverlay.website)!}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  fontSize: "0.75rem",
+                                  color: "#4f46e5",
+                                  background: "#eef2ff",
+                                  padding: "5px 10px",
+                                  borderRadius: 999,
+                                  textDecoration: "none",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                Website ↗
+                              </a>
+                            )}
+                          </div>
+
+                          {/* bottom fade gradient */}
+                          <div
+                            style={{
+                              position: "sticky",
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              height: 28,
+                              pointerEvents: "none",
+                              background:
+                                "linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.96))",
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {/* TRAVEL */}
+                      {!placeOverlayError && !placeOverlayLoading && placeTab === "travel" && placeOverlay && (
+                        <div
+                          style={{
+                            maxHeight: 190,
+                            overflowY: "auto",
+                            paddingRight: 6,
+                            position: "relative",
+                            fontSize: "0.8rem",
+                            color: "#6b7280",
+                            lineHeight: 1.45,
+                          }}
+                        >
+                          <PlaceTravelTab place={placeOverlay as any} />
+
+                          {/* bottom fade gradient (keep same UI feel as other tabs) */}
+                          <div
+                            style={{
+                              position: "sticky",
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              height: 28,
+                              pointerEvents: "none",
+                              background:
+                                "linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.96))",
+                            }}
+                          />
+                        </div>
+                      )}
+
+
+                      {/* NEARBY */}
+                      {!placeOverlayError && !placeOverlayLoading && placeTab === "nearby" && (
+                        <>
+                          <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: 8 }}>
+                            {placeOverlay?.nearby?.length ? "Nearby places" : "No nearby places found."}
+                          </div>
+
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 170, overflowY: "auto", paddingRight: 6 }}>
+                            {(placeOverlay?.nearby || []).slice(0, 12).map((p) => (
+                              <div
+                                key={p.xid}
+                                style={{
+                                  border: "1px solid #e5e7eb",
+                                  borderRadius: 12,
+                                  padding: "8px 10px",
+                                  background: "white",
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                  <div style={{ fontSize: "0.84rem", fontWeight: 750, color: "#111827" }}>
+                                    {p.name}
+                                  </div>
+                                  <div style={{ fontSize: "0.76rem", color: "#6b7280", whiteSpace: "nowrap" }}>
+                                    {formatMeters(p.dist_m)}
+                                  </div>
+                                </div>
+                                <div style={{ marginTop: 3, fontSize: "0.75rem", color: "#6b7280" }}>
+                                  {p.kinds || "—"}
+                                </div>
+                                {/* Optional: later make this clickable to fetch xid details */}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      {/* PHOTOS */}
+                      {!placeOverlayError && !placeOverlayLoading && placeTab === "photos" && (
+                        <>
+                          <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: 8 }}>
+                            {(photosLoading || openverseLoading)
+                              ? "Loading photos…"
+                              : (placeOverlay?.images?.length ?? 0) > 0
+                              ? `${placeOverlay?.images?.length ?? 0} photos`
+                              : "No photos available."}
+                          </div>
+
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(3, 1fr)",
+                              gap: 8,
+                              maxHeight: 180,
+                              overflowY: "auto",
+                              paddingRight: 6,
+                            }}
+                          >
+                            {(photosLoading || openverseLoading) && (placeOverlay?.images?.length ?? 0) === 0 ? (
+                              Array.from({ length: 9 }).map((_, idx) => (
+                                <div
+                                  key={`sk-${idx}`}
+                                  style={{
+                                    width: "100%",
+                                    paddingTop: "75%",
+                                    borderRadius: 12,
+                                    background: "linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 37%, #e5e7eb 63%)",
+                                    backgroundSize: "400% 100%",
+                                    animation: "tmShimmer 1.2s ease-in-out infinite",
+                                  }}
+                                />
+                              ))
+                            ) : (
+                              (placeOverlay?.images || []).slice(0, 18).map((src, idx) => (
+                                <button
+                                  key={`${src}-${idx}`}
+                                  type="button"
+                                  onClick={() => openLightbox(idx)}
+                                  style={{
+                                    display: "block",
+                                    border: "none",
+                                    padding: 0,
+                                    background: "transparent",
+                                    borderRadius: 12,
+                                    overflow: "hidden",
+                                    cursor: "pointer",
+                                  }}
+                                  title="View photo"
+                                >
+                                  <div
+                                    style={{
+                                      width: "100%",
+                                      paddingTop: "75%",
+                                      background: `url(${src}) center/cover no-repeat`,
+                                    }}
+                                  />
+                                </button>
+                              ))
+                            )}
+                          </div>
+                          {lightboxOpen && photos.length > 0 &&
+                            createPortal(
+                              <div
+                                style={{
+                                  position: "fixed",
+                                  inset: 0,
+                                  zIndex: 99999,
+                                  background: "rgba(0,0,0,0.72)",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  padding: 24,
+                                }}
+                              >
+                                {/* OUTER wrapper: allows arrows outside */}
+                                <div
+                                  style={{
+                                    position: "relative",
+                                    width: "min(1100px, 92vw)",
+                                    height: "min(80vh, 720px)",
+                                    overflow: "visible", // IMPORTANT
+                                  }}
+                                >
+                                  {/* INNER frame: clips image nicely */}
+                                  <div
+                                    style={{
+                                      width: "100%",
+                                      height: "100%",
+                                      borderRadius: 18,
+                                      overflow: "hidden",
+                                      background: "rgba(0,0,0,0.35)",
+                                      boxShadow: "0 30px 80px rgba(0,0,0,0.55)",
+                                    }}
+                                  >
+                                    <img
+                                      src={photos[lightboxIndex]}
+                                      alt="Place photo"
+                                      style={{
+                                        width: "100%",
+                                        height: "100%",
+                                        objectFit: "contain",
+                                        display: "block",
+                                      }}
+                                    />
+                                  </div>
+
+                                  {/* Close */}
+                                  <button
+                                    type="button"
+                                    onClick={closeLightbox}
+                                    style={{
+                                      position: "absolute",
+                                      top: 12,
+                                      right: 12,
+                                      width: 38,
+                                      height: 38,
+                                      borderRadius: 999,
+                                      border: "1px solid rgba(255,255,255,0.22)",
+                                      background: "rgba(0,0,0,0.40)",
+                                      color: "white",
+                                      cursor: "pointer",
+                                      fontSize: 18,
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      zIndex: 10,
+                                    }}
+                                    title="Close"
+                                  >
+                                    ×
+                                  </button>
+
+                                  {/* Arrows OUTSIDE the frame */}
+                                  {photos.length > 1 && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={showPrev}
+                                        style={{
+                                          position: "absolute",
+                                          left: -64,
+                                          top: "50%",
+                                          transform: "translateY(-50%)",
+                                          width: 52,
+                                          height: 52,
+                                          borderRadius: 999,
+                                          border: "1px solid rgba(255,255,255,0.22)",
+                                          background: "rgba(0,0,0,0.40)",
+                                          color: "white",
+                                          cursor: "pointer",
+                                          fontSize: 24,
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          zIndex: 10,
+                                        }}
+                                        title="Previous"
+                                      >
+                                        ‹
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={showNext}
+                                        style={{
+                                          position: "absolute",
+                                          right: -64,
+                                          top: "50%",
+                                          transform: "translateY(-50%)",
+                                          width: 52,
+                                          height: 52,
+                                          borderRadius: 999,
+                                          border: "1px solid rgba(255,255,255,0.22)",
+                                          background: "rgba(0,0,0,0.40)",
+                                          color: "white",
+                                          cursor: "pointer",
+                                          fontSize: 24,
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          zIndex: 10,
+                                        }}
+                                        title="Next"
+                                      >
+                                        ›
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>,
+                              document.body
+                            )
+                          }
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+>>>>>>> origin/Vania
           </div>
 
           {/* MIDDLE: Optimise + Itinerary Planner (this scrolls) */}
@@ -1260,7 +2138,7 @@ export default function ItineraryEditor() {
                                     key={item.id}
                                     item={item}
                                   >
-                                    <div
+                                    <div onClick={() => openPlaceOverlay(item)}
                                       style={{
                                         borderRadius: "12px",
                                         padding: "0.6rem 0.8rem",
@@ -1271,6 +2149,7 @@ export default function ItineraryEditor() {
                                         columnGap: "0.75rem",
                                         alignItems: "center",
                                         backgroundColor: "transparent",
+                                        cursor: "pointer",
                                       }}
                                     >
                                       {/* Sequence number */}
@@ -1368,7 +2247,10 @@ export default function ItineraryEditor() {
                                             cursor: "pointer",
                                             marginTop: 6,
                                           }}
-                                          onClick={() => openTimeEditor(item)}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openTimeEditor(item);
+                                          }}
                                         >
                                           {timeLabel || "Add time"}
                                         </div>
@@ -1384,9 +2266,10 @@ export default function ItineraryEditor() {
                                       >
                                         <button
                                           type="button"
-                                          onClick={() =>
-                                            handleDeleteItem(item.id)
-                                          }
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteItem(item.id);
+                                          }}
                                           style={{
                                             borderRadius: "999px",
                                             border: "none",
@@ -1795,6 +2678,14 @@ export default function ItineraryEditor() {
           </div>
         </div>
       )}
+      <style>
+        {`
+          @keyframes tmShimmer {
+            0% { background-position: 100% 0; }
+            100% { background-position: 0 0; }
+          }
+        `}
+      </style>
     </>
   );
 }

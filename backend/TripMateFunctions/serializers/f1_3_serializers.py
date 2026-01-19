@@ -83,4 +83,4 @@ class F13SoloTripGenerateRequestSerializer(serializers.Serializer):
         return attrs
 
 class F13SoloTripGenerateResponseSerializer(serializers.Serializer):
-    trip_id = serializers.UUIDField()
+    trip_id = serializers.IntegerField()
