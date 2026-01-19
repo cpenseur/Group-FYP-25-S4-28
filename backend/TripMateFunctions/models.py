@@ -1,7 +1,9 @@
+# models.py
 from django.db import models
-from django.contrib.auth.models import User
+from django.contrib.postgres.fields import ArrayField
 from django.utils import timezone as django_timezone
-
+import secrets
+import uuid
 
 # --------------------------------------------------
 # USERS & PROFILES
@@ -9,6 +11,12 @@ from django.utils import timezone as django_timezone
 
 
 class AppUser(models.Model):
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )    
+    
     class Role(models.TextChoices):
         NORMAL = "normal", "Normal"
         ADMIN = "admin", "Admin"
@@ -20,7 +28,6 @@ class AppUser(models.Model):
         DELETED = "deleted", "Deleted"
 
     email = models.EmailField(unique=True)
-    password_hash = models.TextField()  # if using Supabase auth, you can ignore
     full_name = models.CharField(max_length=255, blank=True, null=True)
 
     role = models.CharField(
@@ -34,7 +41,7 @@ class AppUser(models.Model):
         default=Status.PENDING,
     )
 
-    created_at = models.DateTimeField(default=django_timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -44,30 +51,35 @@ class AppUser(models.Model):
         return self.email or f"User {self.pk}"
 
 
-class UserProfile(models.Model):
-    user = models.OneToOneField(
-        AppUser,
-        on_delete=models.CASCADE,
-        related_name="profile",
-    )
+class Profile(models.Model):
+    id = models.UUIDField(primary_key=True)
 
-    avatar_url = models.URLField(blank=True, null=True)
-    bio = models.TextField(blank=True, null=True)
-    home_country = models.CharField(max_length=255, blank=True, null=True)
-    home_city = models.CharField(max_length=255, blank=True, null=True)
-    preferred_currency = models.CharField(max_length=3, blank=True, null=True)
-    date_of_birth = models.DateField(blank=True, null=True)
+    dob_day = models.TextField(blank=True, null=True)
+    dob_month = models.TextField(blank=True, null=True)
+    dob_year = models.TextField(blank=True, null=True)
 
-    created_at = models.DateTimeField(default=django_timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
+    phone = models.TextField(blank=True, null=True)
+    nationality = models.TextField(blank=True, null=True)
+    address1 = models.TextField(blank=True, null=True)
+    address2 = models.TextField(blank=True, null=True)
+
+    updated_at = models.DateTimeField(blank=True, null=True)
+    location = models.TextField(blank=True, null=True)
+
+    interests = ArrayField(models.TextField(), blank=True, null=True)
+
+    travel_pace = models.TextField(blank=True, null=True)
+    budget_level = models.TextField(blank=True, null=True)
+    diet_preference = models.TextField(blank=True, null=True)
+    mobility_needs = models.TextField(blank=True, null=True)
+
+    onboarding_completed = models.BooleanField(default=False)
+    name = models.TextField(blank=True, null=True)
 
     class Meta:
-        db_table = "user_profile"
-
-    def __str__(self):
-        return f"Profile of {self.user_id}"
-
-
+        db_table = "profiles"
+        managed = False 
+        
 # --------------------------------------------------
 # DESTINATION & LOCALE
 # --------------------------------------------------
@@ -116,6 +128,53 @@ class Destination(models.Model):
     external_ref = models.CharField(
         max_length=255, blank=True, null=True
     )  # e.g. OpenTripMap ID
+
+    # ============================================================================
+    # NEW FIELDS FOR F1.5b - Recommendations Page (OPTIONAL but recommended)
+    # ============================================================================
+    short_description = models.CharField(
+        max_length=500, 
+        blank=True, 
+        null=True,
+        help_text="Brief description for destination cards"
+    )
+    thumbnail_image = models.URLField(
+        max_length=500, 
+        blank=True, 
+        null=True,
+        help_text="Thumbnail image for destination cards"
+    )
+    best_time_to_visit = models.CharField(
+        max_length=255, 
+        blank=True, 
+        null=True,
+        help_text="Best time to visit (e.g., 'March-May, September-November')"
+    )
+    average_budget = models.CharField(
+        max_length=255, 
+        blank=True, 
+        null=True,
+        help_text="Average budget per day (e.g., '$100-150 per day')"
+    )
+    popular_activities = models.JSONField(
+        blank=True, 
+        null=True,
+        help_text="Array of popular activity strings"
+    )
+    fun_facts = models.JSONField(
+        blank=True, 
+        null=True,
+        help_text="Array of fun fact strings"
+    )
+    views = models.IntegerField(
+        default=0,
+        help_text="Number of times this destination was viewed"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this destination is active in recommendations"
+    )
+    # ============================================================================
 
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -206,28 +265,59 @@ class TripCollaborator(models.Model):
         EDITOR = "editor", "Editor"
         VIEWER = "viewer", "Viewer"
 
+    class Status(models.TextChoices):
+        INVITED = "invited", "Invited"
+        ACTIVE = "active", "Active"
+
     trip = models.ForeignKey(
         Trip,
         on_delete=models.CASCADE,
         related_name="collaborators",
     )
+
     user = models.ForeignKey(
         AppUser,
         on_delete=models.CASCADE,
         related_name="trip_collaborations",
+        null=True,
+        blank=True,
     )
-    role = models.CharField(
-        max_length=16,
-        choices=Role.choices,
-        default=Role.EDITOR,
-    )
+
+    invited_email = models.EmailField(null=True, blank=True)   
+    invite_token = models.CharField(max_length=64, unique=True, null=True, blank=True)
+
+    role = models.CharField(max_length=16, choices=Role.choices, default=Role.EDITOR)
+
+    status = models.CharField(max_length=16, choices=Status.choices,default=Status.INVITED,)
 
     invited_at = models.DateTimeField(default=django_timezone.now)
     accepted_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         db_table = "trip_collaborator"
-        unique_together = ("trip", "user")
+        constraints = [
+            # Only one collaborator row per (trip, user) when user is set
+            models.UniqueConstraint(
+                fields=["trip", "user"],
+                name="uniq_trip_user",
+                condition=models.Q(user__isnull=False),
+            ),
+            # Only one pending invite per (trip, invited_email) when email is set
+            models.UniqueConstraint(
+                fields=["trip", "invited_email"],
+                name="uniq_trip_invited_email",
+                condition=models.Q(invited_email__isnull=False),
+            ),
+            # Ensure at least one of user or invited_email exists
+            models.CheckConstraint(
+                check=models.Q(user__isnull=False) | models.Q(invited_email__isnull=False),
+                name="chk_user_or_email_present",
+            ),
+        ]
+
+    def ensure_token(self):
+        if not self.invite_token:
+            self.invite_token = secrets.token_urlsafe(32)
 
     def __str__(self):
         return f"{self.user_id} in Trip {self.trip_id}"
@@ -778,3 +868,363 @@ class LegalDocument(models.Model):
 
     def __str__(self):
         return f"{self.doc_type} v{self.version or '1.0'}"
+
+
+# ============================================================================
+# ============================================================================
+# F1.5b - RECOMMENDATIONS SYSTEM MODELS
+# NEW MODELS ADDED HERE FOR F1.5 AI RECOMMENDATIONS
+# ============================================================================
+# ============================================================================
+
+
+class Guide(models.Model):
+    """
+    User-created travel guides that can be shared publicly.
+    Used in F1.5b Recommendations Page - Featured Guides section.
+    
+    UPDATED: Now includes view tracking and save count
+    """
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        PUBLISHED = "published", "Published"
+        ARCHIVED = "archived", "Archived"
+    
+    author = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="created_guides"
+    )
+    title = models.CharField(max_length=255)
+    main_destination = models.CharField(max_length=255)
+    countries = models.CharField(
+        max_length=500, 
+        blank=True, 
+        null=True,
+        help_text="Comma-separated list of countries covered"
+    )
+    
+    description = models.TextField(blank=True, null=True)
+    cover_image = models.URLField(max_length=500, blank=True, null=True)
+    
+    duration_days = models.IntegerField(default=1)
+    
+    is_public = models.BooleanField(default=False)
+    verified = models.BooleanField(
+        default=False,
+        help_text="Verified guides show a verification badge"
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.DRAFT
+    )
+    
+    # ============================================================================
+    # TRACKING FIELDS (UPDATED)
+    # ============================================================================
+    views = models.IntegerField(
+        default=0,
+        help_text="Number of times this guide was viewed"
+    )
+    saves = models.IntegerField(
+        default=0,
+        help_text="Number of users who saved this guide"
+    )
+    # ============================================================================
+    
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = "guide"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=['is_public', 'status']),
+            models.Index(fields=['main_destination']),
+            models.Index(fields=['-views']),
+            models.Index(fields=['-saves']),  # NEW: Index for sorting by saves
+        ]
+    
+    def __str__(self):
+        return f"{self.title} by {self.author.email}"
+    
+    # ============================================================================
+    # HELPER METHODS (NEW)
+    # ============================================================================
+    def increment_views(self):
+        """Increment view count when guide is viewed"""
+        self.views = models.F('views') + 1
+        self.save(update_fields=['views'])
+        self.refresh_from_db()
+    
+    def increment_saves(self):
+        """Increment save count when guide is saved"""
+        self.saves = models.F('saves') + 1
+        self.save(update_fields=['saves'])
+        self.refresh_from_db()
+    
+    def decrement_saves(self):
+        """Decrement save count when guide is unsaved"""
+        if self.saves > 0:
+            self.saves = models.F('saves') - 1
+            self.save(update_fields=['saves'])
+            self.refresh_from_db()
+
+
+class SavedGuide(models.Model):
+    """
+    Tracks which guides users have saved.
+    M2M relationship between AppUser and Guide.
+    
+    UPDATED: Now automatically updates Guide.saves count
+    """
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="saved_guides"
+    )
+    guide = models.ForeignKey(
+        Guide,
+        on_delete=models.CASCADE,
+        related_name="savedguide_set"  # IMPORTANT: matches query in f1_5_views.py
+    )
+    
+    created_at = models.DateTimeField(default=django_timezone.now)
+    
+    class Meta:
+        db_table = "saved_guide"
+        unique_together = [["user", "guide"]]
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.email} saved {self.guide.title}"
+    
+    # ============================================================================
+    # AUTO-UPDATE SAVE COUNT (NEW)
+    # ============================================================================
+    def save(self, *args, **kwargs):
+        """Override save to increment guide save count"""
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        
+        if is_new:
+            # Increment save count on the guide
+            self.guide.increment_saves()
+    
+    def delete(self, *args, **kwargs):
+        """Override delete to decrement guide save count"""
+        guide = self.guide
+        super().delete(*args, **kwargs)
+        
+        # Decrement save count on the guide
+        guide.decrement_saves()
+
+
+class SavedDestination(models.Model):
+    """
+    Tracks which destinations users have saved.
+    M2M relationship between AppUser and Destination.
+    
+    Note: This is a junction table for the Destination model (which already exists).
+    This just tracks the save action.
+    """
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="saved_destinations_f15"  # Unique name to avoid conflicts
+    )
+    destination = models.ForeignKey(
+        Destination,
+        on_delete=models.CASCADE,
+        related_name="saveddestination_set"  # IMPORTANT: matches query in f1_5_views.py
+    )
+    
+    created_at = models.DateTimeField(default=django_timezone.now)
+    
+    class Meta:
+        db_table = "saved_destination"
+        unique_together = [["user", "destination"]]
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.email} saved {self.destination.name}"
+
+
+# ============================================================================
+# OPTIONAL: Trip-as-Guide Metadata (For using existing Trips as Guides)
+# ============================================================================
+
+class TripGuideMetadata(models.Model):
+    """
+    Optional: Tracks metadata when existing Trips are used as Guides.
+    This allows you to use Trip data without creating separate Guide objects.
+    
+    Usage:
+    - Trip is the actual trip data (already exists)
+    - TripGuideMetadata tracks views/saves when that trip is shown as a guide
+    
+    This is for the "use existing Trip data" approach.
+    """
+    trip = models.OneToOneField(
+        Trip,
+        on_delete=models.CASCADE,
+        related_name='guide_metadata',
+        help_text="The trip that is being used as a guide"
+    )
+    
+    # Is this trip published as a guide?
+    is_published_as_guide = models.BooleanField(
+        default=False,
+        help_text="Is this trip published in the recommendations system?"
+    )
+    
+    # Featured/Promoted
+    is_featured = models.BooleanField(
+        default=False,
+        help_text="Show in featured guides section?"
+    )
+    
+    # Stats
+    views = models.IntegerField(
+        default=0,
+        help_text="Number of times viewed as a guide"
+    )
+    saves = models.IntegerField(
+        default=0,
+        help_text="Number of users who saved this as a guide"
+    )
+    
+    # Timestamps
+    published_at = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="When this trip was first published as a guide"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = "trip_guide_metadata"
+        verbose_name = "Trip Guide Metadata"
+        verbose_name_plural = "Trip Guide Metadata"
+        indexes = [
+            models.Index(fields=['is_published_as_guide', '-views']),
+            models.Index(fields=['is_featured']),
+            models.Index(fields=['-saves']),
+        ]
+    
+    def __str__(self):
+        return f"Guide Metadata for: {self.trip.title}"
+    
+    def increment_views(self):
+        """Increment view count"""
+        self.views = models.F('views') + 1
+        self.save(update_fields=['views'])
+        self.refresh_from_db()
+    
+    def increment_saves(self):
+        """Increment save count"""
+        self.saves = models.F('saves') + 1
+        self.save(update_fields=['saves'])
+        self.refresh_from_db()
+    
+    def decrement_saves(self):
+        """Decrement save count"""
+        if self.saves > 0:
+            self.saves = models.F('saves') - 1
+            self.save(update_fields=['saves'])
+            self.refresh_from_db()
+
+
+class SavedTripGuide(models.Model):
+    """
+    Optional: Tracks when users save a Trip (as a guide).
+    This is for the "use existing Trip data" approach.
+    
+    Automatically updates TripGuideMetadata.saves count.
+    """
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="saved_trip_guides"
+    )
+    trip = models.ForeignKey(
+        Trip,
+        on_delete=models.CASCADE,
+        related_name="saved_as_guide_by"
+    )
+    
+    created_at = models.DateTimeField(default=django_timezone.now)
+    
+    class Meta:
+        db_table = "saved_trip_guide"
+        unique_together = [["user", "trip"]]
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.email} saved trip {self.trip.title} as guide"
+    
+    def save(self, *args, **kwargs):
+        """Override save to increment trip guide save count"""
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        
+        if is_new:
+            # Get or create metadata
+            metadata, created = TripGuideMetadata.objects.get_or_create(
+                trip=self.trip,
+                defaults={
+                    'is_published_as_guide': True,
+                    'published_at': django_timezone.now()
+                }
+            )
+            metadata.increment_saves()
+    
+    def delete(self, *args, **kwargs):
+        """Override delete to decrement trip guide save count"""
+        trip = self.trip
+        super().delete(*args, **kwargs)
+        
+        # Decrement save count
+        try:
+            metadata = TripGuideMetadata.objects.get(trip=trip)
+            metadata.decrement_saves()
+        except TripGuideMetadata.DoesNotExist:
+            pass
+
+# F1.5 RECOMMENDATIONS MODELS
+
+class GroupPreference(models.Model):
+    """
+    Stores individual user preferences for group trips.
+    Multiple users can save their preferences for the same trip.
+    """
+    trip = models.ForeignKey(
+        Trip,
+        on_delete=models.CASCADE,
+        related_name="group_preferences"
+    )
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="group_preferences"
+    )
+    preferences = models.JSONField(default=list)  # Stores array of preference objects
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "group_preference"
+        unique_together = [["trip", "user"]]  # One preference per user per trip
+
+    def __str__(self):
+        return f"Preferences for {self.user.email} on Trip {self.trip.id}"

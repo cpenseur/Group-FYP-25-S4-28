@@ -2,7 +2,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from ..views.f2_1_views import F21RealTimeCoEditingSyncView
-from ..views.f2_2_views import F22GroupTripGeneratorView
+from ..views.f2_2_views import F22GroupTripGeneratorView, TripGroupPreferencesAPIView
 from ..views.f2_3_views import F23CreateShareLinkView, F23ResolveShareLinkView
 from ..views.f2_4_views import (
     F24CommunityTripListView,
@@ -25,11 +25,18 @@ urlpatterns = [
         name="f2-sync",
     ),
 
-    # F2.2 - Group Trip Generator
+    # F2.2 - Group Preferences (Summary page)
     path(
-        "group-trip-generator/",
+        "trips/<int:trip_id>/preferences/",
+        TripGroupPreferencesAPIView.as_view(),
+        name="f2-trip-group-preferences",
+    ),
+
+    # F2.2 - Group Trip Generator (Generate itinerary from preferences)
+    path(
+        "trips/<int:trip_id>/generate-group-itinerary/",
         F22GroupTripGeneratorView.as_view(),
-        name="f2-group-trip-generator",
+        name="f2-generate-group-itinerary",
     ),
 
     # F2.3 - Sharing Options to View

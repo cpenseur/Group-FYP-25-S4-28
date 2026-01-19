@@ -14,6 +14,9 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 import environ
+import ssl
+
+ssl._create_default_https_context = ssl._create_unverified_context
 
 load_dotenv()
 
@@ -34,7 +37,7 @@ SECRET_KEY = 'django-insecure-em9@_iz%@m=%@rx6pnk6ll6qe5ix^&tp8fefl@7@cr18q8^ha$
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
 
 
 # Application definition
@@ -46,6 +49,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    "django.contrib.postgres",
     'rest_framework',
     'corsheaders',
     'TripMateFunctions',
@@ -53,8 +57,8 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -87,10 +91,27 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# Supabase Postgres connection
+# Supabase Postgres connection (frontend handles Supabase; backend uses local fallback for infra)
 DATABASES = {
-    'default': env.db('DATABASE_URL')
+    "default": env.db(
+        "DATABASE_URL",
+        default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
+    )
 }
+
+# Supabase requires SSL; enforce if not already in the URL
+DATABASES["default"].setdefault("OPTIONS", {})
+DATABASES["default"]["OPTIONS"].update({
+    "sslmode": "require",
+    "connect_timeout": 10,        
+    "keepalives": 1,              
+    "keepalives_idle": 30,       
+    "keepalives_interval": 10,    
+    "keepalives_count": 5,      
+})
+
+DATABASES["default"]["CONN_MAX_AGE"] = 60        
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True  
 
 
 # Password validation
@@ -134,18 +155,45 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CORS_ALLOW_ALL_ORIGINS = True
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_CREDENTIALS = True
+
+# Cookie settings for CSRF
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF cookie
+CSRF_COOKIE_SECURE = False    # MUST be False in development (no HTTPS)
+CSRF_COOKIE_DOMAIN = None     # Let Django auto-detect the domain
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SECURE = False  # Must be False in development
+
+# Allow Vite frontend (localhost:5173) to POST (CSRF Origin check)
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
 
-# 🔐 Django REST Framework configuration
+# Django REST Framework configuration
 REST_FRAMEWORK = {
-    # ✅ Default: everything is public unless a view overrides it
+    # Default: everything is public unless a view overrides it
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
+        "rest_framework.permissions.IsAuthenticated",
     ],
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        "TripMateFunctions.authentication.SupabaseJWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
-        "rest_framework.authentication.BasicAuthentication",
+        "rest_framework.authentication.TokenAuthentication",
         # later you can add your custom Supabase authentication class here
     ],
 }
@@ -164,3 +212,26 @@ SUPABASE_ANON_KEY = env("SUPABASE_ANON_KEY")
 
 # NEW: Supabase JWT secret for verifying access tokens from frontend
 SUPABASE_JWT_SECRET = env("SUPABASE_JWT_SECRET", default="")
+
+# Sea-Lion settings
+SEA_LION_API_KEY = env("SEA_LION_API_KEY", default=os.environ.get("SEALION_API_KEY", ""))
+SEA_LION_MODEL = env("SEA_LION_MODEL", default="aisingapore/Llama-SEA-LION-v3-70B-IT")
+
+# Gemini fallback settings
+GEMINI_API_KEY = env("GEMINI_API_KEY", default=os.environ.get("GEMINI_API_KEY", ""))
+GEMINI_MODEL = env("GEMINI_MODEL", default="gemini-1.5-flash")
+
+# Email setting
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = "tripmatebyfyp25s428@gmail.com"
+EMAIL_HOST_PASSWORD = "woha tkax mbzc vqof"
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+INVITATION_EMAIL_HOST = "smtp.gmail.com"
+INVITATION_EMAIL_PORT = 587
+INVITATION_EMAIL_USE_TLS = True
+INVITATION_EMAIL_USER = "tripmatebyfyp25s428@gmail.com"
+INVITATION_EMAIL_PASSWORD = "tmsb ntgs ogvh bffy"

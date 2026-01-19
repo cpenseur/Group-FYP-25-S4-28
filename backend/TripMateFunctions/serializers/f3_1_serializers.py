@@ -1,14 +1,19 @@
+# TripMateFunctions/serializers/f3_1_serializers.py
 from rest_framework import serializers
 from ..models import TripBudget, TripExpense, ExpenseSplit
 
 
-class F31TripBudgetSerializer(serializers.ModelSerializer):
+class F31ExpenseSplitSerializer(serializers.ModelSerializer):
     class Meta:
-        model = TripBudget
-        fields = ["id", "trip", "currency", "planned_total", "actual_total"]
+        model = ExpenseSplit
+        fields = ["id", "expense", "user", "amount", "is_settled"]
 
 
 class F31TripExpenseSerializer(serializers.ModelSerializer):
+    # IMPORTANT: read_only so DRF won't try to pass "splits" into objects.create()
+    splits = F31ExpenseSplitSerializer(many=True, read_only=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+
     class Meta:
         model = TripExpense
         fields = [
@@ -22,10 +27,11 @@ class F31TripExpenseSerializer(serializers.ModelSerializer):
             "paid_at",
             "linked_day",
             "linked_item",
+            "splits",
         ]
 
 
-class F31ExpenseSplitSerializer(serializers.ModelSerializer):
+class F31TripBudgetSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ExpenseSplit
-        fields = ["id", "expense", "user", "amount", "is_settled"]
+        model = TripBudget
+        fields = ["id", "trip", "currency", "planned_total", "actual_total"]
