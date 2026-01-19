@@ -1358,9 +1358,6 @@ export default function ItineraryEditor() {
               boxShadow: "none",
             }}
           >
-<<<<<<< HEAD
-            <ItineraryMap items={mapItems} photos={photos} />
-=======
             <div style={{ position: "relative", width: "100%", height: "100%" }}>
               <ItineraryMap items={mapItems} />
 
@@ -1890,7 +1887,6 @@ export default function ItineraryEditor() {
                 </div>
               )}
             </div>
->>>>>>> origin/Vania
           </div>
 
           {/* MIDDLE: Optimise + Itinerary Planner (this scrolls) */}
