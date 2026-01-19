@@ -5,7 +5,6 @@ import { supabase } from "./lib/supabaseClient";
 import { ensureCsrfToken } from "./lib/apiClient";
 import Home from "./pages/Home";
 import TopBar from "./components/TopBar";
-import { supabase } from "./lib/supabaseClient";
 
 // Vania
 import Dashboard from "./pages/DashboardPage";
@@ -68,7 +67,6 @@ export default function App() {
 
   console.log("Sealion Key Loaded:", import.meta.env.VITE_SEALION_API_KEY);
 
-<<<<<<< HEAD
   /**
    * CSRF initialization + refresh on auth change
    */
@@ -123,29 +121,6 @@ export default function App() {
 
     return () => clearInterval(interval);
   }, []);
-=======
-  useEffect(() => {
-  const updateLastActive = async () => {
-    const { data } = await supabase.auth.getSession();
-    const user = data.session?.user;
-
-    if (!user) return;
-
-    await supabase
-      .from("app_user")
-      .update({ last_active_at: new Date().toISOString() })
-      .eq("auth_user_id", user.id);
-  };
-
-  updateLastActive();
-
-  // optional: refresh activity every 5 minutes
-  const interval = setInterval(updateLastActive, 5 * 60 * 1000);
-
-  return () => clearInterval(interval);
-}, []);
-
->>>>>>> pohyee
 
   return (
     <>
