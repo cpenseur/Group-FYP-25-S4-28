@@ -1,6 +1,7 @@
 // frontend/src/pages/mediaHighlights.tsx
-// ✅ FIXED: Using mapItems state pattern from notesAndChecklistPage + larger map
-// ✅ FIXED: All TypeScript implicit 'any' errors resolved
+// ✅ HYBRID SYNC: Immediate local updates + Realtime for others
+// ✅ Self upload: Shows immediately (optimistic update)
+// ✅ Others upload: Realtime sync
 
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -24,7 +25,7 @@ import {
   Download,
 } from "lucide-react";
 
-// Types
+// Types (same as before)
 interface TripPhoto {
   id: number;
   trip: number;
@@ -95,11 +96,10 @@ export default function MediaHighlights() {
   const { tripId } = useParams();
   const navigate = useNavigate();
 
-  // ✅ EXACTLY like notesAndChecklistPage - with mapItems state
   const [trip, setTrip] = useState<Trip | null>(null);
   const [items, setItems] = useState<ItineraryItem[]>([]);
   const [days, setDays] = useState<TripDay[]>([]);
-  const [mapItems, setMapItems] = useState<MapItineraryItem[]>([]); // ✅ NEW!
+  const [mapItems, setMapItems] = useState<MapItineraryItem[]>([]);
   const [photos, setPhotos] = useState<TripPhoto[]>([]);
   const [highlights, setHighlights] = useState<MediaHighlight[]>([]);
   const [loading, setLoading] = useState(true);
@@ -133,6 +133,27 @@ export default function MediaHighlights() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const getDateTimeFromItem = (itemId: number | null): string => {
+    if (!itemId) {
+      return new Date().toISOString().slice(0, 16);
+    }
+
+    const item = items.find(i => i.id === itemId);
+    if (!item || !item.day) {
+      return new Date().toISOString().slice(0, 16);
+    }
+
+    const day = days.find(d => d.id === item.day);
+    if (!day || !day.date) {
+      return new Date().toISOString().slice(0, 16);
+    }
+
+    const date = new Date(day.date);
+    date.setHours(12, 0, 0, 0);
+    
+    return date.toISOString().slice(0, 16);
+  };
+
   useEffect(() => {
     async function getCurrentUser() {
       try {
@@ -155,7 +176,74 @@ export default function MediaHighlights() {
     getCurrentUser();
   }, []);
 
-  // ✅ EXACTLY like notesAndChecklistPage - load trip and set mapItems
+  // ✅ REALTIME: Only for events from OTHER users
+  useEffect(() => {
+    if (!tripId || !currentUserId) return;
+
+    console.log("🔌 Setting up Realtime subscription for trip", tripId);
+
+    const channel = supabase
+      .channel(`trip-photos-${tripId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trip_photo', // ✅ Your table name
+          filter: `trip=eq.${tripId}`,
+        },
+        (payload) => {
+          console.log('📡 Realtime event received:', payload);
+
+          // ✅ Check if event is from another user
+          const photoUserId = payload.new?.user || payload.old?.user;
+          const isOwnEvent = photoUserId === parseInt(currentUserId);
+          
+          if (isOwnEvent) {
+            console.log('⏭️  Skipping own event (already updated locally)');
+            return;
+          }
+
+          // Handle events from OTHER users
+          if (payload.eventType === 'INSERT') {
+            const newPhoto = payload.new as TripPhoto;
+            console.log('➕ Adding photo from another user:', newPhoto.id);
+            
+            setPhotos(prev => {
+              if (prev.some(p => p.id === newPhoto.id)) {
+                console.log('⚠️  Photo already exists, skipping');
+                return prev;
+              }
+              return [...prev, newPhoto];
+            });
+          } 
+          else if (payload.eventType === 'UPDATE') {
+            const updatedPhoto = payload.new as TripPhoto;
+            console.log('✏️ Updating photo from another user:', updatedPhoto.id);
+            
+            setPhotos(prev =>
+              prev.map(p => p.id === updatedPhoto.id ? updatedPhoto : p)
+            );
+          } 
+          else if (payload.eventType === 'DELETE') {
+            const deletedPhoto = payload.old as TripPhoto;
+            console.log('🗑️ Removing photo deleted by another user:', deletedPhoto.id);
+            
+            setPhotos(prev => prev.filter(p => p.id !== deletedPhoto.id));
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Subscription status:', status);
+      });
+
+    return () => {
+      console.log("🔌 Cleaning up Realtime subscription...");
+      supabase.removeChannel(channel);
+    };
+  }, [tripId, currentUserId]);
+
+  // Load initial data
   useEffect(() => {
     if (!tripId) return;
 
@@ -166,7 +254,6 @@ export default function MediaHighlights() {
         console.log("=== 📦 Loading Media Highlights Data ===");
         console.log(`Trip ID: ${tripId}`);
 
-        // Load trip data
         const tripData = await apiFetch(`/f1/trips/${tripId}/`, { method: "GET" });
         console.log("Trip loaded:", {
           id: tripData.id,
@@ -185,11 +272,9 @@ export default function MediaHighlights() {
         
         console.log(`✅ Set ${safeItems.length} items and ${safeDays.length} days to state`);
 
-        // ✅ FIXED: Add explicit type annotation to forEach callback
         const dayIndexMap = new Map<number, number>();
         safeDays.forEach((d: TripDay) => dayIndexMap.set(d.id, d.day_index));
 
-        // ✅ FIXED: Add explicit type annotations to filter, sort, and map callbacks
         const mapped: MapItineraryItem[] = safeItems
           .filter((it: ItineraryItem) => it.lat != null && it.lon != null)
           .sort((a: ItineraryItem, b: ItineraryItem) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
@@ -207,7 +292,6 @@ export default function MediaHighlights() {
         setMapItems(mapped);
         console.log(`🗺️ Set ${mapped.length} map items`);
 
-        // Load photos
         const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
         const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
         
@@ -216,7 +300,6 @@ export default function MediaHighlights() {
         
         setPhotos(tripPhotos);
 
-        // Load highlights
         const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
         setHighlights(Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || []);
         
@@ -312,13 +395,15 @@ export default function MediaHighlights() {
     const newForms = new Map(photoForms);
     const currentLength = selectedFiles.length;
     
+    const defaultItemId = items.length > 0 ? items[0].id : null;
+    
     files.forEach((file, idx) => {
       const index = currentLength + idx;
       newForms.set(index, {
         file,
         caption: file.name.replace(/\.[^/.]+$/, ""),
-        taken_at: new Date().toISOString().slice(0, 16),
-        itinerary_item: items.length > 0 ? items[0].id : null,
+        taken_at: getDateTimeFromItem(defaultItemId),
+        itinerary_item: defaultItemId,
       });
     });
 
@@ -337,7 +422,14 @@ export default function MediaHighlights() {
     const newForms = new Map(photoForms);
     const existing = newForms.get(index);
     if (existing) {
-      newForms.set(index, { ...existing, [field]: value });
+      const updated = { ...existing, [field]: value };
+      
+      if (field === 'itinerary_item') {
+        updated.taken_at = getDateTimeFromItem(value as number | null);
+        console.log(`📅 Auto-updated date for item ${value}:`, updated.taken_at);
+      }
+      
+      newForms.set(index, updated);
       setPhotoForms(newForms);
     }
   };
@@ -387,10 +479,23 @@ export default function MediaHighlights() {
             lon: photoLon,
           };
 
-          await apiFetch("/f5/photos/", {
+          // ✅ POST to API
+          const createdPhoto = await apiFetch("/f5/photos/", {
             method: "POST",
             body: JSON.stringify(photoData),
           });
+          
+          console.log("✅ Photo created:", createdPhoto);
+
+          // ✅ IMMEDIATELY add to local state (optimistic update)
+          setPhotos(prev => {
+            // Check if already exists (prevent duplicates)
+            if (prev.some(p => p.id === createdPhoto.id)) {
+              return prev;
+            }
+            return [...prev, createdPhoto];
+          });
+          
         } catch (storageError: any) {
           console.error("Storage error:", storageError);
           alert(`Upload failed: ${storageError.message || 'Storage bucket may not exist.'}`);
@@ -398,15 +503,10 @@ export default function MediaHighlights() {
         }
       }
 
-      // Reload data
+      // Reload trip data (items and days)
       const tripData = await apiFetch(`/f1/trips/${tripId}/`, { method: "GET" });
       setItems(tripData.items || []);
       setDays(tripData.days || []);
-
-      const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
-      const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
-      const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
-      setPhotos(tripPhotos);
 
       setSelectedFiles([]);
       setPhotoForms(new Map());
@@ -423,11 +523,22 @@ export default function MediaHighlights() {
     if (!confirm("Delete this photo?")) return;
 
     try {
+      // ✅ IMMEDIATELY remove from local state (optimistic update)
+      setPhotos(prev => prev.filter(p => p.id !== photoId));
+      
+      // Then delete from backend
       await apiFetch(`/f5/photos/${photoId}/`, { method: "DELETE" });
-      setPhotos((prev) => prev.filter((p) => p.id !== photoId));
+      console.log("✅ Photo deleted:", photoId);
+      
     } catch (error) {
       console.error("Failed to delete photo:", error);
       alert("Failed to delete photo.");
+      
+      // ✅ On error, reload photos to restore deleted photo
+      const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
+      const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
+      const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId!));
+      setPhotos(tripPhotos);
     }
   };
 
@@ -455,16 +566,17 @@ export default function MediaHighlights() {
         lon: photoLon,
       };
 
-      await apiFetch(`/f5/photos/${editingPhoto.id}/`, {
+      const updatedPhoto = await apiFetch(`/f5/photos/${editingPhoto.id}/`, {
         method: "PATCH",
         body: JSON.stringify(updateData),
       });
 
-      // Reload photos
-      const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
-      const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
-      const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
-      setPhotos(tripPhotos);
+      console.log("✅ Photo updated:", updatedPhoto);
+
+      // ✅ IMMEDIATELY update local state (optimistic update)
+      setPhotos(prev =>
+        prev.map(p => p.id === updatedPhoto.id ? updatedPhoto : p)
+      );
 
       setShowEditModal(false);
       setEditingPhoto(null);
@@ -594,7 +706,6 @@ export default function MediaHighlights() {
         body: JSON.stringify(highlightData),
       });
 
-      // Reload highlights
       const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
       setHighlights(Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || []);
 
@@ -657,8 +768,6 @@ export default function MediaHighlights() {
     return item?.title || "";
   }
 
-  // Prepare photo markers
-  // FIX: Memoize photoMarkers to prevent unnecessary re-renders
   const photoMarkers = React.useMemo(() => {
     return photos
       .filter((p: TripPhoto) => p.lat && p.lon && p.trip === parseInt(tripId || "0"))
@@ -671,10 +780,6 @@ export default function MediaHighlights() {
       }));
   }, [photos, tripId]);
 
-  console.log("🗺️ mapItems:", mapItems.length, "items");
-  console.log("📸 Photo markers:", photoMarkers.length);
-
-  // Group photos by day
   const photosByDay: PhotosByDay[] = React.useMemo(() => {
     if (days.length === 0) return [];
     
@@ -738,30 +843,26 @@ export default function MediaHighlights() {
       `}</style>
 
       <div style={pageContainer}>
-        {/* ✅ NEW: Three column layout - BIG MAP on left */}
         <div style={{
           maxWidth: 1400,
           margin: "0 auto",
           padding: 24,
           display: "grid",
-          gridTemplateColumns: "1.2fr 0.8fr", // ✅ Bigger map column
+          gridTemplateColumns: "1.2fr 0.8fr",
           gap: 20,
           alignItems: "start",
         }}>
-          {/* LEFT: BIG MAP (like notesAndChecklistPage) */}
           <div style={{
             background: "#fff",
             borderRadius: 18,
             border: "1px solid #e8edff",
             boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)",
             overflow: "hidden",
-            minHeight: 700, // ✅ Taller map
+            minHeight: 700,
           }}>
-            {/* ✅ EXACTLY like notesAndChecklistPage */}
             <ItineraryMap items={mapItems} photos={photoMarkers} />
           </div>
 
-          {/* RIGHT: Content */}
           <div style={{
             display: "flex",
             flexDirection: "column",
@@ -940,7 +1041,7 @@ export default function MediaHighlights() {
         </div>
       </div>
 
-      {/* Photo preview modal */}
+      {/* Rest of modals - same as before */}
       {selectedPhoto && (
         <div
           style={{
@@ -1057,7 +1158,6 @@ export default function MediaHighlights() {
         </div>
       )}
 
-      {/* Upload Modal */}
       {showUploadModal && (
         <div style={modalOverlay} onClick={() => setShowUploadModal(false)}>
           <div style={modalContent} onClick={(e) => e.stopPropagation()}>
@@ -1178,7 +1278,6 @@ export default function MediaHighlights() {
         </div>
       )}
 
-      {/* Edit Photo Modal */}
       {showEditModal && editingPhoto && (
         <div style={modalOverlay} onClick={() => setShowEditModal(false)}>
           <div style={modalContent} onClick={(e) => e.stopPropagation()}>
@@ -1239,7 +1338,6 @@ export default function MediaHighlights() {
         </div>
       )}
 
-      {/* Generate Video Modal */}
       {showGenerateModal && (
         <AutoGenerateVideoModal
           show={showGenerateModal}
@@ -1268,7 +1366,7 @@ export default function MediaHighlights() {
   );
 }
 
-// Styles
+// Styles (same as before)
 const loadingContainer: React.CSSProperties = { minHeight: "calc(100vh - 90px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#f9fafb" };
 const pageContainer: React.CSSProperties = { background: "#f5f7fb", minHeight: "100vh", padding: 0, fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' };
 const actionButtons: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10, background: "#fff", borderRadius: 16, padding: "16px 18px", boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)", border: "1px solid #e8edff" };
@@ -1301,6 +1399,6 @@ const modalHeader: React.CSSProperties = { display: "flex", alignItems: "center"
 const closeButton: React.CSSProperties = { width: 32, height: 32, borderRadius: 8, border: "none", background: "#f3f4f6", display: "grid", placeItems: "center", cursor: "pointer" };
 const dropZone: React.CSSProperties = { border: "2px dashed #d1d5db", borderRadius: 12, padding: "40px 20px", textAlign: "center", cursor: "pointer", transition: "all 0.2s ease", color: "#6b7280" };
 const dropZoneActive: React.CSSProperties = { borderColor: "#f59e0b", background: "#fffbeb", color: "#f59e0b" };
-const filesList: React.CSSStyles = { display: "flex", flexDirection: "column", gap: 12, maxHeight: 400, overflowY: "auto" };
+const filesList: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 12, maxHeight: 400, overflowY: "auto" };
 const fileItem: React.CSSProperties = { display: "flex", gap: 12, padding: 12, border: "1px solid #e5e7eb", borderRadius: 12, background: "white" };
 const inputStyle: React.CSSProperties = { width: "100%", padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: 8, fontSize: 13, outline: "none" };
