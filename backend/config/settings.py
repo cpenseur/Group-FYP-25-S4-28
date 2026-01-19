@@ -1,3 +1,4 @@
+# backend/config/settings.py
 """
 Django settings for config project.
 
@@ -98,6 +99,16 @@ DATABASES = {
 # Supabase requires SSL; enforce if not already in the URL
 DATABASES["default"].setdefault("OPTIONS", {})
 DATABASES["default"]["OPTIONS"].setdefault("sslmode", "require")
+DATABASES["default"]["CONN_MAX_AGE"] = 60
+
+# Cache: in-memory (swap to Redis in prod if needed)
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "tripmate-cache",
+        "TIMEOUT": None,
+    }
+}
 
 
 # Password validation

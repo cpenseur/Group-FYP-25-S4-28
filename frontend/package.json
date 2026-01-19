@@ -20,6 +20,7 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^0.555.0",
     "maplibre-gl": "^5.15.0",
+    "opening_hours": "^3.9.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-icons": "^5.5.0",

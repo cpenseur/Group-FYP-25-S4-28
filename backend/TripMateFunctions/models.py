@@ -358,6 +358,7 @@ class ItineraryItem(models.Model):
     lat = models.FloatField(blank=True, null=True)
     lon = models.FloatField(blank=True, null=True)
     address = models.TextField(blank=True, null=True)
+    thumbnail_url = models.URLField(blank=True, null=True)
 
     notes_summary = models.TextField(blank=True, null=True)
 

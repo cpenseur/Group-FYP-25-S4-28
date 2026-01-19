@@ -1,7 +1,9 @@
 // frontend/src/pages/itineraryEditor.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
+
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 import {
   DndContext,
@@ -25,6 +27,7 @@ import { CSS } from "@dnd-kit/utilities";
 import PlaceAboutTab from "../components/PlaceAboutTab";
 import PlaceSearchBar from "../components/PlaceSearchBar";
 import PlaceTravelTab from "../components/PlaceTravelTab";
+import AdaptivePlannerOverlay from "../components/AdaptivePlannerOverlay";
 import TripSubHeader from "../components/TripSubHeader";
 import { apiFetch } from "../lib/apiClient";
 import ItineraryMap from "../components/ItineraryMap";
@@ -269,16 +272,28 @@ function formatDayHeader(day: TripDayResponse): string {
   return `Day ${day.day_index}  ${weekDay}, ${dateStr}`;
 }
 
+// Parse an ISO string but keep the wall-clock time the user entered
+function parseWallClockDate(iso?: string | null): Date | null {
+  if (!iso) return null;
+  const datePart = iso.slice(0, 10);
+  const timePart = iso.slice(11, 16);
+  if (!datePart || !timePart) return null;
+  const d = new Date(`${datePart}T${timePart}:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function formatTimeRange(item: ItineraryItem): string {
   if (!item.start_time && !item.end_time) return "";
 
-  const fmt = (t: string | null | undefined) =>
-    t
-      ? new Date(t).toLocaleTimeString(undefined, {
+  const fmt = (t: string | null | undefined) => {
+    const d = parseWallClockDate(t);
+    return d
+      ? d.toLocaleTimeString(undefined, {
           hour: "2-digit",
           minute: "2-digit",
         })
       : "";
+  };
 
   const start = fmt(item.start_time);
   const end = fmt(item.end_time);
@@ -287,6 +302,34 @@ function formatTimeRange(item: ItineraryItem): string {
   if (!start && end) return end;
   return `${start} – ${end}`;
 }
+
+function deriveDayDateISO(trip: TripResponse | null, day: TripDayResponse): string | null {
+  if (day.date) return day.date; // already has YYYY-MM-DD
+  if (!trip?.start_date) return null;
+
+  const base = new Date(trip.start_date);
+  if (Number.isNaN(base.getTime())) return null;
+
+  const d = new Date(base);
+  d.setDate(d.getDate() + (day.day_index - 1));
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function formatDayHeaderSmart(trip: TripResponse | null, day: TripDayResponse): string {
+  const iso = deriveDayDateISO(trip, day);
+  if (!iso) return `Day ${day.day_index}`;
+
+  const d = new Date(iso);
+  const weekDay = d.toLocaleDateString(undefined, { weekday: "long" });
+  const dateStr = d.toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+
+  return `DAY ${day.day_index} ${weekDay}, ${dateStr}`;
+}
+
 
 function getItemThumbnail(item: ItineraryItem): string | null {
   const anyItem = item as any;
@@ -412,21 +455,26 @@ export default function ItineraryEditor() {
 
   const [trip, setTrip] = useState<TripResponse | null>(null);
   const [items, setItems] = useState<ItineraryItem[]>([]);
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
 
   const fetchedThumbIdsRef = useRef<Set<number>>(new Set());
+  const fetchedOpeningIdsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     if (!items || items.length === 0) return;
 
+    let cancelled = false;
+
     // Only hydrate a few at a time to avoid hammering backend
-    const missing = items.filter((it) => !hasAnyThumbnail(it)).slice(0, 10);
+    const missing = items.filter((it) => !hasAnyThumbnail(it)).slice(0, 3);
 
-    for (const it of missing) {
-      if (!it?.id) continue;
-      if (fetchedThumbIdsRef.current.has(it.id)) continue;
-      fetchedThumbIdsRef.current.add(it.id);
+    (async () => {
+      for (const it of missing) {
+        if (!it?.id) continue;
+        if (cancelled) break;
+        if (fetchedThumbIdsRef.current.has(it.id)) continue;
+        fetchedThumbIdsRef.current.add(it.id);
 
-      (async () => {
         try {
           const details: any = await apiFetch(
             `/f1/itinerary-items/${it.id}/place-details/?include_images=0`
@@ -437,26 +485,82 @@ export default function ItineraryEditor() {
               ? details.image_url.trim()
               : (Array.isArray(details?.images) && details.images.length > 0 ? details.images[0] : null);
 
-          if (!url) return;
+          if (!url) {
+            await new Promise((r) => setTimeout(r, 250));
+            continue;
+          }
 
-          setItems((prev) =>
-            prev.map((x) =>
-              x.id === it.id ? ({ ...(x as any), thumbnail_url: url } as any) : x
-            )
-          );
+          if (!cancelled) {
+            setItems((prev) =>
+              prev.map((x) =>
+                x.id === it.id ? ({ ...(x as any), thumbnail_url: url } as any) : x
+              )
+            );
+          }
+
+          // Persist thumbnail so it survives refresh
+          if (!it.thumbnail_url) {
+            try {
+              await apiFetch(`/f1/itinerary-items/${it.id}/`, {
+                method: "PATCH",
+                body: JSON.stringify({ thumbnail_url: url }),
+              });
+            } catch {
+              // non-blocking
+            }
+          }
         } catch {
           // ignore; keep fallback gradient UI
         }
+
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
+
+  // Hydrate opening hours for items with scheduled times
+  useEffect(() => {
+    if (!items || items.length === 0) return;
+
+    const needingHours = items
+      .filter(
+        (it) =>
+          (it.start_time || it.end_time) &&
+          !(it as any).opening_hours &&
+          !fetchedOpeningIdsRef.current.has(it.id)
+      )
+      .slice(0, 5); // limit concurrent fetches
+
+    needingHours.forEach((it) => {
+      fetchedOpeningIdsRef.current.add(it.id);
+      (async () => {
+        try {
+          const details: any = await apiFetch(
+            `/f1/itinerary-items/${it.id}/place-details/?include_images=0`
+          );
+          if (!details?.opening_hours) return;
+          setItems((prev) =>
+            prev.map((x) =>
+              x.id === it.id ? ({ ...(x as any), opening_hours: details.opening_hours } as any) : x
+            )
+          );
+        } catch {
+          // ignore missing hours
+        }
       })();
-    }
+    });
   }, [items]);
 
 
-  const [days, setDays] = useState<TripDayResponse[]>([]);
-  const [legs, setLegs] = useState<LegInfo[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isOptimising, setIsOptimising] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+const [days, setDays] = useState<TripDayResponse[]>([]);
+const [legs, setLegs] = useState<LegInfo[]>([]);
+const [isLoading, setIsLoading] = useState(true);
+const [isOptimising, setIsOptimising] = useState(false);
+const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [isOptimisingFull, setIsOptimisingFull] = useState(false);
 
@@ -702,6 +806,43 @@ export default function ItineraryEditor() {
   // Which day is "selected" in the mini calendar (for highlight + summary)
   const [selectedDayId, setSelectedDayId] = useState<number | null>(null);
 
+  const selectedDay = useMemo(() => {
+    if (!selectedDayId) return null;
+    return days.find((d) => d.id === selectedDayId) ?? null;
+  }, [days, selectedDayId]);
+
+  const selectedDayItems = useMemo(() => {
+    if (!selectedDay?.id) return [];
+    return getItemsForDay(items, selectedDay.id);
+  }, [items, selectedDay?.id]);
+
+  const dayISOMap = useMemo(() => {
+    const m: Record<number, string> = {};
+    days.forEach((d) => {
+      const iso = deriveDayDateISO(trip, d);
+      if (iso) m[d.id] = iso;
+    });
+    return m;
+  }, [days, trip]);
+
+  const itemsByDay = useMemo(() => {
+    const m: Record<
+      number,
+      { id: number; title?: string | null; start_time?: string | null; end_time?: string | null; opening_hours?: string | null }[]
+    > = {};
+    days.forEach((d) => {
+      m[d.id] = getItemsForDay(items, d.id).map((it) => ({
+        id: it.id,
+        title: it.title,
+        start_time: it.start_time,
+        end_time: it.end_time,
+        opening_hours: (it as any).opening_hours ?? null,
+      }));
+    });
+    return m;
+  }, [days, items]);
+
+
   // remember items before drag started
   const dragOriginRef = useRef<ItineraryItem[] | null>(null);
 
@@ -770,34 +911,42 @@ export default function ItineraryEditor() {
 
   async function saveTimeModal() {
     if (!timeModalItem) return;
-    const item = timeModalItem;
 
+    const item = timeModalItem;
     const dayObj = days.find((d) => d.id === item.day);
     if (!dayObj) return;
 
-    const date = dayObj.date;
+    const dateISO = deriveDayDateISO(trip, dayObj) ?? "";
 
-    const startISO = editStart ? `${date}T${editStart}:00` : null;
-    const endISO = editEnd ? `${date}T${editEnd}:00` : null;
+    if (!dateISO) {
+      setErrorMsg("This day has no date yet. Set a trip start date (or day date) first.");
+      return;
+    }
 
-    await apiFetch(`/f1/itinerary-items/${item.id}/`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        start_time: startISO,
-        end_time: endISO,
-      }),
-    });
+    const startISO = editStart ? `${dateISO}T${editStart}:00` : null;
+    const endISO = editEnd ? `${dateISO}T${editEnd}:00` : null;
 
-    setItems((prev) =>
-      prev.map((i) =>
-        i.id === item.id
-          ? { ...i, start_time: startISO, end_time: endISO }
-          : i
-      )
-    );
+    try {
+      await apiFetch(`/f1/itinerary-items/${item.id}/`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          start_time: startISO,
+          end_time: endISO,
+        }),
+      });
 
-    setTimeModalOpen(false);
-    setTimeModalItem(null);
+      setItems((prev) =>
+        prev.map((i) =>
+          i.id === item.id ? { ...i, start_time: startISO, end_time: endISO } : i
+        )
+      );
+
+      setTimeModalOpen(false);
+      setTimeModalItem(null);
+    } catch (err) {
+      console.error("Failed to save time:", err);
+      setErrorMsg("Could not save time. Please try again.");
+    }
   }
 
   const toggleDayCollapse = (dayId: number) => {
@@ -1326,6 +1475,29 @@ export default function ItineraryEditor() {
           >
             <div style={{ position: "relative", width: "100%", height: "100%" }}>
               <ItineraryMap items={mapItems} />
+
+              <AdaptivePlannerOverlay
+                tripId={numericTripId}
+                days={days}
+                dayISOMap={dayISOMap}
+                itemsByDay={itemsByDay}
+                onApplied={() => loadTrip()}
+                onItemsPatched={(updates) => {
+                  setItems((prev) =>
+                    prev.map((it) => {
+                      const u = updates.find((x) => x.id === it.id);
+                      if (!u) return it;
+                      return {
+                        ...it,
+                        day: u.day !== undefined ? u.day : it.day,
+                        sort_order: u.sort_order !== undefined ? u.sort_order : it.sort_order,
+                        start_time: u.start_time !== undefined ? u.start_time : it.start_time,
+                        end_time: u.end_time !== undefined ? u.end_time : it.end_time,
+                      };
+                    })
+                  );
+                }}
+              />
 
               {/* Bottom place overlay */}
               {(placeOverlay || placeOverlayLoading || placeOverlayError) && (
@@ -1997,261 +2169,297 @@ export default function ItineraryEditor() {
                         >
                           <div
                             style={{
-                              backgroundColor: "#f3f4ff",       // the pill color
+                              backgroundColor: "#f3f4ff",
                               borderRadius: "999px",
                               padding: "0.45rem 0.9rem",
                               display: "flex",
-                              justifyContent: "space-between",
                               alignItems: "center",
                               width: "100%",
                               boxSizing: "border-box",
                               gap: "0.75rem",
                             }}
                           >
-                            {/* Day TEXT */}
+                            {/* Left: Day text */}
                             <div
                               style={{
                                 fontSize: "0.8rem",
                                 fontWeight: 600,
                                 color: "#111827",
                                 whiteSpace: "nowrap",
+                                flex: 1,
+                                minWidth: 0,
                               }}
                             >
-                              {formatDayHeader(day)}
+                              {formatDayHeaderSmart(trip, day)}
                             </div>
 
-                            {/* + Add Stop button */}
-                            <button
-                              type="button"
-                              onClick={() => openAddStopModal(day.id)}
-                              style={{
-                                borderRadius: "8px",
-                                border: "1px solid #d1d5db",
-                                backgroundColor: "white",
-                                color: "#4f46e5",
-                                padding: "4px 10px",
-                                fontSize: "0.75rem",
-                                fontWeight: 600,
-                                cursor: "pointer",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              + Add Stop
-                            </button>
+                            {/* Right: actions grouped together */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <button
+                                type="button"
+                                onClick={() => openAddStopModal(day.id)}
+                                style={{
+                                  borderRadius: "8px",
+                                  border: "1px solid #d1d5db",
+                                  backgroundColor: "white",
+                                  color: "#4f46e5",
+                                  padding: "4px 10px",
+                                  fontSize: "0.75rem",
+                                  fontWeight: 600,
+                                  cursor: "pointer",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                + Add Stop
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleDayCollapse(day.id);
+                                }}
+                                title={collapsedDayIds.includes(day.id) ? "Expand day" : "Collapse day"}
+                                style={{
+                                  border: "none",
+                                  background: "transparent",
+                                  cursor: "pointer",
+                                  padding: "2px",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  color: "#6b7280",
+                                }}
+                              >
+                                {collapsedDayIds.includes(day.id) ? (
+                                  <ChevronRight size={16} />
+                                ) : (
+                                  <ChevronDown size={16} />
+                                )}
+                              </button>
+                            </div>
                           </div>
                         </div>
 
-                        <SortableContext
-                          items={dayItems.map((i) => i.id)}
-                          strategy={verticalListSortingStrategy}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: 8,
-                            }}
-                          >
-                            {dayItems.length === 0 ? (
+                        {!collapsedDayIds.includes(day.id) && (
+                          <>
+                            <SortableContext
+                              items={dayItems.map((i) => i.id)}
+                              strategy={verticalListSortingStrategy}
+                            >
                               <div
                                 style={{
-                                  fontSize: "0.8rem",
-                                  color: "#9ca3af",
-                                  marginBottom: 4,
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 8,
                                 }}
                               >
-                                No stops scheduled for this day yet.
-                              </div>
-                            ) : (
-                              dayItems.map((item) => {
-                                const allItemsSorted = [...items].sort(
-                                  (a, b) =>
-                                    (a.sort_order ?? 0) -
-                                    (b.sort_order ?? 0)
-                                );
-                                const globalIdx = allItemsSorted.findIndex(
-                                  (i) => i.id === item.id
-                                );
-                                const next =
-                                  globalIdx >= 0 &&
-                                  globalIdx < allItemsSorted.length - 1
-                                    ? allItemsSorted[globalIdx + 1]
-                                    : null;
-
-                                const leg =
-                                  next && findLegForPair(item.id, next.id)
-                                    ? findLegForPair(item.id, next.id)
-                                    : undefined;
-
-                                const thumbUrl = getItemThumbnail(item);
-                                const timeLabel = formatTimeRange(item);
-
-                                const dayIndexNum = dayIndexMap.get(item.day ?? 0) ?? null;
-                                const baseColor = getDayColor(dayIndexNum);
-
-                                // create a soft/muted bubble using alpha on the hex (last 2 chars)
-                                const hex7 = baseColor.slice(0, 7); // strip the "ff" if present
-                                const bubbleBg = hex7 + "22";      // ~13% opacity
-                                const bubbleBorder = hex7 + "55";  // ~33% opacity;
-                                const bubbleText = hex7;           // full colour text
-
-                                return (
-                                  <SortableItineraryCard
-                                    key={item.id}
-                                    item={item}
+                                {dayItems.length === 0 ? (
+                                  <div
+                                    style={{
+                                      fontSize: "0.8rem",
+                                      color: "#9ca3af",
+                                      marginBottom: 4,
+                                    }}
                                   >
-                                    <div onClick={() => openPlaceOverlay(item)}
-                                      style={{
-                                        borderRadius: "12px",
-                                        padding: "0.6rem 0.8rem",
-                                        border: "1px solid #e5e7eb",
-                                        display: "grid",
-                                        gridTemplateColumns:
-                                          "auto 110px minmax(0, 1fr) auto",
-                                        columnGap: "0.75rem",
-                                        alignItems: "center",
-                                        backgroundColor: "transparent",
-                                        cursor: "pointer",
-                                      }}
-                                    >
-                                      {/* Sequence number */}
-                                      <div
-                                        style={{
-                                          width: 26,
-                                          height: 26,
-                                          borderRadius: "999px",
-                                          backgroundColor: bubbleBg,
-                                          color: bubbleText,
-                                          border: `1px solid ${bubbleBorder}`,
-                                          display: "flex",
-                                          alignItems: "center",
-                                          justifyContent: "center",
-                                          fontSize: "0.75rem",
-                                          fontWeight: 600,
-                                        }}
+                                    No stops scheduled for this day yet.
+                                  </div>
+                                ) : (
+                                  dayItems.map((item) => {
+                                    const allItemsSorted = [...items].sort(
+                                      (a, b) =>
+                                        (a.sort_order ?? 0) -
+                                        (b.sort_order ?? 0)
+                                    );
+                                    const globalIdx = allItemsSorted.findIndex(
+                                      (i) => i.id === item.id
+                                    );
+                                    const next =
+                                      globalIdx >= 0 &&
+                                      globalIdx < allItemsSorted.length - 1
+                                        ? allItemsSorted[globalIdx + 1]
+                                        : null;
+
+                                    const leg =
+                                      next && findLegForPair(item.id, next.id)
+                                        ? findLegForPair(item.id, next.id)
+                                        : undefined;
+
+                                    const thumbUrl = getItemThumbnail(item);
+                                    const timeLabel = formatTimeRange(item);
+
+                                    const dayIndexNum = dayIndexMap.get(item.day ?? 0) ?? null;
+                                    const baseColor = getDayColor(dayIndexNum);
+
+                                    // create a soft/muted bubble using alpha on the hex (last 2 chars)
+                                    const hex7 = baseColor.slice(0, 7); // strip the "ff" if present
+                                    const bubbleBg = hex7 + "22";      // ~13% opacity
+                                    const bubbleBorder = hex7 + "55";  // ~33% opacity;
+                                    const bubbleText = hex7;           // full colour text
+
+                                    return (
+                                      <SortableItineraryCard
+                                        key={item.id}
+                                        item={item}
                                       >
-                                        {sequenceMap.get(item.id) ?? item.sort_order}
-                                      </div>
-
-                                      {/* Thumbnail */}
-                                      <div
-                                        style={{
-                                          width: 100,
-                                          height: 64,
-                                          borderRadius: 12,
-                                          background: thumbUrl
-                                            ? `url(${thumbUrl}) center/cover no-repeat`
-                                            : "linear-gradient(135deg,#bfdbfe,#a5b4fc)",
-                                        }}
-                                      />
-
-                                      {/* Text block */}
-                                      <div>
                                         <div
+                                          onClick={() => {
+                                            setSelectedItemId(item.id);
+                                            openPlaceOverlay(item);
+                                          }}
                                           style={{
-                                            display: "flex",
+                                            borderRadius: "12px",
+                                            padding: "0.6rem 0.8rem",
+                                            border: "1px solid #e5e7eb",
+                                            display: "grid",
+                                            gridTemplateColumns:
+                                              "auto 110px minmax(0, 1fr) auto",
+                                            columnGap: "0.75rem",
                                             alignItems: "center",
-                                            justifyContent: "space-between",
-                                            marginBottom: 2,
-                                            gap: 8,
+                                            backgroundColor: "transparent",
+                                            cursor: "pointer",
                                           }}
                                         >
+                                          {/* Sequence number */}
                                           <div
                                             style={{
-                                              fontSize: "0.9rem",
+                                              width: 26,
+                                              height: 26,
+                                              borderRadius: "999px",
+                                              backgroundColor: bubbleBg,
+                                              color: bubbleText,
+                                              border: `1px solid ${bubbleBorder}`,
+                                              display: "flex",
+                                              alignItems: "center",
+                                              justifyContent: "center",
+                                              fontSize: "0.75rem",
                                               fontWeight: 600,
                                             }}
                                           >
-                                            {item.title}
+                                            {sequenceMap.get(item.id) ?? item.sort_order}
                                           </div>
 
-                                          {timeLabel && (
+                                          {/* Thumbnail */}
+                                          <div
+                                            style={{
+                                              width: 100,
+                                              height: 64,
+                                              borderRadius: 12,
+                                              background: thumbUrl
+                                                ? `url(${thumbUrl}) center/cover no-repeat`
+                                                : "linear-gradient(135deg,#bfdbfe,#a5b4fc)",
+                                            }}
+                                          />
+
+                                          {/* Text block */}
+                                          <div>
+                                            <div
+                                              style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "space-between",
+                                                marginBottom: 2,
+                                                gap: 8,
+                                              }}
+                                            >
+                                              <div
+                                                style={{
+                                                  fontSize: "0.9rem",
+                                                  fontWeight: 600,
+                                                }}
+                                              >
+                                                {item.title}
+                                              </div>
+
+                                              {timeLabel && (
+                                                <div
+                                                  style={{
+                                                    fontSize: "0.75rem",
+                                                    color: "#6b7280",
+                                                    whiteSpace: "nowrap",
+                                                  }}
+                                                >
+                                                  {timeLabel}
+                                                </div>
+                                              )}
+                                            </div>
+
+                                            {item.address && (
+                                              <div
+                                                style={{
+                                                  fontSize: "0.8rem",
+                                                  color: "#6b7280",
+                                                }}
+                                              >
+                                                {item.address}
+                                              </div>
+                                            )}
+
+                                            {leg && (
+                                              <div
+                                                style={{
+                                                  fontSize: "0.78rem",
+                                                  color: "#4b5563",
+                                                  marginTop: 4,
+                                                }}
+                                              >
+                                                {`→ ${leg.distance_km} km, ~${leg.duration_min} min to next stop`}
+                                              </div>
+                                            )}
+
+                                            {/* Time editor trigger */}
                                             <div
                                               style={{
                                                 fontSize: "0.75rem",
                                                 color: "#6b7280",
-                                                whiteSpace: "nowrap",
+                                                cursor: "pointer",
+                                                marginTop: 6,
+                                              }}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                openTimeEditor(item);
                                               }}
                                             >
-                                              {timeLabel}
+                                              {timeLabel || "Add time"}
                                             </div>
-                                          )}
-                                        </div>
+                                          </div>
 
-                                        {item.address && (
+                                          {/* Delete button */}
                                           <div
                                             style={{
-                                              fontSize: "0.8rem",
-                                              color: "#6b7280",
+                                              display: "flex",
+                                              flexDirection: "column",
+                                              alignItems: "flex-end",
                                             }}
                                           >
-                                            {item.address}
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDeleteItem(item.id);
+                                              }}
+                                              style={{
+                                                borderRadius: "999px",
+                                                border: "none",
+                                                padding: "0.15rem 0.7rem",
+                                                fontSize: "0.7rem",
+                                                backgroundColor: "#fee2e2",
+                                                color: "#b91c1c",
+                                                cursor: "pointer",
+                                              }}
+                                            >
+                                              Delete
+                                            </button>
                                           </div>
-                                        )}
-
-                                        {leg && (
-                                          <div
-                                            style={{
-                                              fontSize: "0.78rem",
-                                              color: "#4b5563",
-                                              marginTop: 4,
-                                            }}
-                                          >
-                                            {`→ ${leg.distance_km} km, ~${leg.duration_min} min to next stop`}
-                                          </div>
-                                        )}
-
-                                        {/* Time editor trigger */}
-                                        <div
-                                          style={{
-                                            fontSize: "0.75rem",
-                                            color: "#6b7280",
-                                            cursor: "pointer",
-                                            marginTop: 6,
-                                          }}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            openTimeEditor(item);
-                                          }}
-                                        >
-                                          {timeLabel || "Add time"}
                                         </div>
-                                      </div>
-
-                                      {/* Delete button */}
-                                      <div
-                                        style={{
-                                          display: "flex",
-                                          flexDirection: "column",
-                                          alignItems: "flex-end",
-                                        }}
-                                      >
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDeleteItem(item.id);
-                                          }}
-                                          style={{
-                                            borderRadius: "999px",
-                                            border: "none",
-                                            padding: "0.15rem 0.7rem",
-                                            fontSize: "0.7rem",
-                                            backgroundColor: "#fee2e2",
-                                            color: "#b91c1c",
-                                            cursor: "pointer",
-                                          }}
-                                        >
-                                          Delete
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </SortableItineraryCard>
-                                );
-                              })
-                            )}
-                          </div>
-                        </SortableContext>
+                                      </SortableItineraryCard>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </SortableContext>
+                          </>
+                        )}
                       </DayDroppable>
                     );
                   })
@@ -2355,7 +2563,10 @@ export default function ItineraryEditor() {
                     key={day.id}
                     onMouseEnter={() => setHoveredDayId(day.id)}
                     onMouseLeave={() => setHoveredDayId(null)}
-                    onClick={() => scrollToDay(day.id)}
+                    onClick={() => {
+                      setSelectedDayId(day.id);
+                      scrollToDay(day.id);
+                    }}
                     style={{
                       padding: "0.35rem 0.35rem",
                       borderRadius: 10,
@@ -2440,6 +2651,7 @@ export default function ItineraryEditor() {
               })}
 
             </div>
+
 
             {/* Add day at bottom */}
             <button

@@ -53,13 +53,14 @@ class SupabaseJWTAuthentication(authentication.BaseAuthentication):
             )
 
         # Map to AppUser
-        user, _created = AppUser.objects.get_or_create(
-            email=email,
-            defaults={
-                "password_hash": "",   # required field in your model
-                "full_name": "",
-            },
-        )
+        user = AppUser.objects.filter(email=email).first()
+
+        if not user:
+            # IMPORTANT: do NOT create users here
+            raise exceptions.AuthenticationFailed(
+                "User not registered in backend database."
+            )
+
 
         # Make DRF/Django treat this as an authenticated user (no models.py change)
         user.is_authenticated = True

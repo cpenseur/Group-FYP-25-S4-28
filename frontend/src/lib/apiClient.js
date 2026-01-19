@@ -85,7 +85,21 @@ const apiClient = {
       body: JSON.stringify(body),
     });
   },
-  // you can add put/patch/delete later if needed
+  patch(path, body) {
+    return apiFetch(path, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  },
+  put(path, body) {
+    return apiFetch(path, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  },
+  delete(path) {
+    return apiFetch(path, { method: "DELETE" });
+  },
 };
 
 export default apiClient;
