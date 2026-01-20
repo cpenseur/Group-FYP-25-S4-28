@@ -7,6 +7,8 @@ from ..views.f2_3_views import F23CreateShareLinkView, F23ResolveShareLinkView
 from ..views.f2_4_views import (
     F24CommunityTripListView,
     F24CommunityTripDetailView,
+    F24SponsoredCountriesView,
+    F24FlagTripView,
 )
 from ..views.f2_5_views import (
     F25CommunityQAListCreateView,
@@ -25,6 +27,12 @@ urlpatterns = [
         name="f2-sync",
     ),
 
+    # F2.2 - Group Trip Generator
+    path(
+        "group-trip-generator/",
+        F22GroupTripGeneratorView.as_view(),
+        name="f2-group-trip-generator",
+    ),
     # F2.2 - Group Preferences (Summary page)
     path(
         "trips/<int:trip_id>/preferences/",
@@ -57,6 +65,14 @@ urlpatterns = [
         F24CommunityTripListView.as_view(),
         name="f2-community-list",
     ),
+
+    # Sponsored Countries List
+    path(
+        "community/sponsored-countries/",
+        F24SponsoredCountriesView.as_view(),
+        name="f2-community-sponsored-countries",
+    ),
+
     path(
         "community/<int:pk>/",
         F24CommunityTripDetailView.as_view(),
@@ -80,6 +96,13 @@ urlpatterns = [
         "copy-template/",
         F26ItineraryTemplateCopyView.as_view(),
         name="f2-copy-template",
+    ),
+
+    # Flag a community itinerary
+    path(
+        "community/<int:trip_id>/flag/",
+        F24FlagTripView.as_view(),
+        name="f2-community-flag-trip",
     ),
 ]
 

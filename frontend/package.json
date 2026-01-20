@@ -19,17 +19,26 @@
     "jspdf": "^3.0.4",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.555.0",
+<<<<<<< HEAD
     "maplibre-gl": "^5.15.0",
     "opening_hours": "^3.9.0",
+=======
+    "maplibre-gl": "^5.16.0",
+>>>>>>> kkTest
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-icons": "^5.5.0",
     "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.9.6",
+<<<<<<< HEAD
     "styled-components": "^6.2.0"
+=======
+    "styled-components": "^6.3.5"
+>>>>>>> kkTest
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@types/leaflet": "^1.9.21",
     "@types/mapbox__mapbox-sdk": "^0.16.3",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
