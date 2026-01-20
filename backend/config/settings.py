@@ -1,3 +1,4 @@
+# backend/config/settings.py
 """
 Django settings for config project.
 
@@ -112,6 +113,15 @@ DATABASES["default"]["OPTIONS"].update({
 
 DATABASES["default"]["CONN_MAX_AGE"] = 60        
 DATABASES["default"]["CONN_HEALTH_CHECKS"] = True  
+
+# Cache: in-memory (swap to Redis in prod if needed)
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "tripmate-cache",
+        "TIMEOUT": None,
+    }
+}
 
 
 # Password validation

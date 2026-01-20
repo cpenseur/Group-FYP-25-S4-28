@@ -12,6 +12,7 @@ from urllib.parse import quote
 from django.db.models import F
 from django.db import models
 from django.db.models import Q
+from django.core.cache import cache
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -33,6 +34,7 @@ from ..serializers.f1_1_serializers import (
     TripOverviewSerializer,
     TripCollaboratorInviteSerializer,
 )
+from .f1_4_views import _fetch_osm_opening_hours  # reuse cached Overpass helper
 from .base_views import BaseViewSet
 
 logger = logging.getLogger(__name__)
@@ -876,10 +878,37 @@ class ItineraryItemViewSet(BaseViewSet):
             "website": None,
             "phone": None,
             "opening_hours": None,
+            "opening_hours_source": None,
+            "opening_hours_confidence": None,
             "nearby": [],
         }
 
-        # 1a) POI-first (to get category/kinds)
+        # 1a) Opening hours (OSM Overpass; cached in helper)
+        try:
+            if item.lat is not None and item.lon is not None:
+                oh_info = _fetch_osm_opening_hours(float(item.lat), float(item.lon))
+                if oh_info:
+                    out["opening_hours"] = oh_info.get("opening_hours")
+                    out["opening_hours_source"] = oh_info.get("source")
+                    out["opening_hours_confidence"] = oh_info.get("confidence")
+        except Exception:
+            # Overpass may be down; keep the endpoint resilient
+            pass
+
+        # Fallback: reuse any stored hours on the item so we don't blank the UI if Overpass is empty
+        if not out["opening_hours"]:
+            try:
+                existing = getattr(item, "opening_hours_json", None) or getattr(item, "opening_hours", None)
+                if isinstance(existing, dict):
+                    out["opening_hours"] = existing.get("opening_hours") or existing.get("text") or None
+                    out["opening_hours_source"] = existing.get("source") or out["opening_hours_source"]
+                    out["opening_hours_confidence"] = existing.get("confidence") or out["opening_hours_confidence"]
+                elif isinstance(existing, str) and existing.strip():
+                    out["opening_hours"] = existing.strip()
+            except Exception:
+                pass
+
+        # 1b) POI-first (to get category/kinds)
         mb_poi = mapbox_reverse(item.lat, item.lon, types="poi", limit=1)
         if mb_poi:
             props = mb_poi.get("properties") or {}
@@ -920,6 +949,11 @@ class ItineraryItemViewSet(BaseViewSet):
         except Exception:
             include_images_n = 3
         include_images_n = max(0, min(include_images_n, 20))
+
+        cache_key = f"place_details:{item.id}:img={include_images_n}:v1"
+        cached = cache.get(cache_key)
+        if cached:
+            return Response(cached, status=status.HTTP_200_OK)
 
         geo = wiki_geosearch(item.lat, item.lon, radius_m=12000, limit=12)
         candidates = ranked_wiki_titles(title, geo, max_n=6)
@@ -1469,6 +1503,11 @@ class ItineraryItemViewSet(BaseViewSet):
         else:
             out["travel"] = build_travel_fallback(out.get("name") or title, out.get("address"))
 
+
+        # Cache aggressively for images, but avoid caching missing hours for long
+        if out.get("opening_hours") or include_images_n > 0:
+            ttl = 3600 if include_images_n == 0 else 1200
+            cache.set(cache_key, out, ttl)
 
         return Response(out, status=status.HTTP_200_OK)
     

@@ -1,27 +1,60 @@
+# backend/TripMateFunctions/serializers/f1_4_serializers.py
 from rest_framework import serializers
 
 
-class F14AdaptivePlanRequestSerializer(serializers.Serializer):
+class AdaptivePlanRequestSerializer(serializers.Serializer):
     trip_id = serializers.IntegerField()
-    day_index = serializers.IntegerField()
-    apply_changes = serializers.BooleanField(default=False)
+    day_id = serializers.IntegerField()
+    date = serializers.DateField()
+
+    # optional “apply” flow
+    apply_changes = serializers.BooleanField(required=False, default=False)
+    proposed_item_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True,
+        default=list,
+    )
 
 
 class F14AdaptiveChangeSerializer(serializers.Serializer):
-    """
-    Represents one proposed change to the day plan.
-    """
     item_id = serializers.IntegerField(required=False)
-    action = serializers.ChoiceField(choices=["move", "replace", "add", "remove"])
-    reason = serializers.CharField()
+    action = serializers.ChoiceField(
+        choices=[
+            "move",
+            "replace",
+            "add",
+            "remove",
+            "opening_hours_conflict",
+            "opening_hours_warning",
+            "opening_hours_missing",
+        ],
+        required=False,
+    )
+    reason = serializers.CharField(required=False, allow_blank=True)
     from_time = serializers.CharField(required=False, allow_blank=True)
     to_time = serializers.CharField(required=False, allow_blank=True)
     new_title = serializers.CharField(required=False, allow_blank=True)
     new_destination_id = serializers.IntegerField(required=False)
     new_start_time = serializers.CharField(required=False, allow_blank=True)
     new_end_time = serializers.CharField(required=False, allow_blank=True)
+    opening_hours = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    hours_source = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    hours_confidence = serializers.FloatField(required=False, allow_null=True)
 
 
 class F14AdaptivePlanResponseSerializer(serializers.Serializer):
-    summary = serializers.CharField()
-    changes = F14AdaptiveChangeSerializer(many=True)
+    applied = serializers.BooleanField()
+    weather = serializers.DictField(required=False, allow_null=True)
+    is_rainy = serializers.BooleanField(required=False)
+    reason = serializers.CharField(required=False, allow_blank=True)
+    proposed_item_ids = serializers.ListField(
+        child=serializers.IntegerField(), required=False, allow_empty=True
+    )
+    changes = serializers.ListField(
+        child=F14AdaptiveChangeSerializer(), required=False, allow_empty=True
+    )
+
+
+# ✅ aliases so existing views imports keep working
+F14AdaptivePlanRequestSerializer = AdaptivePlanRequestSerializer

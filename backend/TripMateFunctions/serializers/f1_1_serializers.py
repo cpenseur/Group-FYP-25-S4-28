@@ -35,6 +35,7 @@ class ItineraryItemSerializer(serializers.ModelSerializer):
             "lat",
             "lon",
             "address",
+            "thumbnail_url",
             "notes_summary",
             "cost_amount",
             "cost_currency",
