@@ -3,9 +3,11 @@
 F1.5 - AI-Powered Recommendations (Real-time AI, No Database)
 
 FIXED: Better day-specific location detection and city filtering
+FIXED: Allow both trip owners AND collaborators to access recommendations
 - Analyzes addresses more accurately
 - Filters out wrong cities comprehensively
 - Day-aware recommendations
+- Collaborator access enabled
 """
 
 import os
@@ -20,6 +22,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.conf import settings
+from django.db.models import Q
 
 from ..models import Trip, TripDay, ItineraryItem
 
@@ -77,7 +80,7 @@ def call_sealion_ai(prompt: str, temperature: float = 0.7, max_tokens: int = 200
 
 
 # ============================================================================
-# F1.5 - AI Recommendations View (FIXED)
+# F1.5 - AI Recommendations View (FIXED - Collaborator Access)
 # ============================================================================
 
 class AIRecommendationsView(APIView):
@@ -88,6 +91,7 @@ class AIRecommendationsView(APIView):
     - Better location detection from addresses
     - More comprehensive city filtering
     - Day-specific recommendations
+    - ✅ NOW ALLOWS BOTH OWNERS AND COLLABORATORS
     """
     permission_classes = [IsAuthenticated]
     
@@ -103,8 +107,17 @@ class AIRecommendationsView(APIView):
             )
         
         try:
-            # Load trip data
-            trip = Trip.objects.get(id=trip_id, owner=request.user)
+            # FIXED: Allow both owner AND collaborators to access
+            trip = Trip.objects.filter(
+                Q(id=trip_id) & (Q(owner=request.user) | Q(collaborators__user=request.user))
+            ).distinct().first()
+            
+            if not trip:
+                return Response(
+                    {"success": False, "error": "Trip not found or you don't have permission"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
             all_items = ItineraryItem.objects.filter(trip=trip).order_by('day__day_index', 'sort_order')
             
             # Determine target day and items
@@ -174,11 +187,6 @@ class AIRecommendationsView(APIView):
                 "categories": categories
             })
             
-        except Trip.DoesNotExist:
-            return Response(
-                {"success": False, "error": "Trip not found or you don't have permission"},
-                status=status.HTTP_404_NOT_FOUND
-            )
         except Exception as e:
             logger.error(f"AI recommendations failed: {e}", exc_info=True)
             
@@ -726,7 +734,7 @@ Respond ONLY with valid JSON array, no markdown."""
 
 
 # ============================================================================
-# Quick Add Recommendation
+# Quick Add Recommendation (FIXED - Collaborator Access)
 # ============================================================================
 
 class QuickAddRecommendationView(APIView):
@@ -734,6 +742,7 @@ class QuickAddRecommendationView(APIView):
     POST /f1/recommendations/quick-add/
     
     Quickly add an AI-generated recommendation to trip itinerary.
+    ✅ NOW ALLOWS BOTH OWNERS AND COLLABORATORS
     """
     permission_classes = [IsAuthenticated]
     
@@ -748,9 +757,12 @@ class QuickAddRecommendationView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        try:
-            trip = Trip.objects.get(id=trip_id, owner=request.user)
-        except Trip.DoesNotExist:
+        # FIXED: Allow both owner AND collaborators to add recommendations
+        trip = Trip.objects.filter(
+            Q(id=trip_id) & (Q(owner=request.user) | Q(collaborators__user=request.user))
+        ).distinct().first()
+        
+        if not trip:
             return Response(
                 {"success": False, "error": "Trip not found or you don't have permission"},
                 status=status.HTTP_404_NOT_FOUND
