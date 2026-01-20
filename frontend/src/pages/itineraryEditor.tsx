@@ -476,9 +476,20 @@ export default function ItineraryEditor() {
   const [trip, setTrip] = useState<TripResponse | null>(null);
   const [items, setItems] = useState<ItineraryItem[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [highlightedItemId, setHighlightedItemId] = useState<number | null>(null);
 
   const fetchedThumbIdsRef = useRef<Set<number>>(new Set());
   const fetchedOpeningIdsRef = useRef<Set<number>>(new Set());
+  const highlightTimeoutRef = useRef<number | null>(null);
+
+  const clearHighlight = () => {
+    if (highlightTimeoutRef.current) {
+      window.clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = null;
+    }
+  };
+
+  useEffect(() => () => clearHighlight(), []);
 
   useEffect(() => {
     if (!items || items.length === 0) return;
@@ -875,6 +886,8 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Scroll container for the itinerary list (middle column)
   const itineraryScrollRef = useRef<HTMLDivElement | null>(null);
+  // Individual itinerary cards for focusing from the Adaptive Planner
+  const itemCardRefs = useRef<Map<number, HTMLDivElement | null>>(new Map());
 
   const DAY_STICKY_OFFSET = 63; // pixels under the main header inside the card
 
@@ -1189,6 +1202,53 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
     container.scrollTo({
       top: offset,
       behavior: "smooth",
+    });
+  };
+
+  /* ------------- Scroll to a specific item (from planner) ------------- */
+
+  const scrollToItem = (itemId: number, dayId?: number | null) => {
+    const targetDayId = dayId ?? items.find((it) => it.id === itemId)?.day ?? null;
+    const needsExpand = targetDayId ? collapsedDayIds.includes(targetDayId) : false;
+
+    if (needsExpand && targetDayId) {
+      setCollapsedDayIds((prev) => prev.filter((id) => id !== targetDayId));
+    }
+
+    const performScroll = () => {
+      const container = itineraryScrollRef.current;
+      const el = itemCardRefs.current.get(itemId);
+      if (!container || !el) return;
+
+      const containerTop = container.getBoundingClientRect().top;
+      const elTop = el.getBoundingClientRect().top;
+
+      const offset =
+        elTop -
+        containerTop +
+        container.scrollTop -
+        DAY_STICKY_OFFSET -
+        8;
+
+      container.scrollTo({
+        top: Math.max(offset, 0),
+        behavior: "smooth",
+      });
+
+      clearHighlight();
+      setHighlightedItemId(itemId);
+      highlightTimeoutRef.current = window.setTimeout(() => {
+        setHighlightedItemId(null);
+      }, 2600);
+    };
+
+    // Wait a frame (or two) if we just expanded a collapsed day so layout is ready
+    requestAnimationFrame(() => {
+      if (needsExpand) {
+        requestAnimationFrame(performScroll);
+      } else {
+        performScroll();
+      }
     });
   };
 
@@ -1540,6 +1600,7 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
                     })
                   );
                 }}
+                onFocusItem={scrollToItem}
               />
 
               {/* Bottom place overlay */}
@@ -2333,6 +2394,7 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
                                     const dayIndexNum = dayIndexMap.get(item.day ?? 0) ?? null;
                                     const baseColor = getDayColor(dayIndexNum);
+                                    const isHighlighted = highlightedItemId === item.id;
 
                                     // create a soft/muted bubble using alpha on the hex (last 2 chars)
                                     const hex7 = baseColor.slice(0, 7); // strip the "ff" if present
@@ -2346,6 +2408,13 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
                                         item={item}
                                       >
                                         <div
+                                          ref={(el) => {
+                                            if (el) {
+                                              itemCardRefs.current.set(item.id, el);
+                                            } else {
+                                              itemCardRefs.current.delete(item.id);
+                                            }
+                                          }}
                                           onClick={() => {
                                             setSelectedItemId(item.id);
                                             openPlaceOverlay(item);
@@ -2353,14 +2422,17 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
                                           style={{
                                             borderRadius: "12px",
                                             padding: "0.6rem 0.8rem",
-                                            border: "1px solid #e5e7eb",
+                                            border: isHighlighted ? `2px solid ${bubbleBorder}` : "1px solid #e5e7eb",
                                             display: "grid",
                                             gridTemplateColumns:
                                               "auto 110px minmax(0, 1fr) auto",
                                             columnGap: "0.75rem",
                                             alignItems: "center",
-                                            backgroundColor: "transparent",
+                                            backgroundColor: isHighlighted ? "#eef2ff" : "transparent",
                                             cursor: "pointer",
+                                            boxShadow: isHighlighted
+                                              ? "0 10px 22px rgba(99,102,241,0.20)"
+                                              : "none",
                                           }}
                                         >
                                           {/* Sequence number */}

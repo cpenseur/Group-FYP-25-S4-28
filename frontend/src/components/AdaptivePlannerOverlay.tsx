@@ -28,6 +28,7 @@ type Props = {
   >;
   onApplied?: () => void;
   onItemsPatched?: (updates: { id: number; day?: number | null; sort_order?: number; start_time?: string | null; end_time?: string | null }[]) => void;
+  onFocusItem?: (itemId: number, dayId?: number) => void;
 };
 
 function proposedDiffers(proposed: number[] | undefined, current: number[]): boolean {
@@ -99,6 +100,7 @@ export default function AdaptivePlannerOverlay({
   itemsByDay,
   onApplied,
   onItemsPatched,
+  onFocusItem,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -386,9 +388,14 @@ export default function AdaptivePlannerOverlay({
     <div
       style={{
         position: "absolute",
-        top: 12,
-        left: 12,
-        zIndex: 60,
+        top: 8,
+        left: 0,
+        right: 0,
+        paddingLeft: 8,
+        paddingTop: 4,
+        zIndex: 120,
+        display: "flex",
+        justifyContent: "flex-start",
         pointerEvents: "none",
       }}
     >
@@ -625,23 +632,42 @@ export default function AdaptivePlannerOverlay({
                               <span>
                                 <strong>{iss.title}:</strong> {iss.note}
                               </span>
-                              {iss.itemId && alt && (
-                                <button
-                                  type="button"
-                                  onClick={() => moveIssueToNextDay(iss, d.dayId, alt.target.id)}
-                                  style={{
-                                    border: "1px solid #e5e7eb",
-                                    borderRadius: 8,
-                                    padding: "4px 8px",
-                                    background: "white",
-                                    color: "#111827",
-                                    fontSize: "0.78rem",
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  {alt.label}
-                                </button>
-                              )}
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                {iss.itemId && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onFocusItem?.(iss.itemId!, d.dayId)}
+                                    style={{
+                                      border: "1px solid #d1d5db",
+                                      borderRadius: 8,
+                                      padding: "4px 8px",
+                                      background: "white",
+                                      color: "#111827",
+                                      fontSize: "0.78rem",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Show stop
+                                  </button>
+                                )}
+                                {iss.itemId && alt && (
+                                  <button
+                                    type="button"
+                                    onClick={() => moveIssueToNextDay(iss, d.dayId, alt.target.id)}
+                                    style={{
+                                      border: "1px solid #e5e7eb",
+                                      borderRadius: 8,
+                                      padding: "4px 8px",
+                                      background: "white",
+                                      color: "#111827",
+                                      fontSize: "0.78rem",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    {alt.label}
+                                  </button>
+                                )}
+                              </div>
                             </li>
                           );
                         })}
