@@ -26,9 +26,12 @@ type CountrySummary = {
   country: string;
   tripCount: number;
   cover_photo_url?: string | null;
+  sponsored?: boolean;
 };
 
 const COMMUNITY_API = "http://127.0.0.1:8000/api/f2/community/";
+const SPONSOR_API =
+  "http://127.0.0.1:8000/api/f2/community/sponsored-countries/";
 const PAGE_SIZE = 3;
 
 function startsWithField(value: string | null | undefined, q: string): boolean {
@@ -36,6 +39,17 @@ function startsWithField(value: string | null | undefined, q: string): boolean {
   if (!query) return true;
   const text = (value || "").trim().toLowerCase();
   return text.startsWith(query);
+}
+
+function normalizeCountry(value: string | null | undefined): string {
+  return (value || "").trim().toLowerCase();
+}
+
+function isSponsored(
+  country: string | null | undefined,
+  sponsored: Set<string>
+): boolean {
+  return sponsored.has(normalizeCountry(country));
 }
 
 export default function DiscoveryInternational() {
@@ -51,6 +65,50 @@ export default function DiscoveryInternational() {
 
   // search for country grid
   const [countrySearch, setCountrySearch] = useState<string>("");
+
+  // sponsored countries (normalized names)
+  const [sponsoredCountries, setSponsoredCountries] = useState<Set<string>>(
+    new Set()
+  );
+
+  // -------- Fetch sponsored countries ----------
+  useEffect(() => {
+    const fetchSponsoredCountries = async () => {
+      try {
+        const res = await fetch(SPONSOR_API, {
+          headers: { Accept: "application/json" },
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`HTTP ${res.status} – ${text.slice(0, 120)}…`);
+        }
+
+        const contentType = res.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+          const text = await res.text();
+          throw new Error(
+            `Expected JSON but got '${contentType}'. First part of response: ${text.slice(
+              0,
+              120
+            )}…`
+          );
+        }
+
+        const data = (await res.json()) as string[];
+        const normalized = new Set(
+          (data || []).map((c) => normalizeCountry(c)).filter(Boolean)
+        );
+        setSponsoredCountries(normalized);
+      } catch (e) {
+        // Do not block page if sponsor fetch fails
+        console.warn("Failed to fetch sponsored countries:", e);
+        setSponsoredCountries(new Set());
+      }
+    };
+
+    fetchSponsoredCountries();
+  }, []);
 
   // -------- Fetch all public trips (international only) ----------
   useEffect(() => {
@@ -93,8 +151,7 @@ export default function DiscoveryInternational() {
 
         // International = everything that is NOT Singapore
         const filtered = all.filter(
-          (t) =>
-            (t.main_country || "").trim().toLowerCase() !== "singapore"
+          (t) => normalizeCountry(t.main_country) !== "singapore"
         );
 
         setAllTrips(filtered);
@@ -118,33 +175,38 @@ export default function DiscoveryInternational() {
     const map = new Map<string, CountrySummary>();
 
     for (const trip of allTrips) {
-      const country = (trip.main_country || "").trim();
-      if (!country) continue;
+      const countryRaw = (trip.main_country || "").trim();
+      if (!countryRaw) continue;
 
-      const existing = map.get(country);
+      const existing = map.get(countryRaw);
       if (!existing) {
-        map.set(country, {
-          country,
+        map.set(countryRaw, {
+          country: countryRaw,
           tripCount: 1,
           cover_photo_url: trip.cover_photo_url || null,
+          sponsored: isSponsored(countryRaw, sponsoredCountries),
         });
       } else {
         existing.tripCount += 1;
+        // keep this accurate if sponsor list arrives after trips
+        existing.sponsored = isSponsored(countryRaw, sponsoredCountries);
       }
     }
 
     const summaries = Array.from(map.values());
 
-    // 🔽 changed: sort by tripCount DESC, then alphabetically
+    // Sponsors first, then tripCount desc, then alphabetically
     summaries.sort((a, b) => {
-      if (b.tripCount !== a.tripCount) {
-        return b.tripCount - a.tripCount;
-      }
+      const aS = a.sponsored ? 1 : 0;
+      const bS = b.sponsored ? 1 : 0;
+      if (bS !== aS) return bS - aS;
+
+      if (b.tripCount !== a.tripCount) return b.tripCount - a.tripCount;
       return a.country.localeCompare(b.country);
     });
 
     return summaries;
-  }, [allTrips]);
+  }, [allTrips, sponsoredCountries]);
 
   // ---------- shared card renderer (same style as Local) ----------
   const renderTripCard = (trip: TripPreview) => {
@@ -284,9 +346,7 @@ export default function DiscoveryInternational() {
     const q = searchQuery.trim().toLowerCase();
 
     const countryTrips = allTrips.filter(
-      (t) =>
-        (t.main_country || "").trim().toLowerCase() ===
-        selectedCountry.toLowerCase()
+      (t) => normalizeCountry(t.main_country) === normalizeCountry(selectedCountry)
     );
 
     const filteredTrips: TripPreview[] =
@@ -321,16 +381,10 @@ export default function DiscoveryInternational() {
             .sort((a, b) => a.rank - b.rank)
             .map((item) => item.trip);
 
-    const totalPages = Math.max(
-      1,
-      Math.ceil(filteredTrips.length / PAGE_SIZE) || 1
-    );
+    const totalPages = Math.max(1, Math.ceil(filteredTrips.length / PAGE_SIZE) || 1);
     const currentPage = Math.min(page, totalPages);
     const startIndex = (currentPage - 1) * PAGE_SIZE;
-    const pagedTrips = filteredTrips.slice(
-      startIndex,
-      startIndex + PAGE_SIZE
-    );
+    const pagedTrips = filteredTrips.slice(startIndex, startIndex + PAGE_SIZE);
 
     return (
       <div
@@ -465,13 +519,9 @@ export default function DiscoveryInternational() {
 
           {/* States */}
           {loading && (
-            <p style={{ textAlign: "center", color: "#555" }}>
-              Loading trips…
-            </p>
+            <p style={{ textAlign: "center", color: "#555" }}>Loading trips…</p>
           )}
-          {error && (
-            <p style={{ textAlign: "center", color: "crimson" }}>{error}</p>
-          )}
+          {error && <p style={{ textAlign: "center", color: "crimson" }}>{error}</p>}
           {!loading && !error && filteredTrips.length === 0 && (
             <p style={{ textAlign: "center", color: "#555" }}>
               No itineraries found for this country matching your search.
@@ -512,15 +562,12 @@ export default function DiscoveryInternational() {
               >
                 <button
                   disabled={currentPage === 1}
-                  onClick={() =>
-                    currentPage > 1 && setPage(currentPage - 1)
-                  }
+                  onClick={() => currentPage > 1 && setPage(currentPage - 1)}
                   style={{
                     border: "none",
                     background: "transparent",
                     padding: "0.25rem 0.5rem",
-                    cursor:
-                      currentPage === 1 ? "default" : "pointer",
+                    cursor: currentPage === 1 ? "default" : "pointer",
                     opacity: currentPage === 1 ? 0.3 : 1,
                   }}
                 >
@@ -553,20 +600,13 @@ export default function DiscoveryInternational() {
 
                 <button
                   disabled={currentPage === totalPages}
-                  onClick={() =>
-                    currentPage < totalPages &&
-                    setPage(currentPage + 1)
-                  }
+                  onClick={() => currentPage < totalPages && setPage(currentPage + 1)}
                   style={{
                     border: "none",
                     background: "transparent",
                     padding: "0.25rem 0.5rem",
-                    cursor:
-                      currentPage === totalPages
-                        ? "default"
-                        : "pointer",
-                    opacity:
-                      currentPage === totalPages ? 0.3 : 1,
+                    cursor: currentPage === totalPages ? "default" : "pointer",
+                    opacity: currentPage === totalPages ? 0.3 : 1,
                   }}
                 >
                   →
@@ -704,13 +744,9 @@ export default function DiscoveryInternational() {
 
         {/* States */}
         {loading && (
-          <p style={{ textAlign: "center", color: "#555" }}>
-            Loading destinations…
-          </p>
+          <p style={{ textAlign: "center", color: "#555" }}>Loading destinations…</p>
         )}
-        {error && (
-          <p style={{ textAlign: "center", color: "crimson" }}>{error}</p>
-        )}
+        {error && <p style={{ textAlign: "center", color: "crimson" }}>{error}</p>}
         {!loading && !error && filteredCountries.length === 0 && (
           <p style={{ textAlign: "center", color: "#555" }}>
             No countries match your search.
@@ -728,6 +764,7 @@ export default function DiscoveryInternational() {
           {filteredCountries.map((c) => {
             const label =
               c.tripCount === 1 ? "1 Itinerary" : `${c.tripCount} Itineraries`;
+            const sponsored = !!c.sponsored;
 
             return (
               <button
@@ -775,7 +812,7 @@ export default function DiscoveryInternational() {
                   />
                 )}
 
-                {/* Overlay bottom text */}
+                {/* Bottom panel (solid for sponsored, gradient for normal) */}
                 <div
                   style={{
                     position: "absolute",
@@ -783,11 +820,12 @@ export default function DiscoveryInternational() {
                     right: 0,
                     bottom: 0,
                     padding: "1.2rem 1.4rem",
-                    background:
-                      "linear-gradient(to top, rgba(0,0,0,0.7), rgba(0,0,0,0))",
+                    background: sponsored
+                      ? "rgba(26, 26, 70, 0.92)"
+                      : "linear-gradient(to top, rgba(0,0,0,0.7), rgba(0,0,0,0))",
                     display: "flex",
                     flexDirection: "column",
-                    gap: "0.5rem",
+                    gap: sponsored ? "0.35rem" : "0.5rem",
                   }}
                 >
                   <span
@@ -796,8 +834,10 @@ export default function DiscoveryInternational() {
                       padding: "6px 14px",
                       borderRadius: "999px",
                       fontSize: "0.8rem",
-                      backgroundColor: "rgba(0,0,0,0.55)",
+                      backgroundColor: "rgba(255,255,255,0.12)",
                       border: "1px solid rgba(255,255,255,0.6)",
+                      backdropFilter: "blur(4px)",
+                      WebkitBackdropFilter: "blur(4px)",
                     }}
                   >
                     {label}
@@ -805,13 +845,30 @@ export default function DiscoveryInternational() {
 
                   <span
                     style={{
-                      fontSize: "1.2rem",
-                      fontWeight: 600,
-                      textShadow: "0 2px 6px rgba(0,0,0,0.6)",
+                      fontSize: "2.2rem",
+                      fontWeight: 800,
+                      lineHeight: 1.05,
+                      letterSpacing: "-0.02em",
+                      textShadow: sponsored
+                        ? "none"
+                        : "0 2px 6px rgba(0,0,0,0.6)",
+                      marginTop: "0.15rem",
                     }}
                   >
                     {c.country}
                   </span>
+
+                  {sponsored && (
+                    <span
+                      style={{
+                        fontSize: "1.05rem",
+                        fontWeight: 600,
+                        opacity: 0.95,
+                      }}
+                    >
+                      Trending Now!
+                    </span>
+                  )}
                 </div>
               </button>
             );

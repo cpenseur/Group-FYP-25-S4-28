@@ -90,6 +90,7 @@ class CountryInfo(models.Model):
     required_documents = models.TextField(blank=True, null=True)
     local_transport_info = models.TextField(blank=True, null=True)
     payment_notes = models.TextField(blank=True, null=True)
+    is_sponsored = models.BooleanField(default=False)
 
     updated_at = models.DateTimeField(default=django_timezone.now)
 
@@ -198,6 +199,8 @@ class Trip(models.Model):
 
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    is_flagged = models.BooleanField(default=False)
+
 
     class Meta:
         db_table = "trip"
