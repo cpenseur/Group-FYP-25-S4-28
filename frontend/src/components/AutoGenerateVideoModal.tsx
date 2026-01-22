@@ -1,4 +1,5 @@
 // frontend/src/components/AutoGenerateVideoModal.tsx
+// ✅ FIXED: Default transport mode changed from "plane" to "car"
 // ENHANCED: Starting location + background music + REMOVED PLACEHOLDER BUTTON
 
 import React, { useState, useEffect } from "react";
@@ -79,7 +80,7 @@ export default function AutoGenerateVideoModal({
   const [startingLocation, setStartingLocation] = useState<string>("");
   const [customStartLat, setCustomStartLat] = useState("");
   const [customStartLon, setCustomStartLon] = useState("");
-  const [firstStopTransport, setFirstStopTransport] = useState("plane");
+  const [firstStopTransport, setFirstStopTransport] = useState("car");  // ✅ FIXED: Changed from "plane" to "car"
 
   useEffect(() => {
     if (show) {
@@ -88,7 +89,7 @@ export default function AutoGenerateVideoModal({
   }, [show, photos, stops]);
 
   const autoGroupPhotos = () => {
-    // ✅ NEW: Show ALL stops, not just stops with photos
+    // ✅ Show ALL stops, not just stops with photos
     const allStopsWithPhotos = stops.map(stop => ({
       stop,
       photos: photos.filter(p => p.itinerary_item === stop.id && !excludedPhotos.has(p.id)),
@@ -97,12 +98,12 @@ export default function AutoGenerateVideoModal({
     
     setPhotoGroups(allStopsWithPhotos);
 
-    // Auto-set transport modes between ALL consecutive stops
+    // ✅ FIXED: Auto-set transport modes to "car" instead of "plane"
     const modes: Record<string, string> = {};
     for (let i = 0; i < allStopsWithPhotos.length - 1; i++) {
       const from = allStopsWithPhotos[i].stop;
       const to = allStopsWithPhotos[i + 1].stop;
-      modes[`${from.id}-${to.id}`] = "plane";
+      modes[`${from.id}-${to.id}`] = "car";  // ✅ Changed from "plane" to "car"
     }
     setTransportModes(modes);
   };
@@ -279,7 +280,7 @@ export default function AutoGenerateVideoModal({
                 <br />
                 • {totalPhotos} photos total
                 <br />
-                • Estimated duration: ~{Math.round((totalPhotos * 2.5 + photoGroups.length * 5 + 4))}s
+                • Estimated duration: ~{Math.round((totalPhotos * 4 + (photoGroups.length - 1) * 5 + 3 + 2))}s
               </div>
             </div>
 
@@ -678,7 +679,7 @@ const modalFooter: React.CSSProperties = {
   borderTop: "1px solid #e5e7eb",
 };
 
-// ✅ NEW: Single generate button style (full width, prominent)
+// ✅ Single generate button style (full width, prominent)
 const generateButton: React.CSSProperties = {
   width: "100%",
   padding: "14px 24px",

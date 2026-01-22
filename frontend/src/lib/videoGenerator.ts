@@ -33,10 +33,10 @@ interface GenerateVideoOptions {
 const CANVAS_WIDTH = 1280;
 const CANVAS_HEIGHT = 720;
 const FPS = 24;
-const TRAVEL_DURATION = 3;
-const PHOTO_DURATION = 2.5;
-const TRANSITION_DURATION = 0.5;
-const TITLE_DURATION = 2;
+const TRAVEL_DURATION = 5;        // ✅ FIXED: Increased from 3 to 5 seconds
+const PHOTO_DURATION = 4;         // ✅ FIXED: Increased from 2.5 to 4 seconds
+const TRANSITION_DURATION = 0.8;  // ✅ FIXED: Increased from 0.5 to 0.8 seconds
+const TITLE_DURATION = 3;         // ✅ FIXED: Increased from 2 to 3 seconds
 
 const transportEmojis: Record<string, string> = {
   plane: "✈️",
@@ -91,7 +91,7 @@ export class MapVideoGenerator {
       let totalFrames = FPS * TITLE_DURATION;
       for (let i = 0; i < groups.length; i++) {
         if (i > 0) {
-          totalFrames += 5 * FPS;
+          totalFrames += TRAVEL_DURATION * FPS;  // ✅ FIXED: Use constant
         }
         totalFrames += TRANSITION_DURATION * FPS;
         totalFrames += groups[i].photos.length * PHOTO_DURATION * FPS;
@@ -118,7 +118,7 @@ export class MapVideoGenerator {
             // Show journey from starting location to first stop
             if (onProgress) {
               const progress = (currentFrame / totalFrames) * 100;
-              const transport = options.firstStopTransport || "plane";
+              const transport = options.firstStopTransport || "car";  // ✅ FIXED: Changed from "plane" to "car"
               onProgress(progress, `${transportEmojis[transport]} from ${options.startingLocation.title} to ${group.stop.title}...`);
             }
 
@@ -130,10 +130,10 @@ export class MapVideoGenerator {
                 lon: options.startingLocation.lon,
               },
               group.stop,
-              options.firstStopTransport || "plane",
-              5
+              options.firstStopTransport || "car",  // ✅ FIXED: Changed from "plane" to "car"
+              TRAVEL_DURATION  // ✅ FIXED: Use constant instead of hardcoded 5
             );
-            currentFrame += 5 * FPS;
+            currentFrame += TRAVEL_DURATION * FPS;  // ✅ FIXED: Use constant
           } else {
             // No starting location, just show first stop briefly
             if (onProgress) {
@@ -147,7 +147,7 @@ export class MapVideoGenerator {
           // TRAVEL ANIMATION between stops
           const prevGroup = groups[i - 1];
           const key = `${prevGroup.stop.id}-${group.stop.id}`;
-          const transport = transportModes[key] || "plane";
+          const transport = transportModes[key] || "car";  // ✅ FIXED: Changed from "plane" to "car"
 
           if (onProgress) {
             const progress = (currentFrame / totalFrames) * 100;
@@ -158,9 +158,9 @@ export class MapVideoGenerator {
             prevGroup.stop,
             group.stop,
             transport,
-            5
+            TRAVEL_DURATION  // ✅ FIXED: Use constant instead of hardcoded 5
           );
-          currentFrame += 5 * FPS;
+          currentFrame += TRAVEL_DURATION * FPS;  // ✅ FIXED: Use constant
         }
 
         // Photos at this location (if any)
@@ -555,7 +555,6 @@ export class MapVideoGenerator {
       ctx.globalAlpha = opacity;
       ctx.fillStyle = "white";
       
-      // Smaller end font (70px instead of 100px)
       ctx.font = "bold 70px Arial";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -566,28 +565,44 @@ export class MapVideoGenerator {
     }
   }
 
+  // ✅ FIXED: Updated to handle text overflow with smaller font
   private drawLocationLabel(text: string, x: number, y: number, opacity: number = 1) {
     const ctx = this.ctx;
     
     ctx.save();
     ctx.globalAlpha = opacity;
     
-    ctx.font = "bold 36px Arial";
-    const metrics = ctx.measureText(text);
+    // ✅ REDUCED: Font size from 36px to 28px to prevent overflow
+    ctx.font = "bold 28px Arial";
+    
+    // ✅ Limit label width to 70% of canvas width (was 80%)
+    const maxWidth = CANVAS_WIDTH * 0.7;
+    let displayText = text;
+    let metrics = ctx.measureText(displayText);
+    
+    // ✅ Truncate with ellipsis if too long
+    if (metrics.width > maxWidth) {
+      while (metrics.width > maxWidth && displayText.length > 0) {
+        displayText = displayText.slice(0, -1);
+        metrics = ctx.measureText(displayText + "...");
+      }
+      displayText = displayText + "...";
+    }
+    
     const textWidth = metrics.width;
-    const padding = 20;
-    const boxWidth = textWidth + padding * 2;
-    const boxHeight = 55;
+    const padding = 16;  // ✅ Reduced from 20 to 16
+    const boxWidth = Math.min(textWidth + padding * 2, maxWidth + padding * 2);
+    const boxHeight = 48;  // ✅ Reduced from 55 to 48
     
     ctx.fillStyle = "rgba(17, 24, 39, 0.85)";
     ctx.beginPath();
-    ctx.roundRect(x - boxWidth/2, y - boxHeight/2, boxWidth, boxHeight, 28);
+    ctx.roundRect(x - boxWidth/2, y - boxHeight/2, boxWidth, boxHeight, 24);  // ✅ Reduced border radius
     ctx.fill();
 
     ctx.fillStyle = "white";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(text, x, y);
+    ctx.fillText(displayText, x, y);
     
     ctx.restore();
   }
