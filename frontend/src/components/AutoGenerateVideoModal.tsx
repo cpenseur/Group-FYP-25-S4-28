@@ -1,9 +1,9 @@
 // frontend/src/components/AutoGenerateVideoModal.tsx
 // ✅ FIXED: Default transport mode changed from "plane" to "car"
-// ENHANCED: Starting location + background music + REMOVED PLACEHOLDER BUTTON
+// ENHANCED: Starting location support
 
 import React, { useState, useEffect } from "react";
-import { X, MapPin, Music, Upload as UploadIcon, Plane, Train, Car, Ship } from "lucide-react";
+import { X, MapPin, Plane, Train, Car, Ship } from "lucide-react";
 
 interface Photo {
   id: number;
@@ -280,7 +280,7 @@ export default function AutoGenerateVideoModal({
                 <br />
                 • {totalPhotos} photos total
                 <br />
-                • Estimated duration: ~{Math.round((totalPhotos * 4 + (photoGroups.length - 1) * 5 + 3 + 2))}s
+                • Estimated duration: ~{Math.round((totalPhotos * 5 + (photoGroups.length - 1) * 7 + 4 + 2))}s
               </div>
             </div>
 
@@ -519,57 +519,6 @@ const transportButtonActive: React.CSSProperties = {
   borderColor: "#f59e0b",
 };
 
-const musicModeButtons: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, 1fr)",
-  gap: 8,
-  marginBottom: 12,
-};
-
-const musicModeButton: React.CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: 8,
-  border: "1px solid #e5e7eb",
-  background: "white",
-  fontSize: 13,
-  fontWeight: 600,
-  cursor: "pointer",
-  transition: "all 0.2s",
-};
-
-const musicModeButtonActive: React.CSSProperties = {
-  background: "#8b5cf6",
-  color: "white",
-  borderColor: "#8b5cf6",
-};
-
-const uploadLabel: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 8,
-  padding: "12px 16px",
-  borderRadius: 8,
-  border: "2px dashed #e5e7eb",
-  background: "white",
-  fontSize: 13,
-  fontWeight: 600,
-  cursor: "pointer",
-  color: "#6b7280",
-  transition: "all 0.2s",
-};
-
-const audioPreview: React.CSSProperties = {
-  width: "100%",
-  marginTop: 12,
-};
-
-const hint: React.CSSProperties = {
-  fontSize: 11,
-  color: "#9ca3af",
-  marginTop: 8,
-};
-
 const routeHeader: React.CSSProperties = {
   background: "#fef3c7",
   padding: 16,
@@ -679,7 +628,6 @@ const modalFooter: React.CSSProperties = {
   borderTop: "1px solid #e5e7eb",
 };
 
-// ✅ Single generate button style (full width, prominent)
 const generateButton: React.CSSProperties = {
   width: "100%",
   padding: "14px 24px",

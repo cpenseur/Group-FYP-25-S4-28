@@ -25,10 +25,10 @@ import {
   Download,
 } from "lucide-react";
 
-// ✅ FIXED: Video timing constants (must match videoGenerator.ts)
-const TRAVEL_DURATION = 5;
-const PHOTO_DURATION = 4;
-const TITLE_DURATION = 3;
+// ✅ UPDATED: Video timing constants (must match videoGenerator.ts)
+const TRAVEL_DURATION = 7;   // Increased from 5 to 7 seconds (40% slower)
+const PHOTO_DURATION = 5;    // Increased from 4 to 5 seconds (25% slower)
+const TITLE_DURATION = 4;    // Increased from 3 to 4 seconds (33% slower)
 
 // Types (same as before)
 interface TripPhoto {
@@ -740,11 +740,11 @@ export default function MediaHighlights() {
 
         videoUrl = urlData.publicUrl;
         
-        // ✅ FIXED: Use timing constants that match videoGenerator.ts
+        // ✅ UPDATED: Use timing constants that match videoGenerator.ts
         videoDuration = 
-          TITLE_DURATION +                                    // 3 seconds for title
-          (segments.length - 1) * TRAVEL_DURATION +          // 5 seconds per travel
-          selectedPhotos.length * PHOTO_DURATION +           // 4 seconds per photo (was 3!)
+          TITLE_DURATION +                                    // 4 seconds for title (was 3)
+          (segments.length - 1) * TRAVEL_DURATION +          // 7 seconds per travel (was 5)
+          selectedPhotos.length * PHOTO_DURATION +           // 5 seconds per photo (was 4)
           2;                                                  // 2 seconds for end slide
         
         console.log("☁️ Video uploaded to:", videoUrl);

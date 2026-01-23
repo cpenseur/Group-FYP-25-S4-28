@@ -33,10 +33,10 @@ interface GenerateVideoOptions {
 const CANVAS_WIDTH = 1280;
 const CANVAS_HEIGHT = 720;
 const FPS = 24;
-const TRAVEL_DURATION = 5;        // ✅ FIXED: Increased from 3 to 5 seconds
-const PHOTO_DURATION = 4;         // ✅ FIXED: Increased from 2.5 to 4 seconds
-const TRANSITION_DURATION = 0.8;  // ✅ FIXED: Increased from 0.5 to 0.8 seconds
-const TITLE_DURATION = 3;         // ✅ FIXED: Increased from 2 to 3 seconds
+const TRAVEL_DURATION = 7;        // ✅ INCREASED: from 5 to 7 seconds (40% slower)
+const PHOTO_DURATION = 5;         // ✅ INCREASED: from 4 to 5 seconds (25% slower)
+const TRANSITION_DURATION = 1.0;  // ✅ INCREASED: from 0.8 to 1.0 seconds (25% slower)
+const TITLE_DURATION = 4;         // ✅ INCREASED: from 3 to 4 seconds (33% slower)
 
 const transportEmojis: Record<string, string> = {
   plane: "✈️",
@@ -76,7 +76,7 @@ export class MapVideoGenerator {
       const stream = this.canvas.captureStream(FPS);
       this.mediaRecorder = new MediaRecorder(stream, {
         mimeType: "video/webm;codecs=vp9",
-        videoBitsPerSecond: 3000000,
+        videoBitsPerSecond: 1500000,  // ✅ REDUCED: 1.5 Mbps (was 3 Mbps) - 50% smaller files
       });
 
       this.recordedChunks = [];
@@ -369,10 +369,15 @@ export class MapVideoGenerator {
       [Math.max(from.lon, to.lon), Math.max(from.lat, to.lat)]
     );
 
+    // ✅ FIXED: Match map animation duration to actual frame duration
+    // Convert duration to milliseconds and match exactly
+    const mapDuration = duration * 1000;
+    
     this.map!.fitBounds(bounds, {
       padding: 150,
-      duration: duration * 1000,
+      duration: mapDuration,  // ✅ Use exact duration
       essential: true,
+      easing: (t) => t,  // ✅ Linear easing for consistent speed
     });
 
     for (let i = 0; i < frames; i++) {
@@ -565,18 +570,18 @@ export class MapVideoGenerator {
     }
   }
 
-  // ✅ FIXED: Updated to handle text overflow with smaller font
+  // ✅ FIXED: Updated to handle very long text with smaller font and aggressive truncation
   private drawLocationLabel(text: string, x: number, y: number, opacity: number = 1) {
     const ctx = this.ctx;
     
     ctx.save();
     ctx.globalAlpha = opacity;
     
-    // ✅ REDUCED: Font size from 36px to 28px to prevent overflow
-    ctx.font = "bold 28px Arial";
+    // ✅ FURTHER REDUCED: Font size from 28px to 24px to prevent overflow
+    ctx.font = "bold 24px Arial";
     
-    // ✅ Limit label width to 70% of canvas width (was 80%)
-    const maxWidth = CANVAS_WIDTH * 0.7;
+    // ✅ REDUCED: Limit label width to 60% of canvas width (was 70%)
+    const maxWidth = CANVAS_WIDTH * 0.6;
     let displayText = text;
     let metrics = ctx.measureText(displayText);
     
@@ -590,13 +595,13 @@ export class MapVideoGenerator {
     }
     
     const textWidth = metrics.width;
-    const padding = 16;  // ✅ Reduced from 20 to 16
+    const padding = 14;  // ✅ Reduced from 16 to 14
     const boxWidth = Math.min(textWidth + padding * 2, maxWidth + padding * 2);
-    const boxHeight = 48;  // ✅ Reduced from 55 to 48
+    const boxHeight = 44;  // ✅ Reduced from 48 to 44
     
     ctx.fillStyle = "rgba(17, 24, 39, 0.85)";
     ctx.beginPath();
-    ctx.roundRect(x - boxWidth/2, y - boxHeight/2, boxWidth, boxHeight, 24);  // ✅ Reduced border radius
+    ctx.roundRect(x - boxWidth/2, y - boxHeight/2, boxWidth, boxHeight, 22);  // ✅ Reduced border radius
     ctx.fill();
 
     ctx.fillStyle = "white";
