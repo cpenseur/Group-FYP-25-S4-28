@@ -509,9 +509,10 @@ Additional info: {data.get("additional_info", "")}
 Constraints to keep JSON short and valid:
 - Every stop title must be a real POI name that can appear in Mapbox/Wikipedia/Wikimedia search results (e.g., \"Ubud Palace\", \"Tegalalang Rice Terrace\", \"Tanah Lot Temple\", \"La Favela\", \"IKEA Tampines\"). No adjectives or marketing fluff in titles.
 - Titles should follow map-friendly naming (like Google Maps place names); no descriptive phrases.
-- At most 3 stops per day (max {duration * 3} stops total).
+- Cover EVERY day index 1..{duration}. Each day should have 2-3 stops (max {duration * 3} stops total).
 - Keep descriptions <= 140 characters.
 - Use 24h times in HH:MM.
+- Every stop MUST include both lat and lon as real float coordinates (non-null). If you cannot supply coordinates for a stop, omit that stop.
 - No trailing commas anywhere.
 - Do not include any text outside the JSON object.
 
@@ -530,8 +531,8 @@ Return JSON in this format:
       "start_time": "09:00",
       "end_time": "11:00",
       "address": "optional",
-      "lat": optional,
-      "lon": optional
+      "lat": 1.23456,
+      "lon": 103.12345
     }}
   ]
 }}
@@ -577,8 +578,8 @@ Return JSON in this format:
         if not itinerary:
             retry_prompt = f"""
 Return ONLY valid JSON. One object. No prose, no code fences.
-Keep descriptions <= 90 chars. Max 2 stops per day (max {duration * 2} stops).
-Fields: title (string), main_city (string), main_country (string), days (int), stops (array of objects with day_index:int, title:string, description:string, item_type:string, start_time:"HH:MM", end_time:"HH:MM", address:string|null, lat:float|null, lon:float|null).
+Keep descriptions <= 90 chars. 2-3 stops per day and EVERY day index 1..{duration} must appear (max {duration * 3} stops).
+Fields: title (string), main_city (string), main_country (string), days (int), stops (array of objects with day_index:int, title:string, description:string, item_type:string, start_time:"HH:MM", end_time:"HH:MM", address:string|null, lat:float, lon:float). Every stop MUST have lat and lon; omit stops without coordinates.
 JSON only, nothing else.
 """.strip()
 
@@ -714,3 +715,4 @@ class F13GroupPreferencesListView(APIView):
             })
 
         return Response(result, status=status.HTTP_200_OK)
+

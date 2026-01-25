@@ -1,9 +1,12 @@
 // frontend/src/pages/aiTripGeneratorStep2.tsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
+import SearchableSelect, { SelectOption } from "../components/SearchableSelect";
+import countriesCities from "../data/countriesCities.json";
 
 type ChipValue = string;
+type CountryCitiesEntry = { name: string; cities: string[] };
 
 /* ---------------- DATE HELPERS ---------------- */
 function formatDisplayDate(date: Date | null): string {
@@ -57,11 +60,48 @@ export default function AITripGeneratorStep2() {
 
   const [durationDays, setDurationDays] = useState(3);
 
-  const destinationOptions: ChipValue[] = ["Tropical", "Mountains", "Cold/Winter", "Countryside", "Urban"];
-  const [selectedDestinations, setSelectedDestinations] = useState<ChipValue[]>(["Tropical", "Countryside"]);
+  const [preferredCountry, setPreferredCountry] = useState("");
+  const [preferredCity, setPreferredCity] = useState("");
 
-  const activityOptions: ChipValue[] = ["Luxury/Shopping", "Adventure", "Wellness", "Cultural Immersion", "Culinary", "Sightseeing"];
-  const [selectedActivities, setSelectedActivities] = useState<ChipValue[]>(["Adventure", "Cultural Immersion"]);
+  const destinationOptions: ChipValue[] = [
+    "Tropical",
+    "Beach/Coastal",
+    "Mountains",
+    "Cold/Winter",
+    "Countryside",
+    "Urban",
+    "Island",
+    "Desert",
+    "Forest/Nature",
+    "Historical Sites",
+    "Modern Cities",
+    "Small Towns",
+    "Wine Region",
+  ];
+  const [selectedDestinations, setSelectedDestinations] = useState<ChipValue[]>([]);
+
+  const activityOptions: ChipValue[] = [
+    "Luxury/Shopping",
+    "Adventure",
+    "Wellness",
+    "Cultural Immersion",
+    "Culinary",
+    "Sightseeing",
+    "Beach/Water Sports",
+    "Hiking/Trekking",
+    "Photography",
+    "Nightlife",
+    "Museums & Art",
+    "Food Tours",
+    "Wine Tasting",
+    "Scuba Diving",
+    "Skiing/Winter Sports",
+    "Wildlife Watching",
+    "Yoga/Meditation",
+    "Live Music",
+    "Local Markets",
+  ];
+  const [selectedActivities, setSelectedActivities] = useState<ChipValue[]>([]);
 
   const [budgetMin, setBudgetMin] = useState("");
   const [budgetMax, setBudgetMax] = useState("");
@@ -72,21 +112,58 @@ export default function AITripGeneratorStep2() {
 
   /* -------------------- CHIP TOGGLE -------------------- */
   const toggleDestination = (opt: ChipValue) => {
+    setErrorMsg(null);
     setSelectedDestinations((prev) => (prev.includes(opt) ? prev.filter((x) => x !== opt) : [...prev, opt]));
   };
   const toggleActivity = (opt: ChipValue) => {
+    setErrorMsg(null);
     setSelectedActivities((prev) => (prev.includes(opt) ? prev.filter((x) => x !== opt) : [...prev, opt]));
   };
 
   /* -------------------- PREFERENCES BUILD -------------------- */
   const preferencesText = useMemo(() => {
     const lines: string[] = [];
+    if (preferredCountry || preferredCity) {
+      const location = [preferredCity, preferredCountry].filter(Boolean).join(", ");
+      if (location) lines.push(`Preferred location: ${location}`);
+    }
     if (selectedActivities.length) lines.push(`Activities/Interests: ${selectedActivities.join(", ")}`);
     if (selectedDestinations.length) lines.push(`Destination types: ${selectedDestinations.join(", ")}`);
     if (budgetMin || budgetMax) lines.push(`Budget range: ${budgetMin || "?"} - ${budgetMax || "?"}`);
     if (additionalInfo.trim()) lines.push(`Notes: ${additionalInfo.trim()}`);
     return lines.join("\n");
-  }, [selectedActivities, selectedDestinations, budgetMin, budgetMax, additionalInfo]);
+  }, [preferredCountry, preferredCity, selectedActivities, selectedDestinations, budgetMin, budgetMax, additionalInfo]);
+
+  const countryCityData = countriesCities as CountryCitiesEntry[];
+  const countryOptions = useMemo(() => {
+    return countryCityData
+      .map((c) => c.name)
+      .filter(Boolean)
+      .map((name) => ({ label: name, value: name }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [countryCityData]);
+
+  const selectedCountryEntry = useMemo(() => {
+    return countryCityData.find((c) => c.name === preferredCountry) ?? null;
+  }, [countryCityData, preferredCountry]);
+
+  const cityOptions: SelectOption[] = useMemo(() => {
+    if (!selectedCountryEntry) return [];
+    const seen = new Set<string>();
+    const opts: SelectOption[] = [];
+    for (const city of selectedCountryEntry.cities || []) {
+      const trimmed = (city || "").trim();
+      if (!trimmed) continue;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      opts.push({ label: trimmed, value: trimmed });
+    }
+    return opts.sort((a, b) => a.label.localeCompare(b.label));
+  }, [selectedCountryEntry]);
+
+  const selectedCountryOpt = preferredCountry ? { label: preferredCountry, value: preferredCountry } : null;
+  const selectedCityOpt = preferredCity ? { label: preferredCity, value: preferredCity } : null;
 
   /* -------------------- STYLES (keep your current look) -------------------- */
   const styles: Record<string, React.CSSProperties> = {
@@ -94,11 +171,15 @@ export default function AITripGeneratorStep2() {
       minHeight: "100vh",
       width: "100%",
       overflowX: "hidden",
-      background: "linear-gradient(180deg, #eff3ff 0%, #ede8ff 45%, #d5e7ff 100%)",
-      fontFamily: "Inter, sans-serif",
+      background: "linear-gradient(135deg, #eff3ff 0%, #ede8ff 32%, #d5e7ff 64%, #f4e9ff 100%)",
+      backgroundSize: "400% 400%",
+      animation: "gradientShift 16s ease infinite",
+      fontFamily: "Inter, 'Plus Jakarta Sans', 'Segoe UI', sans-serif",
       display: "flex",
       flexDirection: "column",
       alignItems: "center",
+      position: "relative",
+      overflow: "hidden",
     },
     navOuter: { width: "100%", background: "#fff", borderBottom: "2px solid #d0d7ff", display: "flex", justifyContent: "center" },
     navInner: { width: "100%", maxWidth: "1400px", height: "70px", padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between" },
@@ -116,8 +197,25 @@ export default function AITripGeneratorStep2() {
     dateBox: { flex: 1, background: "#f7f8ff", padding: "16px", borderRadius: "12px", border: "1px solid #d5ddff", cursor: "pointer" },
     sliderRow: { display: "flex", alignItems: "center", gap: "12px" },
     chipsContainer: { display: "flex", flexWrap: "wrap", gap: "10px" },
-    chipBase: { padding: "8px 14px", borderRadius: "999px", border: "1px solid #c5ccff", background: "#fff", fontSize: "13px", cursor: "pointer" },
-    chipSelected: { background: "#4f46e5", color: "#fff", borderColor: "#4f46e5" },
+    chipBase: {
+      padding: "8px 14px",
+      borderRadius: "999px",
+      borderWidth: "1px",
+      borderStyle: "solid",
+      borderColor: "#c5ccff",
+      background: "#fff",
+      fontSize: "13px",
+      cursor: "pointer",
+      transition: "all 0.2s ease",
+    },
+    chipSelected: {
+      background: "#4f46e5",
+      color: "#fff",
+      borderColor: "#4f46e5",
+      borderWidth: "1px",
+      borderStyle: "solid",
+      boxShadow: "0 6px 16px rgba(124,92,255,0.25)",
+    },
     calendarPopup: {
       position: "absolute",
       top: "200px",
@@ -136,7 +234,7 @@ export default function AITripGeneratorStep2() {
     closeBtn: { position: "absolute", top: "10px", right: "18px", border: "none", background: "transparent", fontSize: "22px", cursor: "pointer", color: "#666" },
     doneButton: {
       marginTop: "20px",
-      padding: "10px 26px",
+      padding: "12px 32px",
       borderRadius: "999px",
       background: "linear-gradient(135deg, #8b7cff 0%, #6b5cff 100%)",
       color: "#fff",
@@ -147,9 +245,33 @@ export default function AITripGeneratorStep2() {
       boxShadow: "0 6px 16px rgba(124, 92, 255, 0.35)",
       alignSelf: "flex-end",
       opacity: submitting ? 0.7 : 1,
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      transition: "all 0.3s ease",
     },
     error: { marginTop: "10px", color: "#b91c1c", fontSize: "13px" },
   };
+
+  /* -------------------- GLOBAL STYLES -------------------- */
+  useEffect(() => {
+    const styleSheet = document.createElement("style");
+    styleSheet.textContent = `
+      @keyframes gradientShift {
+        0% { background-position: 0% 50%; }
+        25% { background-position: 25% 50%; }
+        50% { background-position: 50% 50%; }
+        75% { background-position: 75% 50%; }
+        100% { background-position: 0% 50%; }
+      }
+      button:hover { transform: translateY(-2px); }
+      button:active { transform: translateY(0); }
+    `;
+    document.head.appendChild(styleSheet);
+    return () => {
+      document.head.removeChild(styleSheet);
+    };
+  }, []);
 
   /* ----------------------------------------------------
                       CALENDAR LOGIC
@@ -270,6 +392,9 @@ export default function AITripGeneratorStep2() {
       return;
     }
 
+    const locationNote = [preferredCity, preferredCountry].filter(Boolean).join(", ");
+    const mergedAdditionalInfo = [locationNote ? `Preferred location: ${locationNote}` : "", additionalInfo.trim()].filter(Boolean).join("\n");
+
     // ---- build payload (same shape as backend expects) ----
     const payload = {
       start_date: toISODate(startDate),
@@ -282,14 +407,17 @@ export default function AITripGeneratorStep2() {
       budget_min: budgetMin ? Number(budgetMin) : null,
       budget_max: budgetMax ? Number(budgetMax) : null,
 
-      additional_info: additionalInfo.trim() || "",
+      additional_info: mergedAdditionalInfo || "",
+      preferences_text: preferencesText,
     };
 
     // ---- keywords for animation ----
     const keywords = [
       ...selectedActivities,
       ...selectedDestinations,
-    ].slice(0, 18);
+      preferredCity,
+      preferredCountry,
+    ].filter(Boolean).slice(0, 18);
 
     // ---- go to waiting screen ----
     navigate("/ai-trip-generator/wait", {
@@ -309,6 +437,38 @@ export default function AITripGeneratorStep2() {
       <div style={styles.container}>
         <div style={styles.pageSub}>Share your preferences</div>
         <div style={styles.pageTitle}>AI Trip Generator</div>
+
+        {/* Optional Country + City (for more specific suggestions) */}
+        <div style={{ ...styles.card, marginBottom: "26px" }}>
+          <div style={styles.sectionTitleRow}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+              <div style={styles.sectionTitle}>Preferred Country & City</div>
+              <div style={{ ...styles.sectionHint, fontSize: "11px" }}>(Optional)</div>
+            </div>
+            <div style={styles.sectionHint}>Leave blank for our suggestions</div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+            <SearchableSelect
+              label="Country"
+              placeholder="Search country..."
+              value={selectedCountryOpt}
+              options={countryOptions}
+              onChange={(opt) => {
+                const next = opt?.value ?? "";
+                setPreferredCountry(next);
+                if (next !== preferredCountry) setPreferredCity("");
+              }}
+            />
+            <SearchableSelect
+              label="City (optional)"
+              placeholder={preferredCountry ? "Search city..." : "Select a country first..."}
+              value={selectedCityOpt}
+              options={cityOptions}
+              disabled={!preferredCountry}
+              onChange={(opt) => setPreferredCity(opt?.value ?? "")}
+            />
+          </div>
+        </div>
 
         {/* 1. Estimated Travel Dates */}
         <div style={styles.card}>
@@ -342,7 +502,7 @@ export default function AITripGeneratorStep2() {
           <div style={styles.card}>
             <div style={styles.sectionTitleRow}>
               <div style={styles.sectionTitle}>Travel Duration</div>
-              <div style={styles.sectionHint}>min. 1 day — up to 21+ days</div>
+              <div style={styles.sectionHint}>min. 1 day - up to 21+ days</div>
             </div>
 
             <div style={styles.sliderRow}>
