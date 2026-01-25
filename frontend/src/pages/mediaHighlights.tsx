@@ -1,7 +1,7 @@
 // frontend/src/pages/mediaHighlights.tsx
-// ✅ HYBRID SYNC: Immediate local updates + Realtime for others
-// ✅ PHOTOS: Self upload shows immediately, others see via Realtime
-// ✅ HIGHLIGHTS: Self create/delete shows immediately, others see via Realtime
+// ✅ POLLING SYNC: Refresh every 5 seconds for multi-user collaboration
+// ✅ PHOTOS: Self upload shows immediately, others see via polling
+// ✅ HIGHLIGHTS: Self create/delete shows immediately, others see via polling
 
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -53,14 +53,6 @@ interface MediaHighlight {
   metadata: any;
   created_at: string;
 }
-
-// Realtime payload types
-type RealtimePayload<T> = {
-  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
-  new: Partial<T> | null;
-  old: Partial<T> | null;
-  errors?: any;
-};
 
 interface ItineraryItem {
   id: number;
@@ -116,7 +108,6 @@ export default function MediaHighlights() {
   const [photos, setPhotos] = useState<TripPhoto[]>([]);
   const [highlights, setHighlights] = useState<MediaHighlight[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // Modals
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -167,151 +158,54 @@ export default function MediaHighlights() {
     return date.toISOString().slice(0, 16);
   };
 
-  useEffect(() => {
-    async function getCurrentUser() {
-      try {
-        const { data: { user }, error } = await supabase.auth.getUser();
-        
-        if (error) {
-          console.error("❌ Supabase auth error:", error);
-          return;
-        }
-        
-        if (user) {
-          console.log("✅ Supabase user:", user.id, user.email);
-          setCurrentUserId(user.id);
-        }
-      } catch (error) {
-        console.error("❌ Failed to get current user:", error);
-      }
+  // ✅ POLLING: Refresh photos and highlights helpers
+  const refreshPhotos = async () => {
+    if (!tripId || Number.isNaN(Number(tripId))) return;
+    try {
+      const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
+      const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
+      const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
+      setPhotos(tripPhotos);
+    } catch (error) {
+      console.error("Failed to refresh photos:", error);
     }
+  };
+
+  const refreshHighlights = async () => {
+    if (!tripId || Number.isNaN(Number(tripId))) return;
+    try {
+      const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
+      const highlightsList = Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || [];
+      setHighlights(highlightsList);
+    } catch (error) {
+      console.error("Failed to refresh highlights:", error);
+    }
+  };
+
+  // ✅ POLLING: Load + poll photos & highlights every 5 seconds
+  useEffect(() => {
+    if (!tripId || Number.isNaN(Number(tripId))) return;
+
+    let isActive = true;
     
-    getCurrentUser();
-  }, []);
+    const poll = async () => {
+      if (!isActive) return;
+      await Promise.all([refreshPhotos(), refreshHighlights()]);
+    };
 
-  // ✅ REALTIME: Photos subscription
-  useEffect(() => {
-    if (!tripId || !currentUserId) return;
-
-    console.log("🔌 Setting up Realtime subscription for photos (trip", tripId, ")");
-
-    const channel = supabase
-      .channel(`trip-photos-${tripId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'trip_photo',
-          filter: `trip=eq.${tripId}`,
-        },
-        (payload: RealtimePayload<TripPhoto>) => {
-          console.log('📡 Photo Realtime event:', payload);
-
-          if (payload.eventType === 'INSERT') {
-            const newPhoto = payload.new as TripPhoto;
-            const photoUserId = newPhoto.user;
-            const isOwnPhoto = String(photoUserId) === String(currentUserId);
-            
-            console.log(
-              isOwnPhoto 
-                ? '➕ Adding photo (possibly from another device):'
-                : '➕ Adding photo from collaborator:',
-              newPhoto.id
-            );
-            
-            setPhotos(prev => {
-              if (prev.some(p => p.id === newPhoto.id)) {
-                console.log('⚠️  Photo already exists, skipping');
-                return prev;
-              }
-              return [...prev, newPhoto];
-            });
-          } 
-          else if (payload.eventType === 'UPDATE') {
-            const updatedPhoto = payload.new as TripPhoto;
-            console.log('✏️ Updating photo:', updatedPhoto.id);
-            
-            setPhotos(prev =>
-              prev.map(p => p.id === updatedPhoto.id ? updatedPhoto : p)
-            );
-          } 
-          else if (payload.eventType === 'DELETE') {
-            const deletedPhoto = payload.old as TripPhoto;
-            console.log('🗑️ Removing deleted photo:', deletedPhoto.id);
-            
-            setPhotos(prev => prev.filter(p => p.id !== deletedPhoto.id));
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log('📡 Photos subscription status:', status);
-      });
+    // Initial load
+    poll();
+    
+    // Poll every 5 seconds
+    const intervalId = window.setInterval(poll, 5000);
 
     return () => {
-      console.log("🔌 Cleaning up photos Realtime subscription...");
-      supabase.removeChannel(channel);
+      isActive = false;
+      window.clearInterval(intervalId);
     };
-  }, [tripId, currentUserId]);
+  }, [tripId]);
 
-  // ✅ REALTIME: Highlights subscription
-  useEffect(() => {
-    if (!tripId || !currentUserId) return;
-
-    console.log("🔌 Setting up Realtime subscription for highlights (trip", tripId, ")");
-
-    const channel = supabase
-      .channel(`trip-highlights-${tripId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'trip_media_highlight',
-          filter: `trip=eq.${tripId}`,
-        },
-        (payload: RealtimePayload<MediaHighlight>) => {
-          console.log('📡 Highlight Realtime event:', payload);
-
-          const highlightUserId = payload.new?.user || payload.old?.user;
-          const isMyHighlight = String(highlightUserId) === String(currentUserId);
-          
-          if (!isMyHighlight) {
-            console.log('⏭️  Skipping highlight from different user (highlights are per-account)');
-            return;
-          }
-
-          if (payload.eventType === 'INSERT') {
-            const newHighlight = payload.new as MediaHighlight;
-            console.log('➕ Adding highlight (possibly from another device):', newHighlight.id);
-            
-            setHighlights(prev => {
-              if (prev.some(h => h.id === newHighlight.id)) {
-                console.log('⚠️  Highlight already exists, skipping');
-                return prev;
-              }
-              return [...prev, newHighlight];
-            });
-          } 
-          else if (payload.eventType === 'DELETE') {
-            const deletedHighlight = payload.old as MediaHighlight;
-            console.log('🗑️ Removing deleted highlight:', deletedHighlight.id);
-            
-            setHighlights(prev => prev.filter(h => h.id !== deletedHighlight.id));
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log('📡 Highlights subscription status:', status);
-      });
-
-    return () => {
-      console.log("🔌 Cleaning up highlights Realtime subscription...");
-      supabase.removeChannel(channel);
-    };
-  }, [tripId, currentUserId]);
-
-  // Load initial data
+  // Load initial data (trip, items, days)
   useEffect(() => {
     if (!tripId) return;
 
@@ -360,19 +254,8 @@ export default function MediaHighlights() {
         setMapItems(mapped);
         console.log(`🗺️ Set ${mapped.length} map items`);
 
-        const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
-        const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
-        
-        const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
-        console.log(`📸 Photos loaded: ${tripPhotos.length} (filtered from ${photosList.length})`);
-        
-        setPhotos(tripPhotos);
-
-        const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
-        const highlightsList = Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || [];
-        console.log(`🎬 Highlights loaded: ${highlightsList.length}`);
-        
-        setHighlights(highlightsList);
+        // Initial load of photos and highlights
+        await Promise.all([refreshPhotos(), refreshHighlights()]);
         
         console.log("=== ✅ Data Loading Complete ===\n");
       } catch (error) {
@@ -395,18 +278,20 @@ export default function MediaHighlights() {
     if (!confirm("Delete this video highlight?")) return;
 
     try {
+      // Optimistic update
       setHighlights(prev => prev.filter(h => h.id !== highlightId));
       
       await apiFetch(`/f5/highlights/${highlightId}/`, { method: "DELETE" });
       console.log("✅ Highlight deleted:", highlightId);
       
+      // Refresh to sync with server
+      await refreshHighlights();
     } catch (error) {
       console.error("Failed to delete highlight:", error);
       alert("❌ Failed to delete video.");
       
-      const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
-      const highlightsList = Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || [];
-      setHighlights(highlightsList);
+      // Revert on error
+      await refreshHighlights();
     }
   };
 
@@ -556,19 +441,12 @@ export default function MediaHighlights() {
             lon: photoLon,
           };
 
-          const createdPhoto = await apiFetch("/f5/photos/", {
+          await apiFetch("/f5/photos/", {
             method: "POST",
             body: JSON.stringify(photoData),
           });
           
-          console.log("✅ Photo created:", createdPhoto);
-
-          setPhotos(prev => {
-            if (prev.some(p => p.id === createdPhoto.id)) {
-              return prev;
-            }
-            return [...prev, createdPhoto];
-          });
+          console.log("✅ Photo uploaded successfully");
           
         } catch (storageError: any) {
           console.error("Storage error:", storageError);
@@ -577,9 +455,13 @@ export default function MediaHighlights() {
         }
       }
 
+      // Refresh trip data
       const tripData = await apiFetch(`/f1/trips/${tripId}/`, { method: "GET" });
       setItems(tripData.items || []);
       setDays(tripData.days || []);
+
+      // Refresh photos immediately after upload
+      await refreshPhotos();
 
       setSelectedFiles([]);
       setPhotoForms(new Map());
@@ -596,19 +478,20 @@ export default function MediaHighlights() {
     if (!confirm("Delete this photo?")) return;
 
     try {
+      // Optimistic update
       setPhotos(prev => prev.filter(p => p.id !== photoId));
       
       await apiFetch(`/f5/photos/${photoId}/`, { method: "DELETE" });
       console.log("✅ Photo deleted:", photoId);
       
+      // Refresh to sync with server
+      await refreshPhotos();
     } catch (error) {
       console.error("Failed to delete photo:", error);
       alert("Failed to delete photo.");
       
-      const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
-      const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
-      const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId!));
-      setPhotos(tripPhotos);
+      // Revert on error
+      await refreshPhotos();
     }
   };
 
@@ -636,16 +519,15 @@ export default function MediaHighlights() {
         lon: photoLon,
       };
 
-      const updatedPhoto = await apiFetch(`/f5/photos/${editingPhoto.id}/`, {
+      await apiFetch(`/f5/photos/${editingPhoto.id}/`, {
         method: "PATCH",
         body: JSON.stringify(updateData),
       });
 
-      console.log("✅ Photo updated:", updatedPhoto);
+      console.log("✅ Photo updated");
 
-      setPhotos(prev =>
-        prev.map(p => p.id === updatedPhoto.id ? updatedPhoto : p)
-      );
+      // Refresh photos after edit
+      await refreshPhotos();
 
       setShowEditModal(false);
       setEditingPhoto(null);
@@ -740,12 +622,11 @@ export default function MediaHighlights() {
 
         videoUrl = urlData.publicUrl;
         
-        // ✅ UPDATED: Use timing constants that match videoGenerator.ts
         videoDuration = 
-          TITLE_DURATION +                                    // 4 seconds for title (was 3)
-          (segments.length - 1) * TRAVEL_DURATION +          // 7 seconds per travel (was 5)
-          selectedPhotos.length * PHOTO_DURATION +           // 5 seconds per photo (was 4)
-          2;                                                  // 2 seconds for end slide
+          TITLE_DURATION +
+          (segments.length - 1) * TRAVEL_DURATION +
+          selectedPhotos.length * PHOTO_DURATION +
+          2;
         
         console.log("☁️ Video uploaded to:", videoUrl);
         setGenerateStatus("Saving to database...");
@@ -771,19 +652,15 @@ export default function MediaHighlights() {
 
       console.log("💾 Saving highlight to database...");
 
-      const createdHighlight = await apiFetch("/f5/highlights/", {
+      await apiFetch("/f5/highlights/", {
         method: "POST",
         body: JSON.stringify(highlightData),
       });
 
-      console.log("✅ Highlight created:", createdHighlight);
+      console.log("✅ Highlight created");
 
-      setHighlights(prev => {
-        if (prev.some(h => h.id === createdHighlight.id)) {
-          return prev;
-        }
-        return [...prev, createdHighlight];
-      });
+      // Refresh highlights after creation
+      await refreshHighlights();
 
       setShowGenerateModal(false);
       

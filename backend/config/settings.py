@@ -110,7 +110,7 @@ DATABASES["default"]["OPTIONS"].update({
     "keepalives_count": 5,      
 })
 
-DATABASES["default"]["CONN_MAX_AGE"] = 60        
+DATABASES["default"]["CONN_MAX_AGE"] = 0        
 DATABASES["default"]["CONN_HEALTH_CHECKS"] = True  
 
 
