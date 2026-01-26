@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 
 export type SelectOption = { label: string; value: string };
 
+const DEFAULT_FONT = "Inter, 'Plus Jakarta Sans', 'Segoe UI', sans-serif";
+
 type Props = {
   label?: string;
   placeholder?: string;
@@ -12,6 +14,7 @@ type Props = {
   disabled?: boolean;
   required?: boolean;
   width?: string | number;
+  fontFamily?: string;
 };
 
 function norm(s: string) {
@@ -52,6 +55,7 @@ export default function SearchableSelect({
   disabled,
   required,
   width = "100%",
+  fontFamily = DEFAULT_FONT,
 }: Props) {
   const instanceId = useRef(`tm-select-${Math.random().toString(36).slice(2)}`).current;
 
@@ -178,9 +182,10 @@ export default function SearchableSelect({
               borderRadius: 14,
               boxShadow: "0 18px 40px rgba(15,23,42,0.12)",
               overflow: "hidden",
+              fontFamily,
             }}
           >
-            <div style={{ maxHeight: 260, overflowY: "auto", padding: 6 }}>
+            <div style={{ maxHeight: 260, overflowY: "auto", padding: 6, fontFamily }}>
               {filtered.length === 0 ? (
                 <div style={{ padding: 10, color: "#6b7280", fontSize: "0.9rem" }}>
                   No results
@@ -206,6 +211,7 @@ export default function SearchableSelect({
                         justifyContent: "space-between",
                         gap: 10,
                         alignItems: "center",
+                        fontFamily,
                       }}
                     >
                       <span style={{ color: "#111827", fontSize: "0.95rem" }}>{opt.label}</span>
@@ -226,7 +232,7 @@ export default function SearchableSelect({
       style={{
         width,
         minWidth: 0,
-        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        fontFamily,
       }}
     >
       {label && (
@@ -271,6 +277,7 @@ export default function SearchableSelect({
           }}
           style={{
             width: "89%",
+            fontFamily,
             borderRadius: 12,
             border: "1px solid #d1d5db",
             padding: "0.7rem 2.6rem 0.7rem 0.95rem",

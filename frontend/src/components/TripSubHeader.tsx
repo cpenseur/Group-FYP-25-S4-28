@@ -202,6 +202,24 @@ const ExportButton = styled(PillButton)`
   }
 `;
 
+const BookButton = styled(PillButton)`
+  border-color: #10b981;
+  color: #065f46;
+  background: #ecfdf3;
+
+  &:hover {
+    background: #d1fae5;
+    border-color: #059669;
+  }
+`;
+
+type StayProvider = {
+  name: string;
+  url: string;
+  accent: string;
+  textColor: string;
+};
+
 // Right block: location / duration / currency
 const RightStats = styled.div`
   display: flex;
@@ -302,12 +320,115 @@ const TabLink = styled(NavLink)<{ $active?: boolean }>`
    Component
 ============================= */
 
-export default function TripSubHeader() {
+type TripSubHeaderProps = {
+  onExport?: () => void;
+};
+
+function HotelBookingModal({
+  open,
+  onClose,
+  stayLabel,
+}: {
+  open: boolean;
+  onClose: () => void;
+  stayLabel: string;
+}) {
+  if (!open) return null;
+
+  const providers: StayProvider[] = [
+    { name: "Booking.com", url: "https://www.booking.com", accent: "#0b63c5", textColor: "#0b63c5" },
+    { name: "airbnb", url: "https://www.airbnb.com", accent: "#ff5a60", textColor: "#d11f4d" },
+    { name: "HOSTELWORLD", url: "https://www.hostelworld.com", accent: "#f97316", textColor: "#c2410c" },
+  ];
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15,23,42,0.45)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 9999,
+        fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "min(520px, 94%)",
+          background: "white",
+          borderRadius: 22,
+          padding: "1.4rem 1.5rem",
+          boxShadow: "0 22px 50px rgba(15,23,42,0.25)",
+        }}
+      >
+        <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "#0f172a", marginBottom: "1rem" }}>
+          Find a place to stay
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {providers.map((p) => (
+            <a
+              key={p.name}
+              href={p.url}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "0.9rem 1rem",
+                borderRadius: 14,
+                border: "1px solid #e5e7eb",
+                textDecoration: "none",
+                background: "#f8fafc",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.04)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 10,
+                    background: p.accent,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#ffffff",
+                    fontWeight: 800,
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  {p.name.charAt(0)}
+                </div>
+                <div style={{ fontWeight: 700, color: p.textColor, fontSize: "1rem" }}>{p.name}</div>
+              </div>
+              <div style={{ color: "#475569", fontWeight: 600, fontSize: "0.9rem", whiteSpace: "nowrap", marginRight: 10 }}>
+                {stayLabel || "Select dates"}
+              </div>
+              <div style={{ color: "#94a3b8" }}>{">"}</div>
+            </a>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
   const { tripId } = useParams<{ tripId: string }>();
   const location = useLocation();
   const [trip, setTrip] = useState<TripOverview | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+<<<<<<< HEAD
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
+=======
+  const [hotelsModalOpen, setHotelsModalOpen] = useState(false);
+>>>>>>> Vania
 
   const [editingDates, setEditingDates] = useState(false);
   const [startDraft, setStartDraft] = useState<string>("");
@@ -425,6 +546,17 @@ export default function TripSubHeader() {
     trip.planned_total != null
       ? Number(trip.planned_total).toLocaleString()
       : "-";
+
+  const stayLabel = (() => {
+    const loc = trip.main_city || trip.location_label || "Your trip";
+    if (trip.start_date && trip.end_date) {
+      const start = new Date(trip.start_date);
+      const end = new Date(trip.end_date);
+      const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+      return `${loc}, ${start.toLocaleDateString(undefined, opts)} - ${end.toLocaleDateString(undefined, opts)}`;
+    }
+    return loc;
+  })();
       
   return (
     <>
@@ -462,12 +594,13 @@ export default function TripSubHeader() {
 
                   <InviteButton>+ invite collaborators</InviteButton>
                   <ShareButton>Share</ShareButton>
-                  <ExportButton>Export</ExportButton>
+                  <ExportButton onClick={onExport}>Export</ExportButton>
                 </CollaboratorRow>
               </TitleAndCollabs>
             </LeftBlock>
 
             {/* RIGHT: location / duration / currency */}
+<<<<<<< HEAD
             <RightStats>
               <StatItem>
                 <StatLabel>Location</StatLabel>
@@ -485,11 +618,122 @@ export default function TripSubHeader() {
                   <CalendarDays size={16} strokeWidth={2.1} />
 
                   {!editingDates ? (
+=======
+            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+              <RightStats>
+                <StatItem>
+                  <StatLabel>Location</StatLabel>
+                  <StatValueRow>
+                    <MapPin size={16} strokeWidth={2.1} />
+                    <span>{trip.location_label || "--"}</span>
+                  </StatValueRow>
+                </StatItem>
+                <StatDivider />
+                <StatItem>
+                  <StatLabel>Duration</StatLabel>
+                  <StatValueRow>
+                    <CalendarDays size={16} strokeWidth={2.1} />
+                    {!editingDates ? (
+                      <span
+                        style={{ cursor: "pointer" }}
+                        title="Click to edit dates"
+                        onClick={() => setEditingDates(true)}
+                      >
+                        {trip.duration_label || "--"}
+                      </span>
+                    ) : (
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <input
+                          type="date"
+                          value={startDraft}
+                          onChange={(e) => setStartDraft(e.target.value)}
+                          style={{
+                            border: "1px solid #d1d5db",
+                            borderRadius: 8,
+                            padding: "0.25rem 0.4rem",
+                            fontSize: "0.85rem",
+                          }}
+                        />
+                        <span style={{ color: "#9ca3af" }}>--</span>
+                        <input
+                          type="date"
+                          value={endDraft}
+                          onChange={(e) => setEndDraft(e.target.value)}
+                          style={{
+                            border: "1px solid #d1d5db",
+                            borderRadius: 8,
+                            padding: "0.25rem 0.4rem",
+                            fontSize: "0.85rem",
+                          }}
+                        />
+                        <button
+                          onClick={async () => {
+                            const updated = await patchTripDates(
+                              Number(tripId),
+                              startDraft || null,
+                              endDraft || null
+                            );
+                            setTrip((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    start_date: updated.start_date,
+                                    end_date: updated.end_date,
+                                    duration_label: updated.duration_label ?? prev.duration_label,
+                                  }
+                                : prev
+                            );
+                            setEditingDates(false);
+                          }}
+                          style={{
+                            marginLeft: 6,
+                            borderRadius: 999,
+                            border: "none",
+                            background: "#111827",
+                            color: "white",
+                            padding: "0.25rem 0.7rem",
+                            fontSize: "0.78rem",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => {
+                            setStartDraft(trip.start_date ?? "");
+                            setEndDraft(trip.end_date ?? "");
+                            setEditingDates(false);
+                          }}
+                          style={{
+                            borderRadius: 999,
+                            border: "1px solid #d1d5db",
+                            background: "white",
+                            padding: "0.25rem 0.7rem",
+                            fontSize: "0.78rem",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </StatValueRow>
+                </StatItem>
+                <StatDivider />
+                <StatItem>
+                  <StatLabel>Currency</StatLabel>
+                  <StatValueRow>
+>>>>>>> Vania
                     <span
-                      style={{ cursor: "pointer" }}
-                      title="Click to edit dates"
-                      onClick={() => setEditingDates(true)}
+                      style={{
+                        fontSize: 16,
+                        fontWeight: 600,
+                        lineHeight: "16px",
+                        display: "inline-flex",
+                        alignItems: "center",
+                      }}
                     >
+<<<<<<< HEAD
                       {trip.duration_label || "â€”"}
                     </span>
                   ) : (
@@ -600,6 +844,18 @@ export default function TripSubHeader() {
                 </StatValueRow>
               </StatItem>
             </RightStats>
+=======
+                      {trip.currency_symbol}
+                    </span>
+                    <span style={{ marginLeft: 6, whiteSpace: "nowrap" }}>
+                      {plannedDisplay}
+                    </span>
+                  </StatValueRow>
+                </StatItem>
+              </RightStats>
+              <BookButton onClick={() => setHotelsModalOpen(true)}>Book hotels</BookButton>
+            </div>
+>>>>>>> Vania
           </TitleRow>
         </Inner>
       </HeaderContainer>
@@ -644,6 +900,16 @@ export default function TripSubHeader() {
           </TabLink>
         </TabsInner>
       </TabsContainer>
+
+      <HotelBookingModal
+        open={hotelsModalOpen}
+        onClose={() => setHotelsModalOpen(false)}
+        stayLabel={stayLabel}
+      />
     </>
   );
 }
+
+
+
+

@@ -932,6 +932,8 @@ class ItineraryItemViewSet(BaseViewSet):
                 "name": g.get("title"),
                 "kinds": "wikipedia",
                 "dist_m": g.get("dist"),
+                "lat": g.get("lat"),
+                "lon": g.get("lon"),
                 "image_url": None,
                 "wikipedia": f"https://en.wikipedia.org/?curid={g.get('pageid')}",
             }
@@ -1374,6 +1376,7 @@ class ItineraryItemViewSet(BaseViewSet):
             }
         }
         cache_key = _cache_key(cache_payload)
+        cache_key_global = f"sealion_about:{item.id}:{cache_key}"
 
         # 1) Request-level cache (prevents double-call inside a single request)
         req_cache = getattr(request, "_sealion_about_req_cache", None)
@@ -1383,11 +1386,15 @@ class ItineraryItemViewSet(BaseViewSet):
 
         about_llm = req_cache.get(cache_key)
 
-        # 2) Cross-request in-memory cache (prevents regen across requests)
+        # 2) Cross-request shared cache (Django cache backend) so we persist across workers/restarts
+        if about_llm is None:
+            about_llm = cache.get(cache_key_global)
+
+        # 3) Cross-request in-memory cache (prevents regen across requests)
         if about_llm is None:
             about_llm = _cache_get(_SEALION_ABOUT_CACHE, _SEALION_ABOUT_CACHE_LOCK, cache_key)
 
-        # 3) If still not cached, call SeaLion once
+        # 4) If still not cached, call SeaLion once
         if about_llm is None:
             about_llm = self.sealion_generate_about(
                 name=cache_payload["name"],
@@ -1403,8 +1410,9 @@ class ItineraryItemViewSet(BaseViewSet):
             if isinstance(about_llm, dict) and about_llm:
                 req_cache[cache_key] = about_llm
                 _cache_set(_SEALION_ABOUT_CACHE, _SEALION_ABOUT_CACHE_LOCK, cache_key, about_llm, ttl)
+                cache.set(cache_key_global, about_llm, ttl)
 
-        # 4) Final: use LLM if available; otherwise deterministic fallback
+        # 5) Final: use LLM if available; otherwise deterministic fallback
         if about_llm:
             out["about"] = about_llm
         else:
@@ -1468,6 +1476,7 @@ class ItineraryItemViewSet(BaseViewSet):
             "nearby": [n.get("name") for n in (out.get("nearby") or []) if n.get("name")][:6],
         }
         travel_cache_key = _cache_key(travel_cache_payload)
+        travel_cache_key_global = f"sealion_travel:{item.id}:{travel_cache_key}"
 
         # Request-level cache (prevents double-generation within same request)
         req_cache = getattr(request, "_sealion_travel_req_cache", None)
@@ -1476,6 +1485,10 @@ class ItineraryItemViewSet(BaseViewSet):
             setattr(request, "_sealion_travel_req_cache", req_cache)
 
         travel_llm = req_cache.get(travel_cache_key)
+
+        # Shared cache (Django cache backend)
+        if travel_llm is None:
+            travel_llm = cache.get(travel_cache_key_global)
 
         # Cross-request in-memory cache
         if travel_llm is None:
@@ -1496,6 +1509,7 @@ class ItineraryItemViewSet(BaseViewSet):
             if isinstance(travel_llm, dict) and travel_llm:
                 req_cache[travel_cache_key] = travel_llm
                 _cache_set(_SEALION_TRAVEL_CACHE, _SEALION_TRAVEL_CACHE_LOCK, travel_cache_key, travel_llm, travel_ttl)
+                cache.set(travel_cache_key_global, travel_llm, travel_ttl)
 
         # Attach to response (ensure consistent shape)
         if isinstance(travel_llm, dict) and travel_llm:
@@ -1529,10 +1543,15 @@ class ItineraryItemViewSet(BaseViewSet):
         """
 
         api_key = os.getenv("SEALION_API_KEY")
-        base_url = os.getenv("SEALION_BASE_URL")
-        enabled = os.getenv("SEALION_ENABLED", "false").lower() == "true"
+        base_url = os.getenv("SEALION_BASE_URL") or "https://api.sea-lion.ai/v1"
+        enabled_env = os.getenv("SEALION_ENABLED")
+        enabled = (enabled_env.lower() == "true") if enabled_env else bool(api_key)
 
         if not enabled or not api_key or not base_url:
+            logger.warning(
+                "Sealion about disabled or missing config (enabled=%s, has_key=%s, base_url=%s)",
+                enabled, bool(api_key), bool(base_url)
+            )
             return None
 
         system_prompt = (
@@ -1566,24 +1585,21 @@ class ItineraryItemViewSet(BaseViewSet):
             "task": "Generate About bullets using name/address/nearby titles even if Wikipedia extract is missing."
         }
 
-        expected_schema = {
-            "why_go": ["string"],
-            "know_before_you_go": ["string"],
-            "best_time": "string or null",
-            "getting_there": "string or null",
-            "tips": ["string"]
-        }
+        about_model = (
+            os.getenv("SEALION_ABOUT_MODEL")
+            or os.getenv("SEALION_TRAVEL_MODEL")
+            or os.getenv("SEA_LION_MODEL")
+            or "aisingapore/Llama-SEA-LION-v3-70B-IT"
+        )
 
         payload = {
-            "model": "sealion-travel",  # use your actual model name
+            "model": about_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(user_prompt)},
             ],
-            "response_format": {
-                "type": "json",
-                "schema": expected_schema,
-            },
+            # Use json_object to avoid schema errors on the service
+            "response_format": {"type": "json_object"},
             "temperature": 0.4,
             "max_tokens": 500,
         }
@@ -1601,6 +1617,7 @@ class ItineraryItemViewSet(BaseViewSet):
                 timeout=12,
             )
             if r.status_code != 200:
+                logger.error("Sealion about failed: status=%s body=%s", r.status_code, r.text[:400])
                 return None
 
             data = r.json()
@@ -1611,27 +1628,33 @@ class ItineraryItemViewSet(BaseViewSet):
             )
 
             if not content:
+                logger.error("Sealion about returned empty content")
                 return None
 
             # robust JSON parse (Sealion sometimes wraps JSON in text)
             try:
                 parsed = json.loads(content)
-            except Exception:
+            except Exception as exc:
+                logger.error("Sealion about JSON parse failed: %s", exc)
                 m = re.search(r"\{.*\}", content, flags=re.DOTALL)
                 if not m:
+                    logger.error("Sealion about could not find JSON object in content preview=%s", content[:200])
                     return None
                 try:
                     parsed = json.loads(m.group(0))
-                except Exception:
+                except Exception as exc:
+                    logger.error("Sealion about failed to parse extracted JSON: %s", exc)
                     return None
 
             # minimal validation
             if not isinstance(parsed, dict):
+                logger.error("Sealion about parsed non-dict response")
                 return None
 
             return parsed
 
-        except Exception:
+        except Exception as exc:
+            logger.error("Sealion about exception: %s", exc)
             return None
         
     def sealion_generate_travel(
@@ -1651,9 +1674,14 @@ class ItineraryItemViewSet(BaseViewSet):
         Forces SeaLion to be specific for ANY country, but never invent exact opening hours.
         """
         api_key = os.getenv("SEALION_API_KEY")
-        base_url = os.getenv("SEALION_BASE_URL")
-        enabled = os.getenv("SEALION_ENABLED", "false").lower() == "true"
+        base_url = os.getenv("SEALION_BASE_URL") or "https://api.sea-lion.ai/v1"
+        enabled_env = os.getenv("SEALION_ENABLED")
+        enabled = (enabled_env.lower() == "true") if enabled_env else bool(api_key)
         if not enabled or not api_key or not base_url:
+            logger.warning(
+                "Sealion travel disabled or missing config (enabled=%s, has_key=%s, base_url=%s)",
+                enabled, bool(api_key), bool(base_url)
+            )
             return None
 
         system_prompt = (
@@ -1699,13 +1727,21 @@ class ItineraryItemViewSet(BaseViewSet):
             "attraction_info": ["string"],
         }
 
+        # Prefer a travel-specific model, otherwise fall back to the general SEA_LION_MODEL, then a safe default
+        travel_model = (
+            os.getenv("SEALION_TRAVEL_MODEL")
+            or os.getenv("SEA_LION_MODEL")
+            or "aisingapore/Llama-SEA-LION-v3-70B-IT"
+        )
+
         payload = {
-            "model": "sealion-travel",
+            "model": travel_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
             ],
-            "response_format": {"type": "json", "schema": expected_schema},
+            # LiteLLM expects 'json_object' / 'json_schema'. Keep simple object parsing here.
+            "response_format": {"type": "json_object"},
             "temperature": 0.25,
             "max_tokens": 700,
         }
@@ -1715,22 +1751,27 @@ class ItineraryItemViewSet(BaseViewSet):
         try:
             r = requests.post(f"{base_url}/chat/completions", headers=headers, json=payload, timeout=14)
             if r.status_code != 200:
+                logger.error("Sealion travel failed: status=%s body=%s", r.status_code, r.text[:400])
                 return None
 
             data = r.json()
             content = data.get("choices", [{}])[0].get("message", {}).get("content")
             if not content:
+                logger.error("Sealion travel returned empty content")
                 return None
 
             try:
                 parsed = json.loads(content)
-            except Exception:
+            except Exception as exc:
+                logger.error("Sealion travel JSON parse failed: %s", exc)
                 m = re.search(r"\{.*\}", content, flags=re.DOTALL)
                 if not m:
+                    logger.error("Sealion travel could not find JSON object in content preview=%s", content[:200])
                     return None
                 parsed = json.loads(m.group(0))
 
             if not isinstance(parsed, dict):
+                logger.error("Sealion travel parsed non-dict response")
                 return None
 
             # Ensure lists
@@ -1753,7 +1794,8 @@ class ItineraryItemViewSet(BaseViewSet):
                 parsed["attraction_info"] = cleaned
 
             return parsed
-        except Exception:
+        except Exception as exc:
+            logger.error("Sealion travel exception: %s", exc)
             return None
 
 
