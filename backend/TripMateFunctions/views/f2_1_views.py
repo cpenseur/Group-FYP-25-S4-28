@@ -5,7 +5,6 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from datetime import timedelta
-import threading
 
 from ..models import Trip, TripCollaborator, AppUser
 from ..serializers.f1_1_serializers import TripSerializer
@@ -15,22 +14,6 @@ from ..serializers.f2_1_serializers import (
 )
 
 PRESENCE_TTL_SECONDS = 20
-PRESENCE_BY_TRIP: dict[int, dict[str, timezone.datetime]] = {}
-PRESENCE_LOCK = threading.Lock()
-
-
-def _prune_presence(trip_id: int, now: timezone.datetime) -> dict[str, timezone.datetime]:
-    trip_map = PRESENCE_BY_TRIP.get(trip_id)
-    if not trip_map:
-        return {}
-    cutoff = now - timedelta(seconds=PRESENCE_TTL_SECONDS)
-    for user_id, last_seen in list(trip_map.items()):
-        if last_seen < cutoff:
-            trip_map.pop(user_id, None)
-    if not trip_map:
-        PRESENCE_BY_TRIP.pop(trip_id, None)
-        return {}
-    return trip_map
 
 
 class F21RealTimeCoEditingSyncView(APIView):
@@ -92,13 +75,26 @@ class F21TripPresencePollView(APIView):
             )
 
         now = timezone.now()
-        with PRESENCE_LOCK:
-            trip_map = PRESENCE_BY_TRIP.setdefault(trip_id, {})
-            trip_map[str(user.id)] = now
-            trip_map = _prune_presence(trip_id, now)
-            online_ids = list(trip_map.keys())
+        AppUser.objects.filter(id=user.id).update(last_active_at=now)
+        cutoff = now - timedelta(seconds=PRESENCE_TTL_SECONDS)
+
+        online_ids = set(
+            AppUser.objects.filter(
+                id=trip.owner_id,
+                last_active_at__gte=cutoff,
+            ).values_list("id", flat=True)
+        )
+
+        online_ids.update(
+            TripCollaborator.objects.filter(
+                trip=trip,
+                status=TripCollaborator.Status.ACTIVE,
+                user__isnull=False,
+                user__last_active_at__gte=cutoff,
+            ).values_list("user_id", flat=True)
+        )
 
         return Response(
-            {"online_user_ids": online_ids, "server_time": now},
+            {"online_user_ids": [str(uid) for uid in online_ids], "server_time": now},
             status=status.HTTP_200_OK,
         )
