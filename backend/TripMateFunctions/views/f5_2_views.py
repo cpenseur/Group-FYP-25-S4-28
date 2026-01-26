@@ -31,7 +31,7 @@ class F52TripMediaHighlightViewSet(BaseViewSet):
         except AppUser.DoesNotExist:
             return TripMediaHighlight.objects.none()
         
-        # ✅ Only return highlights created by THIS user
+        # Only return highlights created by THIS user
         # (not shared with collaborators)
         return TripMediaHighlight.objects.filter(user=app_user)
     

@@ -1,7 +1,4 @@
 // frontend/src/pages/mediaHighlights.tsx
-// ✅ POLLING SYNC: Refresh every 5 seconds for multi-user collaboration
-// ✅ PHOTOS: Self upload shows immediately, others see via polling
-// ✅ HIGHLIGHTS: Self create/delete shows immediately, others see via polling
 
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -25,10 +22,10 @@ import {
   Download,
 } from "lucide-react";
 
-// ✅ UPDATED: Video timing constants (must match videoGenerator.ts)
-const TRAVEL_DURATION = 7;   // Increased from 5 to 7 seconds (40% slower)
-const PHOTO_DURATION = 5;    // Increased from 4 to 5 seconds (25% slower)
-const TITLE_DURATION = 4;    // Increased from 3 to 4 seconds (33% slower)
+// Video timing constants (must match videoGenerator.ts)
+const TRAVEL_DURATION = 7;   
+const PHOTO_DURATION = 5;   
+const TITLE_DURATION = 4;    
 
 // Types (same as before)
 interface TripPhoto {
@@ -158,7 +155,7 @@ export default function MediaHighlights() {
     return date.toISOString().slice(0, 16);
   };
 
-  // ✅ POLLING: Refresh photos and highlights helpers
+  // POLLING: Refresh photos and highlights helpers
   const refreshPhotos = async () => {
     if (!tripId || Number.isNaN(Number(tripId))) return;
     try {
@@ -176,13 +173,16 @@ export default function MediaHighlights() {
     try {
       const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
       const highlightsList = Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || [];
-      setHighlights(highlightsList);
+      // TRIP FILTERING: Only show highlights for THIS specific trip
+      const tripHighlights = highlightsList.filter((h: MediaHighlight) => h.trip === parseInt(tripId));
+      setHighlights(tripHighlights);
+      console.log(`✅ Loaded ${tripHighlights.length} highlights for trip ${tripId} (filtered from ${highlightsList.length} total)`);
     } catch (error) {
       console.error("Failed to refresh highlights:", error);
     }
   };
 
-  // ✅ POLLING: Load + poll photos & highlights every 5 seconds
+  // POLLING: Load + poll photos & highlights every 5 seconds
   useEffect(() => {
     if (!tripId || Number.isNaN(Number(tripId))) return;
 

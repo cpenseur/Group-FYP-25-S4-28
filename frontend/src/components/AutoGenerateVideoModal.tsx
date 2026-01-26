@@ -1,6 +1,4 @@
 // frontend/src/components/AutoGenerateVideoModal.tsx
-// ✅ FIXED: Default transport mode changed from "plane" to "car"
-// ENHANCED: Starting location support
 
 import React, { useState, useEffect } from "react";
 import { X, MapPin, Plane, Train, Car, Ship } from "lucide-react";
@@ -75,7 +73,7 @@ export default function AutoGenerateVideoModal({
   const [transportModes, setTransportModes] = useState<Record<string, string>>({});
   const [excludedPhotos, setExcludedPhotos] = useState<Set<number>>(new Set());
   
-  // ✅ Starting location states (for airport/station before first stop)
+  // Starting location states (for airport/station before first stop)
   const [useStartingLocation, setUseStartingLocation] = useState(false);
   const [startingLocation, setStartingLocation] = useState<string>("");
   const [customStartLat, setCustomStartLat] = useState("");
@@ -89,7 +87,7 @@ export default function AutoGenerateVideoModal({
   }, [show, photos, stops]);
 
   const autoGroupPhotos = () => {
-    // ✅ Show ALL stops, not just stops with photos
+    // Show ALL stops, not just stops with photos
     const allStopsWithPhotos = stops.map(stop => ({
       stop,
       photos: photos.filter(p => p.itinerary_item === stop.id && !excludedPhotos.has(p.id)),
@@ -98,7 +96,7 @@ export default function AutoGenerateVideoModal({
     
     setPhotoGroups(allStopsWithPhotos);
 
-    // ✅ FIXED: Auto-set transport modes to "car" instead of "plane"
+    // Auto-set transport modes to "car" instead of "plane"
     const modes: Record<string, string> = {};
     for (let i = 0; i < allStopsWithPhotos.length - 1; i++) {
       const from = allStopsWithPhotos[i].stop;
@@ -123,7 +121,7 @@ export default function AutoGenerateVideoModal({
       return;
     }
 
-    // ✅ Prepare starting location if selected
+    // Prepare starting location if selected
     let startLocation = undefined;
     if (useStartingLocation) {
       const selected = popularStartingPoints.find(p => p.title === startingLocation);
@@ -142,7 +140,7 @@ export default function AutoGenerateVideoModal({
       ? `Trip to ${photoGroups[photoGroups.length - 1].stop.title}`
       : "Trip Video";
 
-    // ✅ Generate video with starting location
+    // Generate video with starting location
     onGenerate(
       photoGroups, 
       transportModes, 

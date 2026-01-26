@@ -33,10 +33,10 @@ interface GenerateVideoOptions {
 const CANVAS_WIDTH = 1280;
 const CANVAS_HEIGHT = 720;
 const FPS = 24;
-const TRAVEL_DURATION = 7;        // ✅ INCREASED: from 5 to 7 seconds (40% slower)
-const PHOTO_DURATION = 5;         // ✅ INCREASED: from 4 to 5 seconds (25% slower)
-const TRANSITION_DURATION = 1.0;  // ✅ INCREASED: from 0.8 to 1.0 seconds (25% slower)
-const TITLE_DURATION = 4;         // ✅ INCREASED: from 3 to 4 seconds (33% slower)
+const TRAVEL_DURATION = 7;        
+const PHOTO_DURATION = 5;         
+const TRANSITION_DURATION = 1.0;  
+const TITLE_DURATION = 4;         
 
 const transportEmojis: Record<string, string> = {
   plane: "✈️",
@@ -570,22 +570,22 @@ export class MapVideoGenerator {
     }
   }
 
-  // ✅ FIXED: Updated to handle very long text with smaller font and aggressive truncation
+  // Updated to handle very long text with smaller font and aggressive truncation
   private drawLocationLabel(text: string, x: number, y: number, opacity: number = 1) {
     const ctx = this.ctx;
     
     ctx.save();
     ctx.globalAlpha = opacity;
     
-    // ✅ FURTHER REDUCED: Font size from 28px to 24px to prevent overflow
+    // FURTHER REDUCED: Font size from 28px to 24px to prevent overflow
     ctx.font = "bold 24px Arial";
     
-    // ✅ REDUCED: Limit label width to 60% of canvas width (was 70%)
+    // REDUCED: Limit label width to 60% of canvas width (was 70%)
     const maxWidth = CANVAS_WIDTH * 0.6;
     let displayText = text;
     let metrics = ctx.measureText(displayText);
     
-    // ✅ Truncate with ellipsis if too long
+    // Truncate with ellipsis if too long
     if (metrics.width > maxWidth) {
       while (metrics.width > maxWidth && displayText.length > 0) {
         displayText = displayText.slice(0, -1);
