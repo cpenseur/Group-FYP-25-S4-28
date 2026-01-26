@@ -126,7 +126,12 @@ const CollaboratorRow = styled.div`
   flex-wrap: wrap;
 `;
 
-const Avatar = styled.div`
+const AvatarWrap = styled.div`
+  position: relative;
+  display: inline-flex;
+`;
+
+const Avatar = styled.div<{ $online?: boolean }>`
   width: 32px;
   height: 32px;
   border-radius: 999px;
@@ -136,6 +141,22 @@ const Avatar = styled.div`
   font-size: 0.85rem;
   font-weight: 600;
   color: white;
+  box-shadow: ${(p) =>
+    p.$online
+      ? "0 0 0 2px #bbf7d0, 0 0 10px rgba(34, 197, 94, 0.6)"
+      : "none"};
+`;
+
+const OnlineDot = styled.span`
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+  background: #22c55e;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.7);
 `;
 
 const PillButton = styled.button`
@@ -286,6 +307,7 @@ export default function TripSubHeader() {
   const location = useLocation();
   const [trip, setTrip] = useState<TripOverview | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
 
   const [editingDates, setEditingDates] = useState(false);
   const [startDraft, setStartDraft] = useState<string>("");
@@ -331,6 +353,34 @@ export default function TripSubHeader() {
     }
 
     loadTrip();
+  }, [tripId]);
+
+  useEffect(() => {
+    if (!tripId) return;
+
+    let cancelled = false;
+
+    const pollPresence = async () => {
+      try {
+        const res = await apiFetch(`/f2/trips/${tripId}/presence/`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        if (!cancelled) {
+          setOnlineUserIds(res?.online_user_ids || []);
+        }
+      } catch (err) {
+        console.warn("Presence poll failed:", err);
+      }
+    };
+
+    pollPresence();
+    const intervalId = window.setInterval(pollPresence, 8000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
   }, [tripId]);
 
   if (!tripId) return null;
@@ -388,21 +438,27 @@ export default function TripSubHeader() {
                 <TripTitle>{trip.title}</TripTitle>
 
                 <CollaboratorRow>
-                  {collaboratorsSorted.map((c, index) => (
-                    <Avatar
-                      key={c.id}
-                      style={{
-                        backgroundColor: [
-                          "#f97316",
-                          "#22c55e",
-                          "#6366f1",
-                          "#ec4899",
-                        ][index % 4],
-                      }}
-                    >
-                      {fallbackInitials(c)}
-                    </Avatar>
-                  ))}
+                  {collaboratorsSorted.map((c, index) => {
+                    const isOnline = onlineUserIds.includes(String(c.id));
+                    return (
+                      <AvatarWrap key={`${c.id}-${index}`}>
+                        <Avatar
+                          $online={isOnline}
+                          style={{
+                            backgroundColor: [
+                              "#f97316",
+                              "#22c55e",
+                              "#6366f1",
+                              "#ec4899",
+                            ][index % 4],
+                          }}
+                        >
+                          {fallbackInitials(c)}
+                        </Avatar>
+                        {isOnline && <OnlineDot />}
+                      </AvatarWrap>
+                    );
+                  })}
 
                   <InviteButton>+ invite collaborators</InviteButton>
                   <ShareButton>Share</ShareButton>
@@ -417,7 +473,7 @@ export default function TripSubHeader() {
                 <StatLabel>Location</StatLabel>
                 <StatValueRow>
                   <MapPin size={16} strokeWidth={2.1} />
-                  <span>{trip.location_label || "—"}</span>
+                  <span>{trip.location_label || "â€”"}</span>
                 </StatValueRow>
               </StatItem>
 
@@ -434,7 +490,7 @@ export default function TripSubHeader() {
                       title="Click to edit dates"
                       onClick={() => setEditingDates(true)}
                     >
-                      {trip.duration_label || "—"}
+                      {trip.duration_label || "â€”"}
                     </span>
                   ) : (
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -449,7 +505,7 @@ export default function TripSubHeader() {
                           fontSize: "0.85rem",
                         }}
                       />
-                      <span style={{ color: "#9ca3af" }}>→</span>
+                      <span style={{ color: "#9ca3af" }}>â†’</span>
                       <input
                         type="date"
                         value={endDraft}

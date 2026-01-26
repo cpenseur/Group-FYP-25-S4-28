@@ -275,16 +275,20 @@ export default function MediaHighlights() {
         const dayIndexMap = new Map<number, number>();
         safeDays.forEach((d: TripDay) => dayIndexMap.set(d.id, d.day_index));
 
-        const mapped: MapItineraryItem[] = safeItems
-          .filter((it: ItineraryItem) => it.lat != null && it.lon != null)
-          .sort((a: ItineraryItem, b: ItineraryItem) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-          .map((it: ItineraryItem) => ({
+        const itemsInTripOrder = [...safeItems].sort((a: ItineraryItem, b: ItineraryItem) => {
+          const da = dayIndexMap.get(a.day ?? 0) ?? 0;
+          const db = dayIndexMap.get(b.day ?? 0) ?? 0;
+          if (da !== db) return da - db;
+          return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+        });
+
+        const mapped: MapItineraryItem[] = itemsInTripOrder.map((it: ItineraryItem, idx: number) => ({
             id: it.id,
             title: it.title,
             address: it.address ?? null,
-            lat: it.lat!,
-            lon: it.lon!,
-            sort_order: it.sort_order ?? null,
+            lat: it.lat ?? null,
+            lon: it.lon ?? null,
+            sort_order: idx + 1,
             day_index: it.day ? dayIndexMap.get(it.day) ?? null : null,
             stop_index: null,
           }));
