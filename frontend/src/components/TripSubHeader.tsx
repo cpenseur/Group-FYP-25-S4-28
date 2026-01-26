@@ -2,7 +2,7 @@
 import { NavLink, useParams, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import styled from "styled-components";
-import { MapPin, CalendarDays, DollarSign } from "lucide-react";
+import { MapPin, CalendarDays } from "lucide-react";
 import { apiFetch } from "../lib/apiClient";
 
 type CollaboratorSummary = {
@@ -54,7 +54,6 @@ async function patchTripDates(tripId: number, start: string | null, end: string 
   window.dispatchEvent(new CustomEvent("trip-updated", { detail: { tripId } }));
   return updated;
 }
-
 
 /* ============================
    Styled Components
@@ -280,7 +279,6 @@ const TabsContainer = styled.div`
     sans-serif;
 `;
 
-
 // Tabs centered within content width
 const TabsInner = styled.div`
   max-width: 1200px;
@@ -425,6 +423,7 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
   const [trip, setTrip] = useState<TripOverview | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
+  const [hotelsModalOpen, setHotelsModalOpen] = useState(false);
 
   const [editingDates, setEditingDates] = useState(false);
   const [startDraft, setStartDraft] = useState<string>("");
@@ -449,7 +448,6 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
     window.addEventListener("trip-updated", handler);
     return () => window.removeEventListener("trip-updated", handler);
   }, [tripId]);
-
 
   useEffect(() => {
     if (!tripId) return;
@@ -553,7 +551,7 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
     }
     return loc;
   })();
-      
+
   return (
     <>
       {/* Header (title, avatars, buttons, stats) */}
@@ -596,23 +594,120 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
             </LeftBlock>
 
             {/* RIGHT: location / duration / currency */}
-            <RightStats>
-              <StatItem>
-                <StatLabel>Location</StatLabel>
-                <StatValueRow>
-                  <MapPin size={16} strokeWidth={2.1} />
-                  <span>{trip.location_label || "â€”"}</span>
-                </StatValueRow>
-              </StatItem>
+            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+              <RightStats>
+                <StatItem>
+                  <StatLabel>Location</StatLabel>
+                  <StatValueRow>
+                    <MapPin size={16} strokeWidth={2.1} />
+                    <span>{trip.location_label || "--"}</span>
+                  </StatValueRow>
+                </StatItem>
 
-              <StatDivider />
+                <StatDivider />
 
-              <StatItem>
-                <StatLabel>Duration</StatLabel>
-                <StatValueRow>
-                  <CalendarDays size={16} strokeWidth={2.1} />
+                <StatItem>
+                  <StatLabel>Duration</StatLabel>
+                  <StatValueRow>
+                    <CalendarDays size={16} strokeWidth={2.1} />
 
-                  {!editingDates ? (
+                    {!editingDates ? (
+                      <span
+                        style={{ cursor: "pointer" }}
+                        title="Click to edit dates"
+                        onClick={() => setEditingDates(true)}
+                      >
+                        {trip.duration_label || "--"}
+                      </span>
+                    ) : (
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <input
+                          type="date"
+                          value={startDraft}
+                          onChange={(e) => setStartDraft(e.target.value)}
+                          style={{
+                            border: "1px solid #d1d5db",
+                            borderRadius: 8,
+                            padding: "0.25rem 0.4rem",
+                            fontSize: "0.85rem",
+                          }}
+                        />
+                        <span style={{ color: "#9ca3af" }}>--</span>
+                        <input
+                          type="date"
+                          value={endDraft}
+                          onChange={(e) => setEndDraft(e.target.value)}
+                          style={{
+                            border: "1px solid #d1d5db",
+                            borderRadius: 8,
+                            padding: "0.25rem 0.4rem",
+                            fontSize: "0.85rem",
+                          }}
+                        />
+
+                        <button
+                          onClick={async () => {
+                            const updated = await patchTripDates(
+                              Number(tripId),
+                              startDraft || null,
+                              endDraft || null
+                            );
+
+                            // keep this component in sync immediately
+                            setTrip((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    start_date: updated.start_date,
+                                    end_date: updated.end_date,
+                                    duration_label: updated.duration_label ?? prev.duration_label,
+                                  }
+                                : prev
+                            );
+
+                            setEditingDates(false);
+                          }}
+                          style={{
+                            marginLeft: 6,
+                            borderRadius: 999,
+                            border: "none",
+                            background: "#111827",
+                            color: "white",
+                            padding: "0.25rem 0.7rem",
+                            fontSize: "0.78rem",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Save
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setStartDraft(trip.start_date ?? "");
+                            setEndDraft(trip.end_date ?? "");
+                            setEditingDates(false);
+                          }}
+                          style={{
+                            borderRadius: 999,
+                            border: "1px solid #d1d5db",
+                            background: "white",
+                            padding: "0.25rem 0.7rem",
+                            fontSize: "0.78rem",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </StatValueRow>
+                </StatItem>
+
+                <StatDivider />
+
+                <StatItem>
+                  <StatLabel>Currency</StatLabel>
+                  <StatValueRow>
                     <span
                       style={{
                         fontSize: 16,
@@ -622,116 +717,17 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
                         alignItems: "center",
                       }}
                     >
-                      {trip.duration_label || "â€”"}
+                      {trip.currency_symbol}
                     </span>
-                  ) : (
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <input
-                        type="date"
-                        value={startDraft}
-                        onChange={(e) => setStartDraft(e.target.value)}
-                        style={{
-                          border: "1px solid #d1d5db",
-                          borderRadius: 8,
-                          padding: "0.25rem 0.4rem",
-                          fontSize: "0.85rem",
-                        }}
-                      />
-                      <span style={{ color: "#9ca3af" }}>â†’</span>
-                      <input
-                        type="date"
-                        value={endDraft}
-                        onChange={(e) => setEndDraft(e.target.value)}
-                        style={{
-                          border: "1px solid #d1d5db",
-                          borderRadius: 8,
-                          padding: "0.25rem 0.4rem",
-                          fontSize: "0.85rem",
-                        }}
-                      />
 
-                      <button
-                        onClick={async () => {
-                          const updated = await patchTripDates(
-                            Number(tripId),
-                            startDraft || null,
-                            endDraft || null
-                          );
-
-                          // keep this component in sync immediately
-                          setTrip((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  start_date: updated.start_date,
-                                  end_date: updated.end_date,
-                                  duration_label: updated.duration_label ?? prev.duration_label,
-                                }
-                              : prev
-                          );
-
-                          setEditingDates(false);
-                        }}
-                        style={{
-                          marginLeft: 6,
-                          borderRadius: 999,
-                          border: "none",
-                          background: "#111827",
-                          color: "white",
-                          padding: "0.25rem 0.7rem",
-                          fontSize: "0.78rem",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Save
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          setStartDraft(trip.start_date ?? "");
-                          setEndDraft(trip.end_date ?? "");
-                          setEditingDates(false);
-                        }}
-                        style={{
-                          borderRadius: 999,
-                          border: "1px solid #d1d5db",
-                          background: "white",
-                          padding: "0.25rem 0.7rem",
-                          fontSize: "0.78rem",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-                </StatValueRow>
-              </StatItem>
-
-
-              <StatDivider />
-
-              <StatItem>
-                <StatLabel>Currency</StatLabel>
-                <StatValueRow>
-                  <span
-                    style={{
-                      fontSize: 16,        // matches DollarSign size={16}
-                      fontWeight: 600,     // similar visual weight to strokeWidth≈2
-                      lineHeight: "16px",  // keeps it aligned like an icon
-                      display: "inline-flex",
-                      alignItems: "center",
-                    }}
-                  >
-                    {trip.currency_symbol}
-                  </span>
-
-                  <span style={{ marginLeft: 6, whiteSpace: "nowrap" }}>
-                    {plannedDisplay}
-                  </span>
-                </StatValueRow>
-              </StatItem>
-            </RightStats>
+                    <span style={{ marginLeft: 6, whiteSpace: "nowrap" }}>
+                      {plannedDisplay}
+                    </span>
+                  </StatValueRow>
+                </StatItem>
+              </RightStats>
+              <BookButton onClick={() => setHotelsModalOpen(true)}>Book hotels</BookButton>
+            </div>
           </TitleRow>
         </Inner>
       </HeaderContainer>
@@ -777,11 +773,12 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
         </TabsInner>
       </TabsContainer>
 
-      
+      <HotelBookingModal
+        open={hotelsModalOpen}
+        onClose={() => setHotelsModalOpen(false)}
+        stayLabel={stayLabel}
+      />
     </>
   );
 }
-
-
-
 
