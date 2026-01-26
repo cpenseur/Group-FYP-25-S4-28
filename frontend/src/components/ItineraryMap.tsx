@@ -143,6 +143,27 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
     };
   }, []);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    const container = mapContainerRef.current;
+    if (!map || !container) return;
+
+    const handleResize = () => map.resize();
+    handleResize();
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(() => map.resize());
+      observer.observe(container);
+    }
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      if (observer) observer.disconnect();
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
   // Apply bounds when ready
   useEffect(() => {
     const map = mapRef.current;

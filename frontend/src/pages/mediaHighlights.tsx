@@ -857,12 +857,13 @@ export default function MediaHighlights() {
           alignItems: "start",
         }}>
           <div style={{
-            background: "#fff",
-            borderRadius: 18,
-            border: "1px solid #e8edff",
-            boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)",
+            position: "sticky",
+            top: 90,
+            height: "calc(90vh - 90px)",
+            background: "#e5e7eb",
+            borderRadius: 0,
             overflow: "hidden",
-            minHeight: 700,
+            boxShadow: "none",
           }}>
             <ItineraryMap items={mapItems} photos={photoMarkers} />
           </div>
