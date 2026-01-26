@@ -1797,5 +1797,3 @@ class ItineraryItemViewSet(BaseViewSet):
         except Exception as exc:
             logger.error("Sealion travel exception: %s", exc)
             return None
-
-
