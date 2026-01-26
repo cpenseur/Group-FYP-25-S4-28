@@ -66,7 +66,6 @@ class F21TripPresencePollView(APIView):
         is_member = trip.owner_id == user.id or TripCollaborator.objects.filter(
             trip=trip,
             user=user,
-            status=TripCollaborator.Status.ACTIVE,
         ).exists()
         if not is_member:
             return Response(
@@ -88,7 +87,6 @@ class F21TripPresencePollView(APIView):
         online_ids.update(
             TripCollaborator.objects.filter(
                 trip=trip,
-                status=TripCollaborator.Status.ACTIVE,
                 user__isnull=False,
                 user__last_active_at__gte=cutoff,
             ).values_list("user_id", flat=True)
