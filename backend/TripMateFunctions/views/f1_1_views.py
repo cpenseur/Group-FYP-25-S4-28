@@ -464,7 +464,7 @@ class ItineraryItemViewSet(BaseViewSet):
         def wiki_summary(place_title: str):
             """
             More reliable than REST summary:
-            Uses MediaWiki action=query to fetch extract + thumbnail + canonical page url.
+            Uses MediaWiki action=query to fetch extract + thumbnail + canonical page url + categories.
             """
             if not place_title:
                 return None
@@ -474,12 +474,15 @@ class ItineraryItemViewSet(BaseViewSet):
                 "action": "query",
                 "format": "json",
                 "redirects": 1,
-                "prop": "extracts|pageimages|info",
+                "prop": "extracts|pageimages|info|categories|pageprops",
                 "exintro": 1,
                 "explaintext": 1,
                 "piprop": "thumbnail",
                 "pithumbsize": 800,
                 "inprop": "url",
+                "cllimit": 20,  # Get up to 20 categories
+                "clshow": "!hidden",  # Exclude hidden categories
+                "ppprop": "wikibase_item",  # Get Wikidata ID if available
                 "titles": place_title,
             }
 
@@ -504,13 +507,62 @@ class ItineraryItemViewSet(BaseViewSet):
             extract = (page.get("extract") or "").strip()
             thumb = ((page.get("thumbnail") or {}).get("source") or "").strip()
             page_url = (page.get("fullurl") or "").strip()
+            
+            # Extract categories and build kinds string
+            categories = page.get("categories") or []
+            cat_titles = [c.get("title", "").replace("Category:", "") for c in categories]
+            # Filter out meta categories and keep descriptive ones
+            useful_cats = [c for c in cat_titles if c and not any(skip in c.lower() for skip in [
+                "articles", "pages", "webarchive", "commons", "coordinates", "wikidata",
+                "short description", "use dmy", "use mdy", "all stub", "wikipedia",
+                "cs1", "engvar", "infobox", "template", "lacking", "needing"
+            ])]
+            
+            # Extract a short kind (3 words or less) from categories
+            kinds_from_cats = None
+            kind_patterns = [
+                ("opera house", "Opera House"), ("concert hall", "Concert Hall"),
+                ("museum", "Museum"), ("art museum", "Art Museum"), ("gallery", "Gallery"),
+                ("temple", "Temple"), ("shrine", "Shrine"), ("church", "Church"),
+                ("cathedral", "Cathedral"), ("mosque", "Mosque"), ("synagogue", "Synagogue"),
+                ("palace", "Palace"), ("castle", "Castle"), ("fort", "Fort"),
+                ("monument", "Monument"), ("memorial", "Memorial"), ("statue", "Statue"),
+                ("park", "Park"), ("garden", "Garden"), ("zoo", "Zoo"), ("aquarium", "Aquarium"),
+                ("beach", "Beach"), ("island", "Island"), ("mountain", "Mountain"), ("lake", "Lake"),
+                ("waterfall", "Waterfall"), ("canyon", "Canyon"), ("cave", "Cave"),
+                ("restaurant", "Restaurant"), ("cafe", "Café"), ("bar", "Bar"),
+                ("hotel", "Hotel"), ("resort", "Resort"), ("hostel", "Hostel"),
+                ("shopping", "Shopping"), ("market", "Market"), ("mall", "Mall"),
+                ("theatre", "Theatre"), ("theater", "Theater"), ("cinema", "Cinema"),
+                ("stadium", "Stadium"), ("arena", "Arena"), ("sports", "Sports Venue"),
+                ("university", "University"), ("school", "School"), ("library", "Library"),
+                ("hospital", "Hospital"), ("airport", "Airport"), ("station", "Station"),
+                ("bridge", "Bridge"), ("tower", "Tower"), ("skyscraper", "Skyscraper"),
+                ("world heritage", "Heritage Site"), ("landmark", "Landmark"),
+                ("historic", "Historic Site"), ("archaeological", "Archaeological Site"),
+            ]
+            
+            cats_lower = " ".join(useful_cats).lower()
+            for pattern, label in kind_patterns:
+                if pattern in cats_lower:
+                    kinds_from_cats = label
+                    break
+            
+            # Fallback: take first useful category and shorten it
+            if not kinds_from_cats and useful_cats:
+                first_cat = useful_cats[0]
+                # Remove location suffixes like "in Australia", "in Sydney"
+                import re as re_inner
+                shortened = re_inner.sub(r'\s+(in|of|from|at)\s+[\w\s,]+$', '', first_cat, flags=re_inner.IGNORECASE)
+                words = shortened.split()[:3]
+                kinds_from_cats = " ".join(words) if words else None
 
             # return shape similar to REST so the rest of your code works
             return {
                 "extract": extract,
                 "thumbnail": {"source": thumb} if thumb else {},
                 "content_urls": {"desktop": {"page": page_url}} if page_url else {},
-                "description": None,
+                "description": kinds_from_cats,  # Use categories as description/kinds
             }
 
 

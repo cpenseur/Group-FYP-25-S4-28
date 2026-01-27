@@ -1,8 +1,8 @@
 // frontend/src/components/TripSubHeader.tsx
 import { NavLink, useParams, useLocation } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import styled from "styled-components";
-import { MapPin, CalendarDays } from "lucide-react";
+import { MapPin, CalendarDays, Settings, Globe, Lock, BedDouble } from "lucide-react";
 import { apiFetch } from "../lib/apiClient";
 
 type CollaboratorSummary = {
@@ -27,6 +27,7 @@ type TripOverview = {
   currency_code: string | null;
   currency_symbol: string;
   planned_total: string | null;
+  visibility?: "private" | "shared" | "public";
 };
 
 /* ============================
@@ -205,10 +206,94 @@ const BookButton = styled(PillButton)`
   border-color: #10b981;
   color: #065f46;
   background: #ecfdf3;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 
   &:hover {
     background: #d1fae5;
     border-color: #059669;
+  }
+`;
+
+const SettingsButton = styled(PillButton)`
+  padding: 0.4rem 0.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-color: #d1d5db;
+  color: #6b7280;
+
+  &:hover {
+    color: #374151;
+    background: #f3f4f6;
+  }
+`;
+
+const SettingsDropdownWrapper = styled.div`
+  position: relative;
+  display: inline-block;
+`;
+
+const SettingsDropdown = styled.div<{ $open: boolean }>`
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 220px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.15);
+  border: 1px solid #e5e7eb;
+  padding: 0.5rem 0;
+  z-index: 100;
+  display: ${(p) => (p.$open ? "block" : "none")};
+`;
+
+const DropdownItem = styled.div`
+  padding: 0.65rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+  transition: background 0.1s ease;
+
+  &:hover {
+    background: #f8fafc;
+  }
+`;
+
+const DropdownLabel = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #374151;
+  font-weight: 500;
+`;
+
+const VisibilityToggle = styled.button<{ $isPublic: boolean }>`
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  background: ${(p) => (p.$isPublic ? "#10b981" : "#d1d5db")};
+  transition: background 0.2s ease;
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: ${(p) => (p.$isPublic ? "22px" : "2px")};
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background: white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: left 0.2s ease;
   }
 `;
 
@@ -386,7 +471,7 @@ function HotelBookingModal({
                 boxShadow: "0 4px 12px rgba(0,0,0,0.04)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flex: "0 0 auto" }}>
                 <div
                   style={{
                     width: 36,
@@ -403,12 +488,12 @@ function HotelBookingModal({
                 >
                   {p.name.charAt(0)}
                 </div>
-                <div style={{ fontWeight: 700, color: p.textColor, fontSize: "1rem" }}>{p.name}</div>
+                <div style={{ fontWeight: 700, color: p.textColor, fontSize: "1rem", width: 120 }}>{p.name}</div>
               </div>
-              <div style={{ color: "#475569", fontWeight: 600, fontSize: "0.9rem", whiteSpace: "nowrap", marginRight: 10 }}>
+              <div style={{ color: "#475569", fontWeight: 500, fontSize: "0.9rem", flex: 1, textAlign: "right", paddingRight: 12 }}>
                 {stayLabel || "Select dates"}
               </div>
-              <div style={{ color: "#94a3b8" }}>{">"}</div>
+              <div style={{ color: "#94a3b8", flex: "0 0 auto" }}>›</div>
             </a>
           ))}
         </div>
@@ -428,6 +513,64 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
   const [editingDates, setEditingDates] = useState(false);
   const [startDraft, setStartDraft] = useState<string>("");
   const [endDraft, setEndDraft] = useState<string>("");
+
+  // Settings dropdown state
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+  
+  // Track the original non-public visibility (private or shared) to restore when toggling back from public
+  const originalPrivateVisibilityRef = useRef<"private" | "shared">("private");
+
+  // Close settings dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
+        setSettingsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Update the original private visibility when trip loads (only if not public)
+  useEffect(() => {
+    if (trip?.visibility && trip.visibility !== "public") {
+      originalPrivateVisibilityRef.current = trip.visibility as "private" | "shared";
+    }
+  }, [trip?.visibility]);
+
+  const handleToggleVisibility = async () => {
+    if (!trip || !tripId) return;
+    
+    const currentVisibility = trip.visibility || "private";
+    
+    let newVisibility: "private" | "shared" | "public";
+    
+    if (currentVisibility === "public") {
+      // Toggling from public to non-public
+      // Check if there are collaborators (other than owner) - if so, use "shared"
+      const hasCollaborators = trip.collaborators.some(c => !c.is_owner);
+      newVisibility = hasCollaborators ? "shared" : originalPrivateVisibilityRef.current;
+    } else {
+      // Toggling from private/shared to public
+      newVisibility = "public";
+    }
+    
+    // Optimistic update - update UI immediately
+    setTrip((prev) => prev ? { ...prev, visibility: newVisibility } : prev);
+    
+    try {
+      await apiFetch(`/f1/trips/${tripId}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ visibility: newVisibility }),
+      });
+      // Don't dispatch trip-updated here to avoid refetch overwriting our state
+    } catch (err) {
+      console.error("Failed to update visibility:", err);
+      // Revert on error
+      setTrip((prev) => prev ? { ...prev, visibility: currentVisibility } : prev);
+    }
+  };
 
   useEffect(() => {
     if (!tripId) return;
@@ -589,6 +732,38 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
                   <InviteButton>+ invite collaborators</InviteButton>
                   <ShareButton>Share</ShareButton>
                   <ExportButton onClick={onExport}>Export</ExportButton>
+                  
+                  {/* Settings dropdown */}
+                  <SettingsDropdownWrapper ref={settingsRef}>
+                    <SettingsButton
+                      onClick={() => setSettingsOpen((prev) => !prev)}
+                      title="Trip settings"
+                    >
+                      <Settings size={16} strokeWidth={2} />
+                    </SettingsButton>
+                    
+                    <SettingsDropdown $open={settingsOpen}>
+                      <DropdownItem onClick={handleToggleVisibility}>
+                        <DropdownLabel>
+                          {trip.visibility === "public" ? (
+                            <Globe size={16} strokeWidth={2} color="#10b981" />
+                          ) : (
+                            <Lock size={16} strokeWidth={2} color="#6b7280" />
+                          )}
+                          <span>
+                            {trip.visibility === "public" ? "Public" : "Private"}
+                          </span>
+                        </DropdownLabel>
+                        <VisibilityToggle
+                          $isPublic={trip.visibility === "public"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleVisibility();
+                          }}
+                        />
+                      </DropdownItem>
+                    </SettingsDropdown>
+                  </SettingsDropdownWrapper>
                 </CollaboratorRow>
               </TitleAndCollabs>
             </LeftBlock>
@@ -706,7 +881,7 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
                 <StatDivider />
 
                 <StatItem>
-                  <StatLabel>Currency</StatLabel>
+                  <StatLabel>Budget</StatLabel>
                   <StatValueRow>
                     <span
                       style={{
@@ -726,7 +901,10 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
                   </StatValueRow>
                 </StatItem>
               </RightStats>
-              <BookButton onClick={() => setHotelsModalOpen(true)}>Book hotels</BookButton>
+              <BookButton onClick={() => setHotelsModalOpen(true)}>
+                <BedDouble size={16} strokeWidth={2} />
+                Book hotels
+              </BookButton>
             </div>
           </TitleRow>
         </Inner>

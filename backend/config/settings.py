@@ -33,12 +33,13 @@ environ.Env.read_env(BASE_DIR / ".env")  # looks for .env in backend root
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-em9@_iz%@m=%@rx6pnk6ll6qe5ix^&tp8fefl@7@cr18q8^ha$'
+SECRET_KEY = env('DJANGO_SECRET_KEY', default='django-insecure-em9@_iz%@m=%@rx6pnk6ll6qe5ix^&tp8fefl@7@cr18q8^ha$')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env.bool('DEBUG', default=True)
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost"]
+# Production hosts - add your Railway URLs
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=["127.0.0.1", "localhost"])
 
 
 # Application definition
@@ -165,32 +166,39 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Get production URLs from environment
+FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5173')
+BACKEND_URL = env('BACKEND_URL', default='http://127.0.0.1:8000')
+IS_PRODUCTION = env.bool('IS_PRODUCTION', default=False)
+
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
+# Add production frontend URL if set
+if FRONTEND_URL and FRONTEND_URL not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append(FRONTEND_URL)
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
+# Add production frontend URL if set
+if FRONTEND_URL and FRONTEND_URL not in CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGINS.append(FRONTEND_URL)
 
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 
-# Cookie settings for CSRF
-CSRF_COOKIE_SAMESITE = 'Lax'
+# Cookie settings for CSRF - secure in production
+CSRF_COOKIE_SAMESITE = 'Lax' if not IS_PRODUCTION else 'None'
 CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF cookie
-CSRF_COOKIE_SECURE = False    # MUST be False in development (no HTTPS)
+CSRF_COOKIE_SECURE = IS_PRODUCTION  # True in production (HTTPS)
 CSRF_COOKIE_DOMAIN = None     # Let Django auto-detect the domain
-SESSION_COOKIE_SAMESITE = 'Lax'
-SESSION_COOKIE_SECURE = False  # Must be False in development
+SESSION_COOKIE_SAMESITE = 'Lax' if not IS_PRODUCTION else 'None'
+SESSION_COOKIE_SECURE = IS_PRODUCTION  # True in production (HTTPS)
 
-# Allow Vite frontend (localhost:5173) to POST (CSRF Origin check)
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+# Duplicate CSRF_TRUSTED_ORIGINS removed (was duplicated below)
 
 
 # Django REST Framework configuration

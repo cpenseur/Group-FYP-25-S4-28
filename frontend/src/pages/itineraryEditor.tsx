@@ -31,6 +31,7 @@ import AdaptivePlannerOverlay from "../components/AdaptivePlannerOverlay";
 import TripSubHeader from "../components/TripSubHeader";
 import { exportPDF as ExportPDF } from "../components/exportPDF";
 import { apiFetch } from "../lib/apiClient";
+import { generateItineraryPDF } from "../lib/generateItineraryPDF";
 import ItineraryMap from "../components/ItineraryMap";
 import planbotSmall from "../assets/planbotSmall.png";
 
@@ -483,6 +484,7 @@ export default function ItineraryEditor() {
 
 const fetchedThumbIdsRef = useRef<Set<number>>(new Set());
 const fetchedOpeningIdsRef = useRef<Set<number>>(new Set());
+const deletedItemIdsRef = useRef<Set<number>>(new Set());  // Track deleted items
 const highlightTimeoutRef = useRef<number | null>(null);
 
 const clearHighlight = () => {
@@ -507,6 +509,7 @@ const clearHighlight = () => {
         if (!it?.id) continue;
         if (cancelled) break;
         if (fetchedThumbIdsRef.current.has(it.id)) continue;
+        if (deletedItemIdsRef.current.has(it.id)) continue;  // Skip deleted items
         fetchedThumbIdsRef.current.add(it.id);
 
         try {
@@ -533,7 +536,7 @@ const clearHighlight = () => {
           }
 
           // Persist thumbnail so it survives refresh
-          if (!it.thumbnail_url) {
+          if (!it.thumbnail_url && !deletedItemIdsRef.current.has(it.id)) {
             try {
               await apiFetch(`/f1/itinerary-items/${it.id}/`, {
                 method: "PATCH",
@@ -1151,26 +1154,42 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
   }
 
   const handleExportPDF = async () => {
-    requestAnimationFrame(() => {
-      window.print();
-    });
+    if (!trip) return;
+    try {
+      await generateItineraryPDF(trip, days, items);
+    } catch (err) {
+      console.error("Failed to generate PDF:", err);
+      setErrorMsg("Failed to export PDF. Please try again.");
+    }
   };
 
   /* ------------- Delete stop ------------- */
 
   const handleDeleteItem = async (itemId: number) => {
+    // Track as deleted to prevent background PATCH requests
+    deletedItemIdsRef.current.add(itemId);
+    
+    // Optimistic update - remove from UI immediately
+    const previousItems = items;
+    setItems((prev) =>
+      prev
+        .filter((i) => i.id !== itemId)
+        .map((i, idx) => ({ ...i, sort_order: idx + 1 }))
+    );
+
     try {
       await apiFetch(`/f1/itinerary-items/${itemId}/`, {
         method: "DELETE",
       });
-      setItems((prev) =>
-        prev
-          .filter((i) => i.id !== itemId)
-          .map((i, idx) => ({ ...i, sort_order: idx + 1 }))
-      );
-    } catch (err) {
-      console.error("Failed to delete item:", err);
-      setErrorMsg("Could not delete this stop. Please try again.");
+    } catch (err: any) {
+      // Only show error if it's not a 404 (item already deleted)
+      if (!err?.message?.includes('404') && !err?.message?.includes('No ItineraryItem matches')) {
+        console.error("Failed to delete item:", err);
+        // Revert optimistic update on error
+        setItems(previousItems);
+        deletedItemIdsRef.current.delete(itemId);
+        setErrorMsg("Could not delete this stop. Please try again.");
+      }
     }
   };
 
@@ -2219,9 +2238,35 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
                   borderRadius: "12px",
                   padding: "0.6rem 0.9rem",
                   fontSize: "0.85rem",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "0.5rem",
                 }}
               >
-                {errorMsg}
+                <span>{errorMsg}</span>
+                <button
+                  onClick={() => setErrorMsg(null)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#b91c1c",
+                    cursor: "pointer",
+                    padding: "0.25rem",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: "4px",
+                    fontSize: "1.1rem",
+                    lineHeight: 1,
+                    opacity: 0.7,
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.7")}
+                  aria-label="Dismiss error"
+                >
+                  ✕
+                </button>
               </div>
             )}
 

@@ -5,6 +5,21 @@ import { getCookie } from "./csrf.js";  // ƒo. Import CSRF helper
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
 
+// ƒo. In-memory CSRF token storage (for cross-origin scenarios)
+let cachedCsrfToken = null;
+
+/**
+ * ƒo. Get CSRF token from cache or cookie
+ */
+function getCSRFToken() {
+  // First check in-memory cache
+  if (cachedCsrfToken) {
+    return cachedCsrfToken;
+  }
+  // Fall back to cookie (same-origin scenarios)
+  return getCookie('csrftoken');
+}
+
 /**
  * ƒo. Main API fetch function with CSRF token support
  */
@@ -38,7 +53,7 @@ export async function apiFetch(path, options = {}) {
   // ƒo. Add CSRF token for non-GET requests
   const method = options.method?.toUpperCase() || 'GET';
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
-    const csrfToken = getCookie('csrftoken');
+    const csrfToken = getCSRFToken();
     if (csrfToken) {
       headers['X-CSRFToken'] = csrfToken;
       console.log('dY"? Added CSRF token to request:', csrfToken.substring(0, 10) + '...');
@@ -107,7 +122,9 @@ export async function fetchCsrfToken() {
     }
     
     const data = await response.json();
-    console.log('ƒo. CSRF token fetched successfully');
+    // ƒo. Store token in memory for cross-origin access
+    cachedCsrfToken = data.csrfToken;
+    console.log('ƒo. CSRF token fetched and cached successfully');
     return data.csrfToken;
     
   } catch (error) {
@@ -120,7 +137,7 @@ export async function fetchCsrfToken() {
  * ƒo. Ensure CSRF token exists (fetch if not present)
  */
 export async function ensureCsrfToken() {
-  const existingToken = getCookie('csrftoken');
+  const existingToken = getCSRFToken();
   
   if (!existingToken) {
     console.log('dY", No CSRF token found, fetching from backend...');
@@ -128,6 +145,13 @@ export async function ensureCsrfToken() {
   } else {
     console.log('ƒo. CSRF token already exists');
   }
+}
+
+/**
+ * ƒo. Clear cached CSRF token (call on logout)
+ */
+export function clearCsrfToken() {
+  cachedCsrfToken = null;
 }
 
 /**

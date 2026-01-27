@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from ..views.f1_1_views import TripViewSet, TripDayViewSet, ItineraryItemViewSet
+from ..views.auth_views import CsrfTokenView
 from ..views.f1_2_views import F12RouteOptimizationView, F12FullTripRouteOptimizationView
 from ..views.f1_3_views import (
     F13AITripGeneratorView, 
@@ -32,6 +33,13 @@ router.register(r"trip-days", TripDayViewSet, basename="trip-day")
 router.register(r"itinerary-items", ItineraryItemViewSet, basename="itinerary-item")
 
 urlpatterns = [
+    # CSRF Token endpoint
+    path(
+        "csrf/",
+        CsrfTokenView.as_view(),
+        name="csrf-token",
+    ),
+
     # F1.2 - Route Optimization
     path(
         "route-optimize/",
