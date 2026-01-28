@@ -1,35 +1,507 @@
+# backend/TripMateFunctions/views/f1_4_views.py
+import os
+import json
+import time
+import hashlib
+import threading
+import requests
+from datetime import datetime, date, time as dt_time
+
+from django.shortcuts import get_object_or_404
+from django.db.models import Q
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
 
-from ..models import Trip
+from ..models import AppUser, Trip, TripDay, ItineraryItem
 from ..serializers.f1_4_serializers import (
-    F14AdaptivePlanRequestSerializer,
+    AdaptivePlanRequestSerializer,
     F14AdaptivePlanResponseSerializer,
 )
 
+# ----------------------------
+# in-memory cache for preview
+# ----------------------------
+_ADAPTIVE_CACHE: dict[str, dict] = {}
+_ADAPTIVE_CACHE_LOCK = threading.Lock()
+_OSM_CACHE: dict[str, dict] = {}
+_OSM_CACHE_LOCK = threading.Lock()
+
+def _cache_key(payload: dict) -> str:
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+def _cache_get(key: str):
+    now = time.time()
+    with _ADAPTIVE_CACHE_LOCK:
+        entry = _ADAPTIVE_CACHE.get(key)
+        if not entry:
+            return None
+        if entry.get("expires_at", 0) <= now:
+            _ADAPTIVE_CACHE.pop(key, None)
+            return None
+        return entry.get("value")
+
+def _cache_set(key: str, value: dict, ttl_seconds: int):
+    expires_at = time.time() + max(int(ttl_seconds), 1)
+    with _ADAPTIVE_CACHE_LOCK:
+        _ADAPTIVE_CACHE[key] = {"expires_at": expires_at, "value": value}
+
+
+def _cache_osm_get(key: str):
+    now = time.time()
+    with _OSM_CACHE_LOCK:
+        entry = _OSM_CACHE.get(key)
+        if not entry:
+            return None
+        if entry.get("expires_at", 0) <= now:
+            _OSM_CACHE.pop(key, None)
+            return None
+        return entry.get("value")
+
+
+def _cache_osm_set(key: str, value: dict, ttl_seconds: int):
+    expires_at = time.time() + max(int(ttl_seconds), 1)
+    with _OSM_CACHE_LOCK:
+        _OSM_CACHE[key] = {"expires_at": expires_at, "value": value}
+
+
+def _is_outdoor(title: str, item_type: str | None):
+    t = (title or "").lower()
+    it = (item_type or "").lower()
+    outdoor_words = ["park","garden","viewpoint","hike","trail","beach","mount","mountain","lake","river","outdoor","lookout","summit"]
+    indoor_words = ["museum","gallery","aquarium","shopping","mall","market","restaurant","cafe","indoors","theatre","cinema","tower","observatory"]
+
+    if any(w in it for w in ["park","nature","outdoor"]):
+        return True
+    if any(w in it for w in ["museum","shopping","restaurant","cafe"]):
+        return False
+
+    if any(w in t for w in outdoor_words):
+        return True
+    if any(w in t for w in indoor_words):
+        return False
+
+    return False
+
+
+def _open_meteo_day(lat: float, lon: float, date_str: str):
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "daily": "precipitation_sum,precipitation_probability_max,weathercode",
+        "timezone": "auto",
+        "start_date": date_str,
+        "end_date": date_str,
+    }
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+    except Exception:
+        return None
+
+    daily = data.get("daily") or {}
+    ps = (daily.get("precipitation_sum") or [None])[0]
+    pp = (daily.get("precipitation_probability_max") or [None])[0]
+    wc = (daily.get("weathercode") or [None])[0]
+    return {"precipitation_sum": ps, "precipitation_probability_max": pp, "weathercode": wc}
+
+
+def _round_coord(val: float) -> float:
+    return round(val, 4)
+
+
+def _fetch_osm_opening_hours(lat: float | None, lon: float | None):
+    """Query Overpass for nearby POIs with opening_hours. Cache for 24h."""
+    if lat is None or lon is None:
+        return None
+
+    rlat = _round_coord(lat)
+    rlon = _round_coord(lon)
+    cache_key = f"osm:{rlat}:{rlon}"
+    cached = _cache_osm_get(cache_key)
+    if cached is not None:
+        return cached
+
+    query = f"""
+    [out:json][timeout:10];
+    (
+      node(around:200,{rlat},{rlon})[opening_hours];
+      way(around:200,{rlat},{rlon})[opening_hours];
+      relation(around:200,{rlat},{rlon})[opening_hours];
+    );
+    out tags center 1;
+    """
+    result = {"opening_hours": None, "source": "unknown", "confidence": 0.2, "tags": {}}
+    try:
+        resp = requests.post(
+            "https://overpass-api.de/api/interpreter",
+            data={"data": query},
+            timeout=12,
+        )
+        if resp.status_code == 200:
+            data = resp.json() or {}
+            elements = data.get("elements") or []
+            if elements:
+                elem = elements[0]
+                tags = elem.get("tags") or {}
+                oh = tags.get("opening_hours")
+                if oh:
+                    result = {
+                        "opening_hours": oh,
+                        "source": "osm",
+                        "confidence": 1.0,
+                        "tags": tags,
+                    }
+    except Exception:
+        # keep default result
+        pass
+
+    _cache_osm_set(cache_key, result, 60 * 60 * 24)
+    return result
+
+
+def _parse_hours_for_date(opening_hours: str | None, trip_date: date | None):
+    """
+    Lightweight parser for common OSM opening_hours patterns.
+    Returns (open_time, close_time) as datetime.time or (None, None) if unknown.
+    Handles multiple ranges and skips 'off/closed' rules.
+    """
+    if not opening_hours or not trip_date:
+        return None, None
+
+    weekday = trip_date.weekday()  # Monday=0
+    day_map = {"mo": 0, "tu": 1, "we": 2, "th": 3, "fr": 4, "sa": 5, "su": 6}
+
+    rules = [r.strip() for r in opening_hours.split(";") if r.strip()]
+    for rule in rules:
+        parts = rule.lower().split()
+        if not parts:
+            continue
+
+        days_part = parts[0]
+        times_part = " ".join(parts[1:]) if len(parts) > 1 else ""
+
+        day_matches = set()
+        for chunk in days_part.split(","):
+            chunk = chunk.strip()
+            if "-" in chunk:
+                start, end = chunk.split("-", 1)
+                if start in day_map and end in day_map:
+                    s, e = day_map[start], day_map[end]
+                    if s <= e:
+                        day_matches.update(range(s, e + 1))
+                    else:
+                        day_matches.update(range(s, 7))
+                        day_matches.update(range(0, e + 1))
+            elif chunk in day_map:
+                day_matches.add(day_map[chunk])
+
+        if day_matches and weekday not in day_matches:
+            continue
+
+        if "off" in times_part or "closed" in times_part:
+            continue
+
+        ranges = [r.strip() for r in times_part.split(",") if r.strip()]
+        opens, closes = [], []
+        for rng in ranges:
+            if "-" not in rng:
+                continue
+            start_str, end_str = rng.split("-", 1)
+            try:
+                sh, sm = map(int, start_str.split(":"))
+                eh, em = map(int, end_str.split(":"))
+                opens.append(dt_time(sh, sm))
+                closes.append(dt_time(eh, em))
+            except Exception:
+                continue
+
+        if opens and closes:
+            return min(opens), max(closes)
+
+    return None, None
+
 
 class F14AdaptivePlanningView(APIView):
-    """
-    F1.4 - Adaptive AI Planning (weather + attraction status)
+    permission_classes = [IsAuthenticated]
 
-    POST:
-      - Fetch weather (Open-Meteo) + attraction hours
-      - Generate rearranged plan
-      - If apply_changes=True, persist to DB
-    """
+    def post(self, request):
+        ser = AdaptivePlanRequestSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
 
-    def post(self, request, *args, **kwargs):
-        req_serializer = F14AdaptivePlanRequestSerializer(data=request.data)
-        req_serializer.is_valid(raise_exception=True)
-        data = req_serializer.validated_data
+        user = getattr(request, "user", None)
+        if not isinstance(user, AppUser):
+            return Response({"detail": "Authentication required."}, status=status.HTTP_401_UNAUTHORIZED)
 
-        # TODO: integrate weather + OpenTripMap + DB updates
-        stub_changes = []
+        trip_id = data["trip_id"]
+        day_id = data["day_id"]
+        date_str = str(data["date"])
+        trip_date = data.get("date")
+        apply_changes = data.get("apply_changes", False)
+        proposed_item_ids = data.get("proposed_item_ids") or []
 
-        res = {
-            "summary": "[stub] No changes applied yet.",
-            "changes": stub_changes,
+        allowed_trip_ids = Trip.objects.filter(
+            Q(owner=user) | Q(collaborators__user=user)
+        ).values_list("id", flat=True)
+
+        if trip_id not in set(allowed_trip_ids):
+            return Response({"detail": "Forbidden."}, status=status.HTTP_403_FORBIDDEN)
+
+        day = get_object_or_404(TripDay, pk=day_id, trip_id=trip_id)
+        items_qs = ItineraryItem.objects.filter(trip_id=trip_id, day_id=day.id).order_by("sort_order", "id")
+        items = list(items_qs)
+
+        if not items:
+            payload = {"applied": False, "reason": "No items for this day.", "proposed_item_ids": [], "changes": []}
+            return Response(payload, status=status.HTTP_200_OK)
+
+        # -------------------
+        # APPLY FLOW
+        # -------------------
+        if apply_changes:
+            if not proposed_item_ids or len(proposed_item_ids) != len(items):
+                return Response({"detail": "Invalid proposed_item_ids."}, status=status.HTTP_400_BAD_REQUEST)
+
+            item_id_set = {it.id for it in items}
+            if set(proposed_item_ids) != item_id_set:
+                return Response({"detail": "proposed_item_ids must contain exactly the day items."}, status=status.HTTP_400_BAD_REQUEST)
+
+            id_to_item = {it.id: it for it in items}
+            updated_items_payload = []
+            for idx, iid in enumerate(proposed_item_ids):
+                it = id_to_item[iid]
+                new_order = (idx + 1) * 10
+                if it.sort_order != new_order:
+                    it.sort_order = new_order
+                    it.save(update_fields=["sort_order"])
+                updated_items_payload.append(
+                    {
+                        "id": it.id,
+                        "day": it.day_id,
+                        "sort_order": it.sort_order,
+                        "start_time": it.start_time.isoformat() if it.start_time else None,
+                        "end_time": it.end_time.isoformat() if it.end_time else None,
+                    }
+                )
+
+            # Adjust times to opening hours if available
+            def _parse_iso(ts: str | None):
+                if not ts:
+                    return None
+                try:
+                    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                except Exception:
+                    return None
+
+            for it in items:
+                oh_info = _fetch_osm_opening_hours(
+                    float(it.lat) if it.lat is not None else None,
+                    float(it.lon) if it.lon is not None else None,
+                )
+                opening_hours_text = (oh_info or {}).get("opening_hours")
+                if not opening_hours_text:
+                    continue
+
+                open_t, close_t = _parse_hours_for_date(opening_hours_text, trip_date)
+                if not open_t or not close_t:
+                    continue
+
+                start_dt = _parse_iso(getattr(it, "start_time", None))
+                end_dt = _parse_iso(getattr(it, "end_time", None))
+
+                # Determine base date for combining times
+                base_date = None
+                tzinfo = None
+                if start_dt:
+                    base_date = start_dt.date()
+                    tzinfo = start_dt.tzinfo
+                elif end_dt:
+                    base_date = end_dt.date()
+                    tzinfo = end_dt.tzinfo
+                else:
+                    base_date = trip_date
+
+                if not base_date:
+                    continue
+
+                def combine(t: dt_time):
+                    return datetime.combine(base_date, t, tzinfo=tzinfo)
+
+                new_start = start_dt
+                new_end = end_dt
+
+                if start_dt:
+                    if start_dt.time() < open_t or start_dt.time() > close_t:
+                        new_start = combine(open_t)
+                if end_dt:
+                    if end_dt.time() > close_t or end_dt.time() < open_t:
+                        new_end = combine(close_t)
+
+                # Ensure order
+                if new_start and new_end and new_end <= new_start:
+                    new_start = combine(open_t)
+                    new_end = combine(close_t)
+
+                updates = []
+                if new_start and new_start != start_dt:
+                    it.start_time = new_start
+                    updates.append("start_time")
+                if new_end and new_end != end_dt:
+                    it.end_time = new_end
+                    updates.append("end_time")
+                if updates:
+                    it.save(update_fields=updates)
+                    for p in updated_items_payload:
+                        if p["id"] == it.id:
+                            p["start_time"] = it.start_time.isoformat() if it.start_time else None
+                            p["end_time"] = it.end_time.isoformat() if it.end_time else None
+                            break
+
+            return Response({"applied": True, "updated_items": updated_items_payload}, status=status.HTTP_200_OK)
+
+        # -------------------
+        # PREVIEW FLOW (cached)
+        # -------------------
+        ttl = int(os.getenv("SEALION_ADAPTIVE_CACHE_TTL_SECONDS", "300"))
+        anchor = next((it for it in items if it.lat is not None and it.lon is not None), None) or items[0]
+
+        key = _cache_key({
+            "trip_id": trip_id,
+            "day_id": day_id,
+            "date": date_str,
+            "anchor_lat": float(anchor.lat) if anchor.lat is not None else None,
+            "anchor_lon": float(anchor.lon) if anchor.lon is not None else None,
+            "item_ids": [it.id for it in items],
+            "sort_orders": [it.sort_order for it in items],
+        })
+
+        cached = _cache_get(key)
+        if cached:
+            return Response(cached, status=status.HTTP_200_OK)
+
+        wx = None
+        if anchor.lat is not None and anchor.lon is not None:
+            wx = _open_meteo_day(float(anchor.lat), float(anchor.lon), date_str)
+
+        rain_prob = (wx or {}).get("precipitation_probability_max")
+        rain_sum = (wx or {}).get("precipitation_sum")
+
+        is_rainy = False
+        if isinstance(rain_prob, (int, float)) and rain_prob >= 60:
+            is_rainy = True
+        if isinstance(rain_sum, (int, float)) and rain_sum >= 5:
+            is_rainy = True
+
+        old_order = [it.id for it in items]
+
+        if is_rainy:
+            indoor, outdoor = [], []
+            for it in items:
+                if _is_outdoor(it.title or "", getattr(it, "item_type", None)):
+                    outdoor.append(it)
+                else:
+                    indoor.append(it)
+            proposed = indoor + outdoor
+        else:
+            proposed = items[:]
+
+        proposed_ids = [it.id for it in proposed]
+
+        changes = []
+        old_pos = {iid: i for i, iid in enumerate(old_order)}
+        for new_i, iid in enumerate(proposed_ids):
+            if old_pos[iid] != new_i:
+                changes.append({"item_id": iid, "from_index": old_pos[iid], "to_index": new_i})
+
+        payload = {
+            "applied": False,
+            "weather": wx,
+            "is_rainy": is_rainy,
+            "reason": (
+                "Rain risk detected — indoor stops moved earlier, outdoor stops later."
+                if is_rainy else
+                "No strong rain signal — keeping current order."
+            ),
+            "proposed_item_ids": proposed_ids,
+            "changes": changes,
         }
-        res_serializer = F14AdaptivePlanResponseSerializer(res)
-        return Response(res_serializer.data, status=status.HTTP_200_OK)
+
+        # -----------------------------
+        # Opening hours awareness (OSM)
+        # -----------------------------
+        trip_date = data.get("date")
+
+        def _parse_iso(ts: str | None):
+            if not ts:
+                return None
+            try:
+                return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except Exception:
+                return None
+
+        for it in items:
+            opening_hours_text = None
+            hours_source = "unknown"
+            hours_confidence = 0.2
+
+            # Prefer stored hours on the item (if any)
+            existing = getattr(it, "opening_hours_json", None) or getattr(it, "opening_hours", None)
+            if isinstance(existing, dict):
+                opening_hours_text = existing.get("opening_hours") or existing.get("text") or None
+                hours_source = existing.get("source") or hours_source
+                hours_confidence = existing.get("confidence") or hours_confidence
+            elif isinstance(existing, str):
+                opening_hours_text = existing or None
+
+            # Otherwise fetch from OSM
+            if not opening_hours_text:
+                oh_info = _fetch_osm_opening_hours(
+                    float(it.lat) if it.lat is not None else None,
+                    float(it.lon) if it.lon is not None else None,
+                )
+                opening_hours_text = (oh_info or {}).get("opening_hours")
+                hours_source = (oh_info or {}).get("source") or hours_source
+                hours_confidence = (oh_info or {}).get("confidence") or hours_confidence
+
+            open_t, close_t = _parse_hours_for_date(opening_hours_text, trip_date)
+            start_dt = _parse_iso(getattr(it, "start_time", None))
+            end_dt = _parse_iso(getattr(it, "end_time", None))
+
+            def add_change(action: str, note: str):
+                changes.append({
+                    "action": action,
+                    "item_id": it.id,
+                    "reason": note,
+                    "opening_hours": opening_hours_text,
+                    "hours_source": hours_source,
+                    "hours_confidence": hours_confidence,
+                })
+
+            if opening_hours_text and open_t and close_t and (start_dt or end_dt):
+                if start_dt:
+                    st = start_dt.time().replace(second=0, microsecond=0)
+                    if st < open_t:
+                        add_change(
+                            "opening_hours_conflict",
+                            f"Start time {st.strftime('%H:%M')} is before opening ({open_t.strftime('%H:%M')}).",
+                        )
+                if end_dt:
+                    et = end_dt.time().replace(second=0, microsecond=0)
+                    if et > close_t:
+                        add_change(
+                            "opening_hours_warning",
+                            f"End time {et.strftime('%H:%M')} is after closing ({close_t.strftime('%H:%M')}).",
+                        )
+
+        # validate shape (optional but helps catch mistakes)
+        F14AdaptivePlanResponseSerializer(data=payload).is_valid(raise_exception=True)
+
+        _cache_set(key, payload, ttl)
+        return Response(payload, status=status.HTTP_200_OK)

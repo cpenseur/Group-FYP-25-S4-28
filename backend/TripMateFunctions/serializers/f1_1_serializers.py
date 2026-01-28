@@ -35,6 +35,7 @@ class ItineraryItemSerializer(serializers.ModelSerializer):
             "lat",
             "lon",
             "address",
+            "thumbnail_url",
             "notes_summary",
             "cost_amount",
             "cost_currency",
@@ -139,6 +140,7 @@ class TripOverviewSerializer(serializers.ModelSerializer):
             "currency_code",
             "currency_symbol",
             "planned_total",
+            "visibility",
         ]
         
     def get_collaborators(self, obj: Trip):

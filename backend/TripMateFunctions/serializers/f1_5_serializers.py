@@ -58,6 +58,7 @@ class F15SuggestionSerializer(serializers.Serializer):
     action_type = serializers.ChoiceField(
         choices=["add", "replace", "view_on_map"]
     )
+    place = F15PlaceSerializer(required=False)
 
 
 class F15SidebarResponseSerializer(serializers.Serializer):

@@ -40,6 +40,7 @@ export default function CountryCityPicker({
   onCountryChange,
   onCityChange,
 }: Props) {
+  const fontFamily = "Inter, 'Plus Jakarta Sans', 'Segoe UI', sans-serif";
   const data = countriesCities as CountryCitiesEntry[];
 
   const countryOptions = useMemo(() => {
@@ -69,6 +70,7 @@ export default function CountryCityPicker({
         gridTemplateColumns: "1fr 1fr",
         gap: "1rem",
         minWidth: 0,
+        fontFamily,
       }}
     >
       <div style={{ minWidth: 0 }}>
@@ -78,6 +80,7 @@ export default function CountryCityPicker({
         value={selectedCountryOpt}
         options={countryOptions}
         required
+        fontFamily={fontFamily}
         onChange={(opt) => {
           const nextCountry = opt?.value ?? "";
           onCountryChange(nextCountry);
@@ -95,6 +98,7 @@ export default function CountryCityPicker({
         value={selectedCityOpt}
         options={cityOptions}
         disabled={!country}
+        fontFamily={fontFamily}
         onChange={(opt) => onCityChange(opt?.value ?? "")}
         />
       </div>

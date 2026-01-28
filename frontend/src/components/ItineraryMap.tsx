@@ -1,5 +1,6 @@
 // frontend/src/components/ItineraryMap.tsx
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -139,6 +140,27 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
       styleReadyRef.current = false;
       setStyleReady(false);
       boundsAppliedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const container = mapContainerRef.current;
+    if (!map || !container) return;
+
+    const handleResize = () => map.resize();
+    handleResize();
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(() => map.resize());
+      observer.observe(container);
+    }
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      if (observer) observer.disconnect();
+      window.removeEventListener("resize", handleResize);
     };
   }, []);
 
@@ -284,24 +306,30 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
       const el = document.createElement("div");
       el.style.width = "50px";
       el.style.height = "50px";
-      el.style.borderRadius = "8px";
-      el.style.border = "3px solid white";
-      el.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)";
       el.style.cursor = "pointer";
-      el.style.overflow = "hidden";
-      el.style.backgroundImage = `url(${photo.file_url})`;
-      el.style.backgroundSize = "cover";
-      el.style.backgroundPosition = "center";
-      el.style.transition = "transform 0.2s ease";
       el.style.zIndex = "50";
 
+      const inner = document.createElement("div");
+      inner.style.width = "100%";
+      inner.style.height = "100%";
+      inner.style.borderRadius = "8px";
+      inner.style.border = "3px solid white";
+      inner.style.boxShadow = "0 4px 12px rgba(0,0,0,0.3)";
+      inner.style.overflow = "hidden";
+      inner.style.backgroundImage = `url(${photo.file_url})`;
+      inner.style.backgroundSize = "cover";
+      inner.style.backgroundPosition = "center";
+      inner.style.transition = "transform 0.2s ease";
+      inner.style.transformOrigin = "center center";
+      el.appendChild(inner);
+
       el.addEventListener("mouseenter", () => {
-        el.style.transform = "scale(1.1)";
+        inner.style.transform = "scale(1.1)";
         el.style.zIndex = "200";
       });
 
       el.addEventListener("mouseleave", () => {
-        el.style.transform = "scale(1)";
+        inner.style.transform = "scale(1)";
         el.style.zIndex = "50";
       });
 
@@ -318,6 +346,8 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
     });
   }, [photos, styleReady]); // FIX: Add styleReady dependency
 
+  const portalTarget = typeof document !== "undefined" ? document.body : null;
+
   return (
     <>
       <div
@@ -325,7 +355,7 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
         style={{ width: "100%", height: "100%", minHeight: "520px" }}
       />
 
-      {selectedPhoto && (
+      {selectedPhoto && portalTarget && createPortal(
         <div
           style={{
             position: "fixed",
@@ -374,7 +404,7 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
             )}
           </div>
         </div>
-      )}
+      , portalTarget)}
     </>
   );
 };

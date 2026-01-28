@@ -47,11 +47,11 @@ function Section({
     >
       <div
         style={{
-            fontWeight: 750,
-            marginBottom: 6,
-            fontSize: "0.78rem",
-            color: "#111827",
-            letterSpacing: "0.01em",
+          fontWeight: 700,
+          marginBottom: 6,
+          fontSize: "0.82rem",
+          color: "#111827",
+          letterSpacing: "0.01em",
         }}
         >
         {title}
@@ -123,7 +123,7 @@ export default function PlaceAboutTab({
   const tips = about.tips || [];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: "0.85rem", color: "#1f2937" }}>
         {/* Images (hero + thumbnails) */}
         {!hideHeroImage && (() => {
           const gallery = [
@@ -213,6 +213,14 @@ export default function PlaceAboutTab({
             Read more →
         </a>
         )}
+
+      {place.opening_hours && (
+        <Section title="Opening hours" withDivider={false}>
+          <div style={{ fontWeight: 400, color: "#111827", fontSize: "0.85rem" }}>
+            {place.opening_hours}
+          </div>
+        </Section>
+      )}
 
       {whyGo.length > 0 && (
         <Section title="Why you should go" withDivider={false}>
