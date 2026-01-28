@@ -252,7 +252,12 @@ class Trip(models.Model):
 
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    is_flagged = models.BooleanField(default=False)
+    flag_category = models.CharField(max_length=500, null=True, blank=True)
+    flag_reason = models.TextField(null=True, blank=True)
 
+    moderation_status = models.CharField(max_length=50, null=True, blank=True)
+    moderated_at = models.DateTimeField(null=True, blank=True)
     class Meta:
         db_table = "trip"
 

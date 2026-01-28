@@ -165,5 +165,6 @@ const apiClient = {
     });
   },
 };
+window.supabase = supabase;
 
 export default apiClient;

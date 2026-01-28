@@ -7,6 +7,8 @@ import AdminNavbar from "../components/adminNavbar";
 import AdminSidebar from "../components/adminSidebar";
 import { exportPDF as ExportPDF } from "../components/exportPDF";
 import AnalyticsView from "./adminAnalyticsView";
+import ContentModerationView from "./adminContentModerationView";
+import AdminReportsView from "./adminReportsView";
 
 
 // --- mock data --------------------------------------------------------------
@@ -586,7 +588,7 @@ export default function AdminDashboard() {
             )}
 
             {/* GRID BELOW – SWITCH BY SIDEBAR ITEM */}
-            <section className="content-grid">
+            <section className={"content-grid " + (activeSidebarItem === "dashboard" ? "content-grid--dashboard" : "")}>
               {/* DASHBOARD VIEW */}
               {activeSidebarItem === "dashboard" && (
                 <>
@@ -596,15 +598,6 @@ export default function AdminDashboard() {
                       <div>
                         <h2>{activeTab === "moderation" ? "Content Moderation" : "User Accounts"}</h2>
                       </div>
-
-                      {activeTab === "moderation" && (
-                        <button
-                          className={"btn btn-outline btn-small " + (showPendingOnly ? "btn-filter-active" : "")}
-                          onClick={() => setShowPendingOnly((prev) => !prev)}
-                        >
-                          ⌕ Filter
-                        </button>
-                      )}
                     </div>
 
                     <div className="tabs tabs--underline">
@@ -621,67 +614,11 @@ export default function AdminDashboard() {
                         Content Moderation
                       </button>
                     </div>
-
-                    {activeTab === "moderation" ? (
-                      <div className="moderation-list">
-                        {filteredModerationItems.length === 0 ? (
-                          <p className="empty-text">No items to review. 🎉 Everything is up to date!</p>
-                        ) : (
-                          filteredModerationItems.map((item, idx) => {
-                            const isPending = item.state === "pending";
-                            const isApproved = item.state === "approved";
-                            const isRejected = item.state === "rejected";
-
-                            let stateLabel = item.statusText;
-                            if (isApproved) stateLabel = "Approved";
-                            if (isRejected) stateLabel = "Rejected";
-
-                            return (
-                              <div
-                                key={idx}
-                                className={
-                                  "moderation-item " +
-                                  (isApproved ? "moderation-item--approved" : "") +
-                                  (isRejected ? " moderation-item--rejected" : "")
-                                }
-                              >
-                                <div className="moderation-main">
-                                  <div className="moderation-title-row">
-                                    <span className="moderation-title">{item.title}</span>
-
-                                    {item.severity === "red" && (
-                                      <span className="moderation-tag moderation-tag--red">!</span>
-                                    )}
-                                    {item.severity === "orange" && (
-                                      <span className="moderation-tag moderation-tag--orange">•</span>
-                                    )}
-                                    {isApproved && (
-                                      <span className="moderation-tag moderation-tag--approved">Approved</span>
-                                    )}
-                                    {isRejected && (
-                                      <span className="moderation-tag moderation-tag--rejected">Rejected</span>
-                                    )}
-                                  </div>
-
-                                  <p className="moderation-sub">
-                                    {stateLabel} • Submitted by {item.user}
-                                  </p>
-                                </div>
-
-                                <div className="moderation-actions">
-                                  <button className="btn btn-approve" onClick={() => handleApprove(idx)} disabled={!isPending}>
-                                    ✓ Approve
-                                  </button>
-                                  <button className="btn btn-reject" onClick={() => handleReject(idx)} disabled={!isPending}>
-                                    ✕ Reject
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    ) : (
+                  {activeTab === "moderation" ? (
+                    <div className="cm-dashboard-compact">
+                      <ContentModerationView compact />
+                    </div>
+                  ) : (
                       <div className="users-card">
                         {/* header */}
                         <div className="users-top">
@@ -701,7 +638,6 @@ export default function AdminDashboard() {
                           </button>
                           <button className="btn btn-primary users-add">+ Add User</button>                          
                         </div>
-
                         {/* table */}
                         <div className="users-table-wrap">
                           <table className="users-table">
@@ -977,198 +913,19 @@ export default function AdminDashboard() {
                   </aside>
                 </>
               )}
-
-              {/* CONTENT MODERATION VIEW (from sidebar) */}
               {activeSidebarItem === "content" && (
                 <>
-                  <div className="card card-moderation">
-                    <div className="card-header">
-                      <h2>Content Moderation</h2>
-                    </div>
-
-                    <div className="moderation-list">
-                      {moderationItems.map((item, idx) => {
-                        const isPending = item.state === "pending";
-                        const isApproved = item.state === "approved";
-                        const isRejected = item.state === "rejected";
-
-                        let stateLabel = item.statusText;
-                        if (isApproved) stateLabel = "Approved";
-                        if (isRejected) stateLabel = "Rejected";
-
-                        return (
-                          <div
-                            key={idx}
-                            className={
-                              "moderation-item " +
-                              (isApproved ? "moderation-item--approved" : "") +
-                              (isRejected ? " moderation-item--rejected" : "")
-                            }
-                          >
-                            <div className="moderation-main">
-                              <div className="moderation-title-row">
-                                <span className="moderation-title">{item.title}</span>
-                                {item.severity === "red" && (
-                                  <span className="moderation-tag moderation-tag--red">!</span>
-                                )}
-                                {item.severity === "orange" && (
-                                  <span className="moderation-tag moderation-tag--orange">•</span>
-                                )}
-                                {isApproved && (
-                                  <span className="moderation-tag moderation-tag--approved">Approved</span>
-                                )}
-                                {isRejected && (
-                                  <span className="moderation-tag moderation-tag--rejected">Rejected</span>
-                                )}
-                              </div>
-                              <p className="moderation-sub">
-                                {stateLabel} • Submitted by {item.user}
-                              </p>
-                            </div>
-
-                            <div className="moderation-actions">
-                              <button className="btn btn-approve" onClick={() => handleApprove(idx)} disabled={!isPending}>
-                                ✓ Approve
-                              </button>
-                              <button className="btn btn-reject" onClick={() => handleReject(idx)} disabled={!isPending}>
-                                ✕ Reject
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                  <div className="card" style={{ gridColumn: "1 / -1" }}>
+                    <ContentModerationView />
                   </div>
-
-                  <aside className="card card-side">
-                    <h2>Guidelines</h2>
-                    <ul className="simple-list">
-                      <li>No hate speech or harassment</li>
-                      <li>No explicit adult content</li>
-                      <li>Flag suspicious links</li>
-                    </ul>
-                  </aside>
                 </>
               )}
-
               {/* REPORTS VIEW */}
               {activeSidebarItem === "reports" && (
-                <>
-                  <div className="card reports-main-card">
-                    <div className="reports-topbar">
-                      <div>
-                        <h2>Reports</h2>
-                        <p className="reports-subtitle">Overview of generated and scheduled admin reports.</p>
-                      </div>
-
-                      <div className="reports-actions">
-                        <button className="btn btn-outline btn-small">⚙ Filters</button>
-                        <button className="btn btn-outline btn-small">Jan 01, 2025 – Feb 09, 2025</button>
-                        <button className="btn btn-primary btn-small" onClick={() => setPdfOpen(true)}>
-                          Generate Report
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="reports-tabs">
-                      <button className="reports-tab reports-tab--active">Overview</button>
-                      <button className="reports-tab">Usage</button>
-                      <button className="reports-tab">Content</button>
-                      <button className="reports-tab">Security</button>
-                    </div>
-
-                    <div className="report-stats-row">
-                      <div className="report-stat-card">
-                        <p className="report-stat-title">Reports generated</p>
-                        <p className="report-stat-main">36</p>
-                        <p className="report-stat-sub report-stat-sub--up">↑ 10% vs last month</p>
-                      </div>
-                      <div className="report-stat-card">
-                        <p className="report-stat-title">Downloads</p>
-                        <p className="report-stat-main">128</p>
-                        <p className="report-stat-sub report-stat-sub--up">↑ 18% vs last week</p>
-                      </div>
-                      <div className="report-stat-card">
-                        <p className="report-stat-title">Scheduled reports</p>
-                        <p className="report-stat-main">5</p>
-                        <p className="report-stat-sub report-stat-sub--up">↑ 1 new this week</p>
-                      </div>
-                      <div className="report-stat-card">
-                        <p className="report-stat-title">Failed deliveries</p>
-                        <p className="report-stat-main">2</p>
-                        <p className="report-stat-sub report-stat-sub--down">↓ 3 vs last month</p>
-                      </div>
-                    </div>
-
-                    <div className="chart-card">
-                      <div className="chart-header-row">
-                        <h3>Report Activity</h3>
-                        <div className="chart-tabs">
-                          <button className="chart-tab chart-tab--active">Time Weighted</button>
-                          <button className="chart-tab">Volume</button>
-                          <button className="chart-tab">Exports</button>
-                          <button className="chart-tab">Errors</button>
-                        </div>
-                      </div>
-
-                      <div className="chart-area">
-                        <div className="chart-y-axis">
-                          <span>100</span>
-                          <span>80</span>
-                          <span>60</span>
-                          <span>40</span>
-                          <span>20</span>
-                          <span>0</span>
-                        </div>
-                        <div className="chart-line-wrapper">
-                          <div className="chart-line-fill" />
-                        </div>
-                      </div>
-
-                      <div className="chart-x-axis">
-                        <span>Jan</span>
-                        <span>Feb</span>
-                        <span>Mar</span>
-                        <span>Apr</span>
-                        <span>May</span>
-                        <span>Jun</span>
-                        <span>Jul</span>
-                        <span>Aug</span>
-                        <span>Sep</span>
-                        <span>Oct</span>
-                        <span>Nov</span>
-                        <span>Dec</span>
-                      </div>
-                    </div>
-
-                    <div className="chart-card chart-card--secondary">
-                      <div className="chart-header-row">
-                        <h3>Available Reports</h3>
-                      </div>
-
-                      <div className="report-list">
-                        {reportItems.map((r) => (
-                          <div key={r.name} className="report-item">
-                            <div>
-                              <p className="report-name">{r.name}</p>
-                              <p className="report-date">Generated {r.date}</p>
-                            </div>
-                            <button className="btn btn-outline btn-small">Download</button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <aside className="card card-side">
-                    <h2>Scheduled Reports</h2>
-                    <ul className="simple-list">
-                      <li>Weekly Activity – every Monday</li>
-                      <li>Monthly Summary – 1st of month</li>
-                      <li>Quarterly Performance – last business day</li>
-                    </ul>
-                  </aside>
-                </>
+                <div className="card" style={{ gridColumn: "1 / -1", padding: 0, background: "transparent", boxShadow: "none" }}>
+                  <AdminReportsView
+                  />
+                </div>
               )}
 
               {/* SECURITY VIEW */}
@@ -1681,6 +1438,73 @@ export default function AdminDashboard() {
           padding: 0;
         }
           
+        /* dashboard-only tightening for content moderation */
+        .card-moderation .card-header--space {
+          margin-bottom: 0.25rem;  /* was 0.6rem */
+        }
+
+        .card-moderation .tabs--underline {
+          margin-top: 0.25rem;     /* was 0.7rem */
+        }
+
+        .cm-dashboard-compact {
+          margin-top: 0.6rem;      /* controls space after tabs */
+        }
+
+        /* Dashboard-only: hide the inner title/subtitle of ContentModerationView */
+        .cm-dashboard-compact .cm-title,
+        .cm-dashboard-compact .cm-sub {
+          display: none !important;
+        }
+
+        /* Dashboard compact header: search inline with Pending/Refresh */
+        .cm-dashboard-compact .cm-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: nowrap;
+        }
+
+        /* If the component has a left title area, hide it on dashboard */
+        .cm-dashboard-compact .cm-head > :first-child {
+          display: none;
+        }
+
+        /* Make toolbar row */
+        .cm-dashboard-compact .cm-head > :last-child {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          flex: 1;
+          justify-content: flex-end;
+        }
+
+        /* Search should expand, buttons stay at the right */
+        .cm-dashboard-compact .cm-head .cm-search,
+        .cm-dashboard-compact .cm-head .cm-searchWrap,
+        .cm-dashboard-compact .cm-head input[type="text"] {
+          flex: 1;
+          min-width: 280px;
+          max-width: 520px;
+        }
+
+        /* Keep actions tight */
+        .cm-dashboard-compact .cm-head .cm-actions,
+        .cm-dashboard-compact .cm-head .cm-right {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          white-space: nowrap;
+        }
+
+        .cm-dashboard-compact .cm-head {
+          align-items: center;
+}
+
+        .content-grid--dashboard {
+          grid-template-columns: 3fr 1fr; /* was 2fr 1fr */
+        }        
         .tabs--underline {
           display: flex;
           gap: 1.5rem;
