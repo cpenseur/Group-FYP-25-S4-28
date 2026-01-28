@@ -87,5 +87,6 @@ const apiClient = {
   },
   // you can add put/patch/delete later if needed
 };
+window.supabase = supabase;
 
 export default apiClient;
