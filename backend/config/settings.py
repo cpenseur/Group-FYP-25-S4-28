@@ -112,7 +112,9 @@ DATABASES["default"]["OPTIONS"].update({
     "keepalives_count": 5,      
 })
 
-DATABASES["default"]["CONN_MAX_AGE"] = 60        
+# Use CONN_MAX_AGE=0 for Supabase transaction mode pooler (port 6543)
+# Transaction mode doesn't support persistent connections
+DATABASES["default"]["CONN_MAX_AGE"] = 0        
 DATABASES["default"]["CONN_HEALTH_CHECKS"] = True  
 
 # Cache: in-memory (swap to Redis in prod if needed)
