@@ -2,7 +2,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
-import { isAdminEmail } from "../api/adminList";
 import AdminNavbar from "../components/adminNavbar";
 import AdminSidebar from "../components/adminSidebar";
 import { exportPDF as ExportPDF } from "../components/exportPDF";
@@ -345,19 +344,37 @@ export default function AdminDashboard() {
       const { data, error } = await supabase.auth.getSession();
       if (!mounted) return;
 
-      if (error) {
-        navigate("/login", { replace: true });
+      const user = data.session?.user;
+
+      if (error || !user) {
+        navigate("/signin", { replace: true });
         return;
       }
 
-      const email = (data.session?.user?.email ?? "").toLowerCase();
+      // 🔥 CHECK ADMIN ROLE FROM DB (NOT EMAIL LIST)
+      const { data: profile, error: profErr } = await supabase
+        .from("app_user")
+        .select("role, status, email")
+        .or(`id.eq.${user.id},auth_user_id.eq.${user.id}`)
+        .maybeSingle();
 
-      if (!data.session || !isAdminEmail(email)) {
-        navigate("/login", { replace: true });
+      if (profErr || !profile) {
+        navigate("/signin", { replace: true });
         return;
       }
 
-      setUserEmail(email);
+      const role = profile.role?.toLowerCase();
+      const status = profile.status?.toLowerCase();
+
+      if (
+        role !== "admin" ||
+        (status !== "active" && status !== "verified")
+      ) {
+        navigate("/signin", { replace: true });
+        return;
+      }
+
+      setUserEmail(profile.email ?? user.email ?? "");
 
       await fetchAdminStats();
       await fetchUsers();
@@ -366,7 +383,6 @@ export default function AdminDashboard() {
     return () => {
       mounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigate]);
 
   const filteredModerationItems = useMemo(() => {
