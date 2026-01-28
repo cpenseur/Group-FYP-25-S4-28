@@ -10,12 +10,16 @@ from django.views.generic import TemplateView
 from TripMateFunctions.views.auth_views import WhoAmIView
 from TripMateFunctions.views.f8_views import admin_analytics
 from TripMateFunctions.views.f8_views import admin_report_preview
+from TripMateFunctions.views.f1_1_views import ViewTripView, GenerateShareLinkView
+
 
 urlpatterns = [
     # Django Admin
-    path("admin/", admin.site.urls),
+    path("admin/", admin.site.urls),  
+    path('api/trip/<str:trip_id>/view/', ViewTripView.as_view(), name='view-trip'),
+    path('api/trip/<str:trip_id>/generate-share-link/', GenerateShareLinkView.as_view(), name='generate-share-link'),
     path("api/admin/analytics/", admin_analytics),
-    path("api/admin/reports/preview/", admin_report_preview),  
+    path("api/admin/reports/preview/", admin_report_preview),    
 
     # All feature-based API routes
     path("api/", include("TripMateFunctions.root_urls")),

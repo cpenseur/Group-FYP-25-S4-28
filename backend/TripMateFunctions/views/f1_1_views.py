@@ -16,8 +16,9 @@ from django.core.cache import cache
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework import exceptions
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from datetime import timedelta
 from django.utils import timezone
 from django.db import transaction
@@ -1849,3 +1850,147 @@ class ItineraryItemViewSet(BaseViewSet):
         except Exception as exc:
             logger.error("Sealion travel exception: %s", exc)
             return None
+
+class ViewTripView(APIView):
+    """
+    GET /api/f1/trip/{trip_id}/view/
+    
+    Returns trip details for view-only access.
+    No authentication required - anyone with the link can view.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, trip_id):
+        """
+        Returns trip information for public viewing.
+        Does not include sensitive information like collaborator emails.
+        """
+        try:
+            trip = Trip.objects.select_related('owner').get(id=trip_id)
+        except Trip.DoesNotExist:
+            return Response(
+                {"error": "Trip not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Get owner name - handle different AppUser model structures
+        owner_name = "Anonymous"
+        if trip.owner:
+            # Try different common field combinations
+            if hasattr(trip.owner, 'full_name') and trip.owner.full_name:
+                owner_name = trip.owner.full_name
+            elif hasattr(trip.owner, 'first_name') and hasattr(trip.owner, 'last_name'):
+                owner_name = f"{trip.owner.first_name} {trip.owner.last_name}".strip()
+            elif hasattr(trip.owner, 'username') and trip.owner.username:
+                owner_name = trip.owner.username
+            elif hasattr(trip.owner, 'email') and trip.owner.email:
+                owner_name = trip.owner.email.split('@')[0]  # Use part before @
+
+        # Build response with trip details
+        trip_data = {
+            "id": trip.id,
+            "title": trip.title,
+            "destination": trip.destination if hasattr(trip, 'destination') else None,
+            "start_date": trip.start_date.isoformat() if trip.start_date else None,
+            "end_date": trip.end_date.isoformat() if trip.end_date else None,
+            "created_at": trip.created_at.isoformat() if hasattr(trip, 'created_at') else None,
+            
+            # Include owner info (non-sensitive)
+            "owner": {
+                "name": owner_name,
+            },
+            
+            # Include trip days and itinerary items
+            "days": self._get_trip_days(trip),
+            
+            # View-only flag
+            "is_view_only": True,
+        }
+
+        return Response(trip_data, status=status.HTTP_200_OK)
+
+    def _get_trip_days(self, trip):
+            """
+            Helper method to get trip days with itinerary items.
+            """
+            days = TripDay.objects.filter(trip=trip).order_by('day_index')
+            
+            days_data = []
+            for day in days:
+                # Changed: trip_day → day (based on your model structure)
+                items = ItineraryItem.objects.filter(day=day).order_by('sort_order')
+                
+                items_data = []
+                for item in items:
+                    items_data.append({
+                        "id": item.id,
+                        "title": item.title,
+                        "description": getattr(item, 'description', None),
+                        "location": getattr(item, 'location', None),
+                        "start_time": str(getattr(item, 'start_time', None)) if getattr(item, 'start_time', None) else None,
+                        "end_time": str(getattr(item, 'end_time', None)) if getattr(item, 'end_time', None) else None,
+                        "sort_order": item.sort_order,
+                    })
+                
+                days_data.append({
+                    "id": day.id,
+                    "day_index": day.day_index,
+                    "date": day.date.isoformat() if day.date else None,
+                    "items": items_data,
+                })
+            
+            return days_data
+class GenerateShareLinkView(APIView):
+    """
+    POST /api/f1/trip/{trip_id}/generate-share-link/
+    
+    Generates or retrieves shareable link for a trip.
+    Only trip owner or collaborators can generate share links.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, trip_id):
+        """
+        Enables public sharing for a trip and returns the shareable URL.
+        """
+        current_user = request.user
+
+        try:
+            trip = Trip.objects.get(id=trip_id)
+        except Trip.DoesNotExist:
+            return Response(
+                {"error": "Trip not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Check if user has permission to share this trip
+        is_owner = trip.owner == current_user
+        is_collaborator = TripCollaborator.objects.filter(
+            trip=trip,
+            user=current_user,
+            status=TripCollaborator.Status.ACTIVE
+        ).exists()
+
+        if not (is_owner or is_collaborator):
+            return Response(
+                {"error": "You don't have permission to share this trip"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Optional: Enable public sharing flag on the trip
+        # Uncomment these lines if you add an is_public_sharing_enabled field to Trip model
+        # if not trip.is_public_sharing_enabled:
+        #     trip.is_public_sharing_enabled = True
+        #     trip.save()
+
+        # Generate the shareable URL
+        share_url = f"{request.scheme}://{request.get_host()}/trip/{trip_id}/view"
+
+        return Response(
+            {
+                "share_url": share_url,
+                "trip_id": trip.id,
+                "trip_title": trip.title,
+            },
+            status=status.HTTP_200_OK
+        )

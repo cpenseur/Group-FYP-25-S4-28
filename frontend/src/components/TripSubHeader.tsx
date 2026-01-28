@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import styled from "styled-components";
 import { MapPin, CalendarDays, Settings, Globe, Lock, BedDouble } from "lucide-react";
 import { apiFetch } from "../lib/apiClient";
+import ShareTripModal from "./ShareTripModal";
 
 type CollaboratorSummary = {
   id: string;
@@ -571,6 +572,7 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
       setTrip((prev) => prev ? { ...prev, visibility: currentVisibility } : prev);
     }
   };
+  const [shareModalOpen, setShareModalOpen] = useState(false); 
 
   useEffect(() => {
     if (!tripId) return;
@@ -730,7 +732,7 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
                   })}
 
                   <InviteButton>+ invite collaborators</InviteButton>
-                  <ShareButton>Share</ShareButton>
+                  <ShareButton onClick={() => setShareModalOpen(true)}>Share</ShareButton>
                   <ExportButton onClick={onExport}>Export</ExportButton>
                   
                   {/* Settings dropdown */}
@@ -956,6 +958,13 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
         onClose={() => setHotelsModalOpen(false)}
         stayLabel={stayLabel}
       />
+
+      <ShareTripModal
+        isOpen={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        tripId={tripId || ""}
+        tripTitle={trip.title}
+      />      
     </>
   );
 }
