@@ -1,12 +1,27 @@
 // frontend/src/lib/apiClient.js
 import { supabase } from "/src/lib/supabaseClient.js";
-import { getCookie } from "./csrf.js";  // ✅ Import CSRF helper
+import { getCookie } from "./csrf.js";  // ƒo. Import CSRF helper
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
 
+// ƒo. In-memory CSRF token storage (for cross-origin scenarios)
+let cachedCsrfToken = null;
+
 /**
- * ✅ Main API fetch function with CSRF token support
+ * ƒo. Get CSRF token from cache or cookie
+ */
+function getCSRFToken() {
+  // First check in-memory cache
+  if (cachedCsrfToken) {
+    return cachedCsrfToken;
+  }
+  // Fall back to cookie (same-origin scenarios)
+  return getCookie('csrftoken');
+}
+
+/**
+ * ƒo. Main API fetch function with CSRF token support
  */
 export async function apiFetch(path, options = {}) {
   // IMPORTANT: path should be like "/f1/trips/5/overview/"
@@ -24,7 +39,7 @@ export async function apiFetch(path, options = {}) {
 
   const token = session?.access_token;
 
-  // ✅ Prepare headers
+  // ƒo. Prepare headers
   const headers = {
     "Content-Type": "application/json",
     ...(options.headers || {}),
@@ -35,23 +50,23 @@ export async function apiFetch(path, options = {}) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  // ✅ Add CSRF token for non-GET requests
+  // ƒo. Add CSRF token for non-GET requests
   const method = options.method?.toUpperCase() || 'GET';
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
-    const csrfToken = getCookie('csrftoken');
+    const csrfToken = getCSRFToken();
     if (csrfToken) {
       headers['X-CSRFToken'] = csrfToken;
-      console.log('🔐 Added CSRF token to request:', csrfToken.substring(0, 10) + '...');
+      console.log('dY"? Added CSRF token to request:', csrfToken.substring(0, 10) + '...');
     } else {
-      console.warn('⚠️ No CSRF token found for', method, 'request to', path);
+      console.warn('ƒsÿ‹,? No CSRF token found for', method, 'request to', path);
     }
   }
 
-  // ✅ Make the request with credentials to send/receive cookies
+  // ƒo. Make the request with credentials to send/receive cookies
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers,
-    credentials: 'include',  // ← CRITICAL: This sends cookies!
+    credentials: 'include',  // ƒ+? CRITICAL: This sends cookies!
   });
 
   // ---------- Handle non-OK responses ----------
@@ -93,7 +108,7 @@ export async function apiFetch(path, options = {}) {
 }
 
 /**
- * ✅ Fetch CSRF token from backend
+ * ƒo. Fetch CSRF token from backend
  */
 export async function fetchCsrfToken() {
   try {
@@ -107,27 +122,36 @@ export async function fetchCsrfToken() {
     }
     
     const data = await response.json();
-    console.log('✅ CSRF token fetched successfully');
+    // ƒo. Store token in memory for cross-origin access
+    cachedCsrfToken = data.csrfToken;
+    console.log('ƒo. CSRF token fetched and cached successfully');
     return data.csrfToken;
     
   } catch (error) {
-    console.error('❌ Error fetching CSRF token:', error);
+    console.error('ƒ?O Error fetching CSRF token:', error);
     throw error;
   }
 }
 
 /**
- * ✅ Ensure CSRF token exists (fetch if not present)
+ * ƒo. Ensure CSRF token exists (fetch if not present)
  */
 export async function ensureCsrfToken() {
-  const existingToken = getCookie('csrftoken');
+  const existingToken = getCSRFToken();
   
   if (!existingToken) {
-    console.log('🔄 No CSRF token found, fetching from backend...');
+    console.log('dY", No CSRF token found, fetching from backend...');
     await fetchCsrfToken();
   } else {
-    console.log('✅ CSRF token already exists');
+    console.log('ƒo. CSRF token already exists');
   }
+}
+
+/**
+ * ƒo. Clear cached CSRF token (call on logout)
+ */
+export function clearCsrfToken() {
+  cachedCsrfToken = null;
 }
 
 /**
@@ -165,5 +189,6 @@ const apiClient = {
     });
   },
 };
+window.supabase = supabase;
 
 export default apiClient;

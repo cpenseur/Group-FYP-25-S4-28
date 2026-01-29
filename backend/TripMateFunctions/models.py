@@ -253,11 +253,9 @@ class Trip(models.Model):
 
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
-    is_flagged = models.BooleanField(default=False)
-    flag_category = models.CharField(max_length=64, blank=True, null=True)
-    flag_reason = models.TextField(blank=True, null=True)
 
-
+    moderation_status = models.CharField(max_length=50, null=True, blank=True)
+    moderated_at = models.DateTimeField(null=True, blank=True)
     class Meta:
         db_table = "trip"
 
@@ -411,7 +409,7 @@ class ItineraryItem(models.Model):
     lat = models.FloatField(blank=True, null=True)
     lon = models.FloatField(blank=True, null=True)
     address = models.TextField(blank=True, null=True)
-    thumbnail_url = models.URLField(blank=True, null=True)
+    thumbnail_url = models.URLField(max_length=2048, blank=True, null=True)  # Long URLs for image services
 
     notes_summary = models.TextField(blank=True, null=True)
 

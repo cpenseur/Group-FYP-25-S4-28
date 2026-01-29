@@ -16,8 +16,9 @@ from django.core.cache import cache
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework import exceptions
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from datetime import timedelta
 from django.utils import timezone
 from django.db import transaction
@@ -464,7 +465,7 @@ class ItineraryItemViewSet(BaseViewSet):
         def wiki_summary(place_title: str):
             """
             More reliable than REST summary:
-            Uses MediaWiki action=query to fetch extract + thumbnail + canonical page url.
+            Uses MediaWiki action=query to fetch extract + thumbnail + canonical page url + categories.
             """
             if not place_title:
                 return None
@@ -474,12 +475,15 @@ class ItineraryItemViewSet(BaseViewSet):
                 "action": "query",
                 "format": "json",
                 "redirects": 1,
-                "prop": "extracts|pageimages|info",
+                "prop": "extracts|pageimages|info|categories|pageprops",
                 "exintro": 1,
                 "explaintext": 1,
                 "piprop": "thumbnail",
                 "pithumbsize": 800,
                 "inprop": "url",
+                "cllimit": 20,  # Get up to 20 categories
+                "clshow": "!hidden",  # Exclude hidden categories
+                "ppprop": "wikibase_item",  # Get Wikidata ID if available
                 "titles": place_title,
             }
 
@@ -504,13 +508,62 @@ class ItineraryItemViewSet(BaseViewSet):
             extract = (page.get("extract") or "").strip()
             thumb = ((page.get("thumbnail") or {}).get("source") or "").strip()
             page_url = (page.get("fullurl") or "").strip()
+            
+            # Extract categories and build kinds string
+            categories = page.get("categories") or []
+            cat_titles = [c.get("title", "").replace("Category:", "") for c in categories]
+            # Filter out meta categories and keep descriptive ones
+            useful_cats = [c for c in cat_titles if c and not any(skip in c.lower() for skip in [
+                "articles", "pages", "webarchive", "commons", "coordinates", "wikidata",
+                "short description", "use dmy", "use mdy", "all stub", "wikipedia",
+                "cs1", "engvar", "infobox", "template", "lacking", "needing"
+            ])]
+            
+            # Extract a short kind (3 words or less) from categories
+            kinds_from_cats = None
+            kind_patterns = [
+                ("opera house", "Opera House"), ("concert hall", "Concert Hall"),
+                ("museum", "Museum"), ("art museum", "Art Museum"), ("gallery", "Gallery"),
+                ("temple", "Temple"), ("shrine", "Shrine"), ("church", "Church"),
+                ("cathedral", "Cathedral"), ("mosque", "Mosque"), ("synagogue", "Synagogue"),
+                ("palace", "Palace"), ("castle", "Castle"), ("fort", "Fort"),
+                ("monument", "Monument"), ("memorial", "Memorial"), ("statue", "Statue"),
+                ("park", "Park"), ("garden", "Garden"), ("zoo", "Zoo"), ("aquarium", "Aquarium"),
+                ("beach", "Beach"), ("island", "Island"), ("mountain", "Mountain"), ("lake", "Lake"),
+                ("waterfall", "Waterfall"), ("canyon", "Canyon"), ("cave", "Cave"),
+                ("restaurant", "Restaurant"), ("cafe", "Café"), ("bar", "Bar"),
+                ("hotel", "Hotel"), ("resort", "Resort"), ("hostel", "Hostel"),
+                ("shopping", "Shopping"), ("market", "Market"), ("mall", "Mall"),
+                ("theatre", "Theatre"), ("theater", "Theater"), ("cinema", "Cinema"),
+                ("stadium", "Stadium"), ("arena", "Arena"), ("sports", "Sports Venue"),
+                ("university", "University"), ("school", "School"), ("library", "Library"),
+                ("hospital", "Hospital"), ("airport", "Airport"), ("station", "Station"),
+                ("bridge", "Bridge"), ("tower", "Tower"), ("skyscraper", "Skyscraper"),
+                ("world heritage", "Heritage Site"), ("landmark", "Landmark"),
+                ("historic", "Historic Site"), ("archaeological", "Archaeological Site"),
+            ]
+            
+            cats_lower = " ".join(useful_cats).lower()
+            for pattern, label in kind_patterns:
+                if pattern in cats_lower:
+                    kinds_from_cats = label
+                    break
+            
+            # Fallback: take first useful category and shorten it
+            if not kinds_from_cats and useful_cats:
+                first_cat = useful_cats[0]
+                # Remove location suffixes like "in Australia", "in Sydney"
+                import re as re_inner
+                shortened = re_inner.sub(r'\s+(in|of|from|at)\s+[\w\s,]+$', '', first_cat, flags=re_inner.IGNORECASE)
+                words = shortened.split()[:3]
+                kinds_from_cats = " ".join(words) if words else None
 
             # return shape similar to REST so the rest of your code works
             return {
                 "extract": extract,
                 "thumbnail": {"source": thumb} if thumb else {},
                 "content_urls": {"desktop": {"page": page_url}} if page_url else {},
-                "description": None,
+                "description": kinds_from_cats,  # Use categories as description/kinds
             }
 
 
@@ -932,6 +985,8 @@ class ItineraryItemViewSet(BaseViewSet):
                 "name": g.get("title"),
                 "kinds": "wikipedia",
                 "dist_m": g.get("dist"),
+                "lat": g.get("lat"),
+                "lon": g.get("lon"),
                 "image_url": None,
                 "wikipedia": f"https://en.wikipedia.org/?curid={g.get('pageid')}",
             }
@@ -1374,6 +1429,7 @@ class ItineraryItemViewSet(BaseViewSet):
             }
         }
         cache_key = _cache_key(cache_payload)
+        cache_key_global = f"sealion_about:{item.id}:{cache_key}"
 
         # 1) Request-level cache (prevents double-call inside a single request)
         req_cache = getattr(request, "_sealion_about_req_cache", None)
@@ -1383,11 +1439,15 @@ class ItineraryItemViewSet(BaseViewSet):
 
         about_llm = req_cache.get(cache_key)
 
-        # 2) Cross-request in-memory cache (prevents regen across requests)
+        # 2) Cross-request shared cache (Django cache backend) so we persist across workers/restarts
+        if about_llm is None:
+            about_llm = cache.get(cache_key_global)
+
+        # 3) Cross-request in-memory cache (prevents regen across requests)
         if about_llm is None:
             about_llm = _cache_get(_SEALION_ABOUT_CACHE, _SEALION_ABOUT_CACHE_LOCK, cache_key)
 
-        # 3) If still not cached, call SeaLion once
+        # 4) If still not cached, call SeaLion once
         if about_llm is None:
             about_llm = self.sealion_generate_about(
                 name=cache_payload["name"],
@@ -1403,8 +1463,9 @@ class ItineraryItemViewSet(BaseViewSet):
             if isinstance(about_llm, dict) and about_llm:
                 req_cache[cache_key] = about_llm
                 _cache_set(_SEALION_ABOUT_CACHE, _SEALION_ABOUT_CACHE_LOCK, cache_key, about_llm, ttl)
+                cache.set(cache_key_global, about_llm, ttl)
 
-        # 4) Final: use LLM if available; otherwise deterministic fallback
+        # 5) Final: use LLM if available; otherwise deterministic fallback
         if about_llm:
             out["about"] = about_llm
         else:
@@ -1468,6 +1529,7 @@ class ItineraryItemViewSet(BaseViewSet):
             "nearby": [n.get("name") for n in (out.get("nearby") or []) if n.get("name")][:6],
         }
         travel_cache_key = _cache_key(travel_cache_payload)
+        travel_cache_key_global = f"sealion_travel:{item.id}:{travel_cache_key}"
 
         # Request-level cache (prevents double-generation within same request)
         req_cache = getattr(request, "_sealion_travel_req_cache", None)
@@ -1476,6 +1538,10 @@ class ItineraryItemViewSet(BaseViewSet):
             setattr(request, "_sealion_travel_req_cache", req_cache)
 
         travel_llm = req_cache.get(travel_cache_key)
+
+        # Shared cache (Django cache backend)
+        if travel_llm is None:
+            travel_llm = cache.get(travel_cache_key_global)
 
         # Cross-request in-memory cache
         if travel_llm is None:
@@ -1496,6 +1562,7 @@ class ItineraryItemViewSet(BaseViewSet):
             if isinstance(travel_llm, dict) and travel_llm:
                 req_cache[travel_cache_key] = travel_llm
                 _cache_set(_SEALION_TRAVEL_CACHE, _SEALION_TRAVEL_CACHE_LOCK, travel_cache_key, travel_llm, travel_ttl)
+                cache.set(travel_cache_key_global, travel_llm, travel_ttl)
 
         # Attach to response (ensure consistent shape)
         if isinstance(travel_llm, dict) and travel_llm:
@@ -1529,10 +1596,15 @@ class ItineraryItemViewSet(BaseViewSet):
         """
 
         api_key = os.getenv("SEALION_API_KEY")
-        base_url = os.getenv("SEALION_BASE_URL")
-        enabled = os.getenv("SEALION_ENABLED", "false").lower() == "true"
+        base_url = os.getenv("SEALION_BASE_URL") or "https://api.sea-lion.ai/v1"
+        enabled_env = os.getenv("SEALION_ENABLED")
+        enabled = (enabled_env.lower() == "true") if enabled_env else bool(api_key)
 
         if not enabled or not api_key or not base_url:
+            logger.warning(
+                "Sealion about disabled or missing config (enabled=%s, has_key=%s, base_url=%s)",
+                enabled, bool(api_key), bool(base_url)
+            )
             return None
 
         system_prompt = (
@@ -1566,24 +1638,21 @@ class ItineraryItemViewSet(BaseViewSet):
             "task": "Generate About bullets using name/address/nearby titles even if Wikipedia extract is missing."
         }
 
-        expected_schema = {
-            "why_go": ["string"],
-            "know_before_you_go": ["string"],
-            "best_time": "string or null",
-            "getting_there": "string or null",
-            "tips": ["string"]
-        }
+        about_model = (
+            os.getenv("SEALION_ABOUT_MODEL")
+            or os.getenv("SEALION_TRAVEL_MODEL")
+            or os.getenv("SEA_LION_MODEL")
+            or "aisingapore/Llama-SEA-LION-v3-70B-IT"
+        )
 
         payload = {
-            "model": "sealion-travel",  # use your actual model name
+            "model": about_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(user_prompt)},
             ],
-            "response_format": {
-                "type": "json",
-                "schema": expected_schema,
-            },
+            # Use json_object to avoid schema errors on the service
+            "response_format": {"type": "json_object"},
             "temperature": 0.4,
             "max_tokens": 500,
         }
@@ -1601,6 +1670,7 @@ class ItineraryItemViewSet(BaseViewSet):
                 timeout=12,
             )
             if r.status_code != 200:
+                logger.error("Sealion about failed: status=%s body=%s", r.status_code, r.text[:400])
                 return None
 
             data = r.json()
@@ -1611,27 +1681,33 @@ class ItineraryItemViewSet(BaseViewSet):
             )
 
             if not content:
+                logger.error("Sealion about returned empty content")
                 return None
 
             # robust JSON parse (Sealion sometimes wraps JSON in text)
             try:
                 parsed = json.loads(content)
-            except Exception:
+            except Exception as exc:
+                logger.error("Sealion about JSON parse failed: %s", exc)
                 m = re.search(r"\{.*\}", content, flags=re.DOTALL)
                 if not m:
+                    logger.error("Sealion about could not find JSON object in content preview=%s", content[:200])
                     return None
                 try:
                     parsed = json.loads(m.group(0))
-                except Exception:
+                except Exception as exc:
+                    logger.error("Sealion about failed to parse extracted JSON: %s", exc)
                     return None
 
             # minimal validation
             if not isinstance(parsed, dict):
+                logger.error("Sealion about parsed non-dict response")
                 return None
 
             return parsed
 
-        except Exception:
+        except Exception as exc:
+            logger.error("Sealion about exception: %s", exc)
             return None
         
     def sealion_generate_travel(
@@ -1651,9 +1727,14 @@ class ItineraryItemViewSet(BaseViewSet):
         Forces SeaLion to be specific for ANY country, but never invent exact opening hours.
         """
         api_key = os.getenv("SEALION_API_KEY")
-        base_url = os.getenv("SEALION_BASE_URL")
-        enabled = os.getenv("SEALION_ENABLED", "false").lower() == "true"
+        base_url = os.getenv("SEALION_BASE_URL") or "https://api.sea-lion.ai/v1"
+        enabled_env = os.getenv("SEALION_ENABLED")
+        enabled = (enabled_env.lower() == "true") if enabled_env else bool(api_key)
         if not enabled or not api_key or not base_url:
+            logger.warning(
+                "Sealion travel disabled or missing config (enabled=%s, has_key=%s, base_url=%s)",
+                enabled, bool(api_key), bool(base_url)
+            )
             return None
 
         system_prompt = (
@@ -1699,13 +1780,21 @@ class ItineraryItemViewSet(BaseViewSet):
             "attraction_info": ["string"],
         }
 
+        # Prefer a travel-specific model, otherwise fall back to the general SEA_LION_MODEL, then a safe default
+        travel_model = (
+            os.getenv("SEALION_TRAVEL_MODEL")
+            or os.getenv("SEA_LION_MODEL")
+            or "aisingapore/Llama-SEA-LION-v3-70B-IT"
+        )
+
         payload = {
-            "model": "sealion-travel",
+            "model": travel_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
             ],
-            "response_format": {"type": "json", "schema": expected_schema},
+            # LiteLLM expects 'json_object' / 'json_schema'. Keep simple object parsing here.
+            "response_format": {"type": "json_object"},
             "temperature": 0.25,
             "max_tokens": 700,
         }
@@ -1715,22 +1804,27 @@ class ItineraryItemViewSet(BaseViewSet):
         try:
             r = requests.post(f"{base_url}/chat/completions", headers=headers, json=payload, timeout=14)
             if r.status_code != 200:
+                logger.error("Sealion travel failed: status=%s body=%s", r.status_code, r.text[:400])
                 return None
 
             data = r.json()
             content = data.get("choices", [{}])[0].get("message", {}).get("content")
             if not content:
+                logger.error("Sealion travel returned empty content")
                 return None
 
             try:
                 parsed = json.loads(content)
-            except Exception:
+            except Exception as exc:
+                logger.error("Sealion travel JSON parse failed: %s", exc)
                 m = re.search(r"\{.*\}", content, flags=re.DOTALL)
                 if not m:
+                    logger.error("Sealion travel could not find JSON object in content preview=%s", content[:200])
                     return None
                 parsed = json.loads(m.group(0))
 
             if not isinstance(parsed, dict):
+                logger.error("Sealion travel parsed non-dict response")
                 return None
 
             # Ensure lists
@@ -1753,7 +1847,150 @@ class ItineraryItemViewSet(BaseViewSet):
                 parsed["attraction_info"] = cleaned
 
             return parsed
-        except Exception:
+        except Exception as exc:
+            logger.error("Sealion travel exception: %s", exc)
             return None
 
+class ViewTripView(APIView):
+    """
+    GET /api/f1/trip/{trip_id}/view/
+    
+    Returns trip details for view-only access.
+    No authentication required - anyone with the link can view.
+    """
+    permission_classes = [AllowAny]
 
+    def get(self, request, trip_id):
+        """
+        Returns trip information for public viewing.
+        Does not include sensitive information like collaborator emails.
+        """
+        try:
+            trip = Trip.objects.select_related('owner').get(id=trip_id)
+        except Trip.DoesNotExist:
+            return Response(
+                {"error": "Trip not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Get owner name - handle different AppUser model structures
+        owner_name = "Anonymous"
+        if trip.owner:
+            # Try different common field combinations
+            if hasattr(trip.owner, 'full_name') and trip.owner.full_name:
+                owner_name = trip.owner.full_name
+            elif hasattr(trip.owner, 'first_name') and hasattr(trip.owner, 'last_name'):
+                owner_name = f"{trip.owner.first_name} {trip.owner.last_name}".strip()
+            elif hasattr(trip.owner, 'username') and trip.owner.username:
+                owner_name = trip.owner.username
+            elif hasattr(trip.owner, 'email') and trip.owner.email:
+                owner_name = trip.owner.email.split('@')[0]  # Use part before @
+
+        # Build response with trip details
+        trip_data = {
+            "id": trip.id,
+            "title": trip.title,
+            "destination": trip.destination if hasattr(trip, 'destination') else None,
+            "start_date": trip.start_date.isoformat() if trip.start_date else None,
+            "end_date": trip.end_date.isoformat() if trip.end_date else None,
+            "created_at": trip.created_at.isoformat() if hasattr(trip, 'created_at') else None,
+            
+            # Include owner info (non-sensitive)
+            "owner": {
+                "name": owner_name,
+            },
+            
+            # Include trip days and itinerary items
+            "days": self._get_trip_days(trip),
+            
+            # View-only flag
+            "is_view_only": True,
+        }
+
+        return Response(trip_data, status=status.HTTP_200_OK)
+
+    def _get_trip_days(self, trip):
+            """
+            Helper method to get trip days with itinerary items.
+            """
+            days = TripDay.objects.filter(trip=trip).order_by('day_index')
+            
+            days_data = []
+            for day in days:
+                # Changed: trip_day → day (based on your model structure)
+                items = ItineraryItem.objects.filter(day=day).order_by('sort_order')
+                
+                items_data = []
+                for item in items:
+                    items_data.append({
+                        "id": item.id,
+                        "title": item.title,
+                        "description": getattr(item, 'description', None),
+                        "location": getattr(item, 'location', None),
+                        "start_time": str(getattr(item, 'start_time', None)) if getattr(item, 'start_time', None) else None,
+                        "end_time": str(getattr(item, 'end_time', None)) if getattr(item, 'end_time', None) else None,
+                        "sort_order": item.sort_order,
+                    })
+                
+                days_data.append({
+                    "id": day.id,
+                    "day_index": day.day_index,
+                    "date": day.date.isoformat() if day.date else None,
+                    "items": items_data,
+                })
+            
+            return days_data
+class GenerateShareLinkView(APIView):
+    """
+    POST /api/f1/trip/{trip_id}/generate-share-link/
+    
+    Generates or retrieves shareable link for a trip.
+    Only trip owner or collaborators can generate share links.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, trip_id):
+        """
+        Enables public sharing for a trip and returns the shareable URL.
+        """
+        current_user = request.user
+
+        try:
+            trip = Trip.objects.get(id=trip_id)
+        except Trip.DoesNotExist:
+            return Response(
+                {"error": "Trip not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Check if user has permission to share this trip
+        is_owner = trip.owner == current_user
+        is_collaborator = TripCollaborator.objects.filter(
+            trip=trip,
+            user=current_user,
+            status=TripCollaborator.Status.ACTIVE
+        ).exists()
+
+        if not (is_owner or is_collaborator):
+            return Response(
+                {"error": "You don't have permission to share this trip"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Optional: Enable public sharing flag on the trip
+        # Uncomment these lines if you add an is_public_sharing_enabled field to Trip model
+        # if not trip.is_public_sharing_enabled:
+        #     trip.is_public_sharing_enabled = True
+        #     trip.save()
+
+        # Generate the shareable URL
+        share_url = f"{request.scheme}://{request.get_host()}/trip/{trip_id}/view"
+
+        return Response(
+            {
+                "share_url": share_url,
+                "trip_id": trip.id,
+                "trip_title": trip.title,
+            },
+            status=status.HTTP_200_OK
+        )

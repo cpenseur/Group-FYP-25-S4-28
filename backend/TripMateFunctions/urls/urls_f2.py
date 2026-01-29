@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from ..views.f2_1_views import F21RealTimeCoEditingSyncView
+from ..views.f2_1_views import F21RealTimeCoEditingSyncView, F21TripPresencePollView
 from ..views.f2_2_views import F22GroupTripGeneratorView, TripGroupPreferencesAPIView
 from ..views.f2_3_views import F23CreateShareLinkView, F23ResolveShareLinkView
 from ..views.f2_4_views import (
@@ -34,6 +34,14 @@ urlpatterns = [
         F22GroupTripGeneratorView.as_view(),
         name="f2-group-trip-generator",
     ),
+    
+    # Presence polling for collaborators
+    path(
+        "trips/<int:trip_id>/presence/",
+        F21TripPresencePollView.as_view(),
+        name="f2-trip-presence",
+    ),
+
     # F2.2 - Group Preferences (Summary page)
     path(
         "trips/<int:trip_id>/preferences/",

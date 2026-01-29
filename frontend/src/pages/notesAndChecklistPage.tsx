@@ -177,16 +177,20 @@ export default function NotesAndChecklistPage() {
         const dayIndexMap = new Map<number, number>();
         safeDays.forEach((d) => dayIndexMap.set(d.id, d.day_index));
 
-        const mapped: MapItineraryItem[] = safeItems
-          .filter((it) => it.lat != null && it.lon != null)
-          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-          .map((it) => ({
+        const itemsInTripOrder = [...safeItems].sort((a, b) => {
+          const da = dayIndexMap.get(a.day ?? 0) ?? 0;
+          const db = dayIndexMap.get(b.day ?? 0) ?? 0;
+          if (da !== db) return da - db;
+          return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+        });
+
+        const mapped: MapItineraryItem[] = itemsInTripOrder.map((it, idx) => ({
             id: it.id,
             title: it.title,
             address: it.address ?? null,
             lat: it.lat,
             lon: it.lon,
-            sort_order: it.sort_order ?? null,
+            sort_order: idx + 1,
             day_index: it.day ? dayIndexMap.get(it.day) ?? null : null,
             stop_index: null,
           }));
@@ -528,18 +532,21 @@ export default function NotesAndChecklistPage() {
       <div
         key={n.id}
         style={{
-          border: "1px solid #e5e7eb",
-          borderRadius: 12,
-          padding: 12,
+          border: "1px solid #e2e8f0",
+          borderRadius: 16,
+          padding: 16,
           background: "white",
           boxSizing: "border-box",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
         }}
       >
-        <div style={{ fontSize: 12, color: "#64748b", fontWeight: 700, marginBottom: 6 }}>
+        <div style={{ fontSize: 12, color: "#64748b", fontWeight: 700 }}>
           {itemTitle}
         </div>
 
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {(tagsByItem[n.item] || []).map((t) => (
             <span
               key={t.id}
@@ -559,16 +566,26 @@ export default function NotesAndChecklistPage() {
           ))}
         </div>
 
-        <div style={{ color: "#111827", whiteSpace: "pre-wrap", fontSize: 14 }}>
+        <div style={{ color: "#111827", whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.5 }}>
           {n.content.length > 160 ? n.content.slice(0, 160) + "…" : n.content}
         </div>
 
-        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          <button style={secondaryBtnStyle} onClick={() => openNoteForm(n)}>
-            Edit
+        <div style={{ display: "flex", gap: 8, marginTop: 6, justifyContent: "flex-end" }}>
+          <button
+            style={iconBtnStyle}
+            onClick={() => openNoteForm(n)}
+            type="button"
+            aria-label="Edit note"
+          >
+            <EditIcon />
           </button>
-          <button style={dangerBtnStyle} onClick={() => requestDeleteNote(n.id)}>
-            Delete
+          <button
+            style={iconDangerBtnStyle}
+            onClick={() => requestDeleteNote(n.id)}
+            type="button"
+            aria-label="Delete note"
+          >
+            <TrashIcon />
           </button>
         </div>
       </div>
@@ -589,11 +606,26 @@ export default function NotesAndChecklistPage() {
           boxSizing: "border-box",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
           <div style={{ fontWeight: 800, color: "#111827", fontSize: 14 }}>{c.name}</div>
-          <button style={secondaryBtnSmallStyle} onClick={() => openChecklistForm(c)}>
-            Edit
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              style={iconBtnStyle}
+              onClick={() => openChecklistForm(c)}
+              type="button"
+              aria-label="Edit checklist"
+            >
+              <EditIcon />
+            </button>
+            <button
+              style={iconDangerBtnStyle}
+              onClick={() => requestDeleteChecklist(c.id)}
+              type="button"
+              aria-label="Delete checklist"
+            >
+              <TrashIcon />
+            </button>
+          </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
@@ -634,11 +666,7 @@ export default function NotesAndChecklistPage() {
           )}
         </div>
 
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button style={dangerBtnStyle} onClick={() => requestDeleteChecklist(c.id)}>
-            Delete
-          </button>
-        </div>
+        <div style={{ marginTop: 12 }} />
       </div>
     );
   };
@@ -669,12 +697,13 @@ export default function NotesAndChecklistPage() {
           {/* LEFT: Map */}
           <div
             style={{
-              background: "#fff",
-              borderRadius: 18,
-              border: "1px solid #e8edff",
-              boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)",
+              position: "sticky",
+              top: 90,
+              height: "calc(90vh - 90px)",
+              background: "#e5e7eb",
+              borderRadius: 0,
               overflow: "hidden",
-              minHeight: 560,
+              boxShadow: "none",
             }}
           >
             <ItineraryMap items={mapItems} />
@@ -1058,8 +1087,13 @@ export default function NotesAndChecklistPage() {
                       placeholder="Item label"
                       style={inputStyle}
                     />
-                    <button onClick={() => removeChecklistItemRow(it.id)} style={dangerBtnStyle} type="button">
-                      Remove
+                    <button
+                      onClick={() => removeChecklistItemRow(it.id)}
+                      style={iconDangerBtnStyle}
+                      type="button"
+                      aria-label="Delete item"
+                    >
+                      <TrashIcon />
                     </button>
                   </div>
                 ))}
@@ -1115,12 +1149,22 @@ export default function NotesAndChecklistPage() {
                       ))}
                     </div>
 
-                    <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                      <button style={secondaryBtnStyle} onClick={() => openChecklistForm(c)} type="button">
-                        Edit
+                    <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
+                      <button
+                        style={iconBtnStyle}
+                        onClick={() => openChecklistForm(c)}
+                        type="button"
+                        aria-label="Edit checklist"
+                      >
+                        <EditIcon />
                       </button>
-                      <button style={dangerBtnStyle} onClick={() => requestDeleteChecklist(c.id)} type="button">
-                        Delete
+                      <button
+                        style={iconDangerBtnStyle}
+                        onClick={() => requestDeleteChecklist(c.id)}
+                        type="button"
+                        aria-label="Delete checklist"
+                      >
+                        <TrashIcon />
                       </button>
                     </div>
                   </div>
@@ -1220,6 +1264,28 @@ function Modal({
   );
 }
 
+function EditIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <path
+        d="M4 16.5V20h3.5L19 8.5 15.5 5 4 16.5Zm16.7-10.7a1 1 0 0 0 0-1.4l-1.6-1.6a1 1 0 0 0-1.4 0l-1.2 1.2L19.5 7l1.2-1.2Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <path
+        d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm4 0h2v9h-2V9ZM7 9h2v9H7V9Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 const inputStyle: React.CSSProperties = {
   width: "100%",
   maxWidth: "100%",
@@ -1273,15 +1339,26 @@ const secondaryBtnStyle: React.CSSProperties = {
   fontWeight: 700,
 };
 
-const secondaryBtnSmallStyle: React.CSSProperties = {
-  border: "1px solid #d1d5db",
-  borderRadius: 999,
-  padding: "8px 12px",
+const iconBtnStyle: React.CSSProperties = {
+  border: "1px solid #dbe5ff",
+  borderRadius: 10,
+  width: 36,
+  height: 36,
   cursor: "pointer",
-  background: "white",
-  color: "#111827",
-  fontWeight: 700,
-  fontSize: 13,
+  background: "#eaf2ff",
+  color: "#1e3a8a",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  boxShadow: "0 6px 12px rgba(30, 64, 175, 0.12)",
+};
+
+const iconDangerBtnStyle: React.CSSProperties = {
+  ...iconBtnStyle,
+  background: "#ffe4e6",
+  border: "1px solid #fecdd3",
+  color: "#be123c",
+  boxShadow: "0 6px 12px rgba(190, 18, 60, 0.12)",
 };
 
 const dangerBtnStyle: React.CSSProperties = {

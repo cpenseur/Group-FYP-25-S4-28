@@ -3,7 +3,6 @@ import React, { useState, FormEvent, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import styled from "styled-components";
-import { isAdminEmail } from "../api/adminList"; 
 
 type Mode = "login" | "signup";
 
@@ -23,15 +22,15 @@ const Overlay = styled.div`
   justify-content: center;
   padding: 1.5rem;
   background-color: rgba(0, 0, 0, 0.45);
-  z-index: 2000; 
+  z-index: 2000;
   backdrop-filter: blur(4px);
 `;
 
 const Modal = styled.div`
   width: 100%;
   max-width: 380px;
-  max-height: 90vh;      /* ⬅️ add this */
-  overflow-y: auto;      /* ⬅️ and this */
+  max-height: 90vh;
+  overflow-y: auto;
   padding: 2rem 2.25rem;
   background: #ffffff;
   border-radius: 1.25rem;
@@ -54,9 +53,11 @@ export default function Login({
   const [showPassword, setShowPassword] = useState(false);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
+
   useEffect(() => {
     setMode(defaultMode);
   }, [defaultMode]);
+
   const navigate = useNavigate();
 
   if (!isOpen) return null;
@@ -66,11 +67,12 @@ export default function Login({
       setStatus("Enter your email first.");
       return;
     }
-
     const redirectTo = `${window.location.origin}/reset-password`;
-
-    await supabase.auth.resetPasswordForEmail(email, { redirectTo });
-
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) {
+      setStatus(`Reset error: ${error.message}`);
+      return;
+    }
     setStatus("Check your email for the reset link.");
   };
 
@@ -81,86 +83,107 @@ export default function Login({
 
     try {
       if (mode === "login") {
-        const { error } = await supabase.auth.signInWithPassword({
+        // 1) Auth Sign In
+        const { error: signInErr } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
 
-        if (error) {
-          setStatus(`Login error: ${error.message}`);
+        if (signInErr) {
+          setStatus(`Login error: ${signInErr.message}`);
           return;
         }
-        // 🔒 Check if user is suspended
-        const { data: { user } } = await supabase.auth.getUser();
 
-        if (user) {
-          const { data: profile, error: profileError } = await supabase
-            .from("app_user")
-            .select("status")
-            .eq("id", user.id)
-            .single();
+        // 2) Get Session User
+        const {
+          data: { user },
+          error: userErr,
+        } = await supabase.auth.getUser();
 
-          if (profileError) {
-            setStatus("Login failed. Please try again.");
-            await supabase.auth.signOut();
-            return;
-          }
-
-          if (profile.status === "suspended") {
-            await supabase.auth.signOut();
-            setStatus("Your account has been suspended. Please contact customer service.");
-            return; // ⛔ STOP — do not navigate
-          }
-        }
-
-        const { data, error: userErr } = await supabase.auth.getUser();
-        if (userErr) {
-          setStatus(
-            `Login successful, but failed to read user: ${userErr.message}`
-          );
-          navigate("/dashboard",  { replace: true });
+        if (userErr || !user) {
+          setStatus("Login successful, but session not found.");
+          navigate("/dashboard", { replace: true });
           onClose();
           return;
         }
 
-        const userEmail = (data.user?.email ?? "").toLowerCase();
+        // 3) Fetch Profile (robust: match either id or auth_user_id)
+        const { data: userData, error: profileError } = await supabase
+          .from("app_user")
+          .select("role, status")
+          .or(`id.eq.${user.id},auth_user_id.eq.${user.id}`)
+          .maybeSingle();
 
-        if (isAdminEmail(userEmail)) {
-          setStatus("Login successful. Redirecting to admin dashboard…");
-          navigate("/admin-dashboard",  { replace: true });
+        // --- DEBUG LOGS (check F12) ---
+        console.log("Supabase Auth ID:", user.id);
+        console.log("Database Response:", userData);
+        console.log("Database Error (if any):", profileError);
+
+        // 4) If profile not found / blocked by RLS, fallback to dashboard
+        if (profileError || !userData) {
+          setStatus("Profile not found. Defaulting to Dashboard...");
+          navigate("/dashboard", { replace: true });
+          onClose();
+          return;
+        }
+
+        // 5) Suspended check
+        const normalizedStatus = userData.status?.toString().trim().toLowerCase();
+        if (normalizedStatus === "suspended") {
+          await supabase.auth.signOut();
+          setStatus("Your account is suspended.");
+          return;
+        }
+
+        // Optional: allow "verified" to pass (since your DB has verified/admin)
+        const isAllowedStatus =
+          normalizedStatus === "active" || normalizedStatus === "verified" || !normalizedStatus;
+
+        if (!isAllowedStatus) {
+          await supabase.auth.signOut();
+          setStatus("Your account is not active yet.");
+          return;
+        }
+
+        // 6) Role-based redirect
+        const normalizedRole = userData.role?.toString().trim().toLowerCase();
+
+        if (normalizedRole === "admin") {
+          console.log("Redirecting to ADMIN Dashboard");
+          navigate("/admin-dashboard", { replace: true });
         } else {
-          setStatus("Login successful. Redirecting to dashboard…");
-          navigate("/dashboard",  { replace: true , state: { showOnboarding: true } });
+          console.log("Redirecting to USER Dashboard");
+          navigate("/dashboard", {
+            replace: true,
+            state: { showOnboarding: true },
+          });
         }
 
         onClose();
       } else {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
-
-        if (error) {
-          setStatus(`Sign-up error: ${error.message}`);
+        // Sign Up Logic
+        const { error: signUpErr } = await supabase.auth.signUp({ email, password });
+        if (signUpErr) {
+          setStatus(`Sign-up error: ${signUpErr.message}`);
           return;
         }
-
-        setStatus("Sign-up successful! Check your email for verification.");
+        setStatus("Check your email for verification.");
         setMode("login");
       }
+    } catch (err) {
+      console.error(err);
+      setStatus("An unexpected error occurred.");
     } finally {
       setLoading(false);
     }
   };
 
-  const title =
-    mode === "signup" ? "Create an account" : "Log in to your account";
+  const title = mode === "signup" ? "Create an account" : "Log in to your account";
   const primaryButtonText = mode === "signup" ? "Create account" : "Log in";
 
   return (
     <Overlay onClick={onClose}>
       <Modal onClick={(e) => e.stopPropagation()}>
-        {/* Close button */}
         <button
           type="button"
           onClick={onClose}
@@ -174,18 +197,11 @@ export default function Login({
             cursor: "pointer",
             opacity: 0.6,
           }}
-          aria-label="Close"
         >
           ×
         </button>
 
-        <h1
-          style={{
-            fontSize: "1.6rem",
-            fontWeight: 700,
-            marginBottom: "1.5rem",
-          }}
-        >
+        <h1 style={{ fontSize: "1.6rem", fontWeight: 700, marginBottom: "1.5rem" }}>
           {title}
         </h1>
 
@@ -193,15 +209,8 @@ export default function Login({
           onSubmit={handleSubmit}
           style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
         >
-          {/* Email */}
           <div>
-            <label
-              style={{
-                display: "block",
-                fontSize: "0.9rem",
-                marginBottom: "0.35rem",
-              }}
-            >
+            <label style={{ display: "block", fontSize: "0.9rem", marginBottom: "0.35rem" }}>
               Email
             </label>
             <input
@@ -221,12 +230,10 @@ export default function Login({
             />
           </div>
 
-          {/* Password */}
           <div>
             <div
               style={{
                 display: "flex",
-                alignItems: "center",
                 justifyContent: "space-between",
                 marginBottom: "0.35rem",
                 fontSize: "0.9rem",
@@ -242,10 +249,9 @@ export default function Login({
                   fontSize: "0.8rem",
                   color: "#3b82f6",
                   cursor: "pointer",
-                  padding: 0,
                 }}
               >
-                Forgot ?
+                Forgot?
               </button>
             </div>
 
@@ -265,10 +271,9 @@ export default function Login({
                   boxSizing: "border-box",
                 }}
               />
-
               <button
                 type="button"
-                onClick={() => setShowPassword((prev) => !prev)}
+                onClick={() => setShowPassword(!showPassword)}
                 style={{
                   position: "absolute",
                   right: "0.6rem",
@@ -277,10 +282,7 @@ export default function Login({
                   background: "none",
                   border: "none",
                   cursor: "pointer",
-                  fontSize: "1rem",
-                  opacity: 0.7,
                 }}
-                aria-label="Toggle password visibility"
               >
                 {showPassword ? "🙈" : "👁"}
               </button>
@@ -298,7 +300,6 @@ export default function Login({
               border: "none",
               background: "#2563eb",
               color: "#ffffff",
-              fontSize: "0.95rem",
               fontWeight: 600,
               cursor: loading ? "default" : "pointer",
               opacity: loading ? 0.8 : 1,
@@ -318,7 +319,7 @@ export default function Login({
         >
           {mode === "signup" ? (
             <>
-              Already Have An Account ?{" "}
+              Already have an account?{" "}
               <button
                 type="button"
                 onClick={() => setMode("login")}
@@ -327,8 +328,6 @@ export default function Login({
                   background: "none",
                   color: "#2563eb",
                   cursor: "pointer",
-                  padding: 0,
-                  fontWeight: 500,
                 }}
               >
                 Log In
@@ -336,7 +335,7 @@ export default function Login({
             </>
           ) : (
             <>
-              Don&apos;t Have An Account ?{" "}
+              Don't have an account?{" "}
               <button
                 type="button"
                 onClick={() => setMode("signup")}
@@ -345,8 +344,6 @@ export default function Login({
                   background: "none",
                   color: "#2563eb",
                   cursor: "pointer",
-                  padding: 0,
-                  fontWeight: 500,
                 }}
               >
                 Sign Up
@@ -355,14 +352,7 @@ export default function Login({
           )}
         </div>
 
-        <div
-          style={{
-            minHeight: "1.5rem",
-            marginTop: "0.75rem",
-            fontSize: "0.8rem",
-            color: "#1d4ed8",
-          }}
-        >
+        <div style={{ minHeight: "1.5rem", marginTop: "0.75rem", fontSize: "0.8rem", color: "#1d4ed8" }}>
           {status}
         </div>
       </Modal>

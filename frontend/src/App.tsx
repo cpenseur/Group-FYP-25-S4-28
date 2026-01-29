@@ -26,6 +26,7 @@ import Profile from "./pages/profile";
 import Login from "./components/login";
 import ResetPassword from "./pages/resetPassword";
 import SuspendAcct from "./components/suspendAcct";
+import ViewTripPage from "./pages/ViewTripPage";
 
 // KK
 import DiscoveryLocal from "./pages/discoveryLocal";
@@ -152,6 +153,7 @@ export default function App() {
         />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/suspendAcct" element={<SuspendAcct />} />
+        <Route path="/trip/:tripId/view" element={<ViewTripPage />} />
 
         {/* Vania */}
         <Route path="/dashboard" element={<Dashboard />} />

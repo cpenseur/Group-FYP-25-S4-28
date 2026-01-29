@@ -29,7 +29,9 @@ import PlaceSearchBar from "../components/PlaceSearchBar";
 import PlaceTravelTab from "../components/PlaceTravelTab";
 import AdaptivePlannerOverlay from "../components/AdaptivePlannerOverlay";
 import TripSubHeader from "../components/TripSubHeader";
+import { exportPDF as ExportPDF } from "../components/exportPDF";
 import { apiFetch } from "../lib/apiClient";
+import { generateItineraryPDF } from "../lib/generateItineraryPDF";
 import ItineraryMap from "../components/ItineraryMap";
 import planbotSmall from "../assets/planbotSmall.png";
 
@@ -216,6 +218,8 @@ type NearbyPOI = {
   dist_m?: number | null;
   image_url?: string | null;
   wikipedia?: string | null;
+  lat?: number | null;
+  lon?: number | null;
 };
 
 type PlaceDetails = {
@@ -478,15 +482,16 @@ export default function ItineraryEditor() {
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [highlightedItemId, setHighlightedItemId] = useState<number | null>(null);
 
-  const fetchedThumbIdsRef = useRef<Set<number>>(new Set());
-  const fetchedOpeningIdsRef = useRef<Set<number>>(new Set());
-  const highlightTimeoutRef = useRef<number | null>(null);
+const fetchedThumbIdsRef = useRef<Set<number>>(new Set());
+const fetchedOpeningIdsRef = useRef<Set<number>>(new Set());
+const deletedItemIdsRef = useRef<Set<number>>(new Set());  // Track deleted items
+const highlightTimeoutRef = useRef<number | null>(null);
 
-  const clearHighlight = () => {
-    if (highlightTimeoutRef.current) {
-      window.clearTimeout(highlightTimeoutRef.current);
-      highlightTimeoutRef.current = null;
-    }
+const clearHighlight = () => {
+  if (highlightTimeoutRef.current) {
+    window.clearTimeout(highlightTimeoutRef.current);
+    highlightTimeoutRef.current = null;
+  }
   };
 
   useEffect(() => () => clearHighlight(), []);
@@ -504,6 +509,7 @@ export default function ItineraryEditor() {
         if (!it?.id) continue;
         if (cancelled) break;
         if (fetchedThumbIdsRef.current.has(it.id)) continue;
+        if (deletedItemIdsRef.current.has(it.id)) continue;  // Skip deleted items
         fetchedThumbIdsRef.current.add(it.id);
 
         try {
@@ -530,7 +536,7 @@ export default function ItineraryEditor() {
           }
 
           // Persist thumbnail so it survives refresh
-          if (!it.thumbnail_url) {
+          if (!it.thumbnail_url && !deletedItemIdsRef.current.has(it.id)) {
             try {
               await apiFetch(`/f1/itinerary-items/${it.id}/`, {
                 method: "PATCH",
@@ -828,10 +834,12 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [editStart, setEditStart] = useState("");
   const [editEnd, setEditEnd] = useState("");
 
-  // Add stop modal
-  const [addStopModalOpen, setAddStopModalOpen] = useState(false);
-  const [addStopDayId, setAddStopDayId] = useState<number | null>(null);
-  const [modalPlace, setModalPlace] = useState<SelectedPlace | null>(null);
+// Add stop modal
+const [addStopModalOpen, setAddStopModalOpen] = useState(false);
+const [addStopDayId, setAddStopDayId] = useState<number | null>(null);
+const [addStopFromNearby, setAddStopFromNearby] = useState(false);
+const [modalPlace, setModalPlace] = useState<SelectedPlace | null>(null);
+const [exportModalOpen, setExportModalOpen] = useState(false);
 
   // Hovered day for sidebar
   const [hoveredDayId, setHoveredDayId] = useState<number | null>(null);
@@ -1121,24 +1129,67 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
   function openAddStopModal(dayId: number) {
     setAddStopDayId(dayId);
     setModalPlace(null);
+    setAddStopFromNearby(false);
     setAddStopModalOpen(true);
   }
+
+  function openAddNearbyStopModal(p: NearbyPOI) {
+    const defaultDayId = addStopDayId ?? days?.[0]?.id ?? null;
+    setAddStopDayId(defaultDayId);
+    setAddStopFromNearby(true);
+
+    if (p.lat != null && p.lon != null) {
+      setModalPlace({
+        name: p.name,
+        fullName: p.name,
+        address: "",
+        lat: p.lat,
+        lon: p.lon,
+      });
+    } else {
+      setModalPlace(null);
+    }
+
+    setAddStopModalOpen(true);
+  }
+
+  const handleExportPDF = async () => {
+    if (!trip) return;
+    try {
+      await generateItineraryPDF(trip, days, items);
+    } catch (err) {
+      console.error("Failed to generate PDF:", err);
+      setErrorMsg("Failed to export PDF. Please try again.");
+    }
+  };
 
   /* ------------- Delete stop ------------- */
 
   const handleDeleteItem = async (itemId: number) => {
+    // Track as deleted to prevent background PATCH requests
+    deletedItemIdsRef.current.add(itemId);
+    
+    // Optimistic update - remove from UI immediately
+    const previousItems = items;
+    setItems((prev) =>
+      prev
+        .filter((i) => i.id !== itemId)
+        .map((i, idx) => ({ ...i, sort_order: idx + 1 }))
+    );
+
     try {
       await apiFetch(`/f1/itinerary-items/${itemId}/`, {
         method: "DELETE",
       });
-      setItems((prev) =>
-        prev
-          .filter((i) => i.id !== itemId)
-          .map((i, idx) => ({ ...i, sort_order: idx + 1 }))
-      );
-    } catch (err) {
-      console.error("Failed to delete item:", err);
-      setErrorMsg("Could not delete this stop. Please try again.");
+    } catch (err: any) {
+      // Only show error if it's not a 404 (item already deleted)
+      if (!err?.message?.includes('404') && !err?.message?.includes('No ItineraryItem matches')) {
+        console.error("Failed to delete item:", err);
+        // Revert optimistic update on error
+        setItems(previousItems);
+        deletedItemIdsRef.current.delete(itemId);
+        setErrorMsg("Could not delete this stop. Please try again.");
+      }
     }
   };
 
@@ -1540,7 +1591,7 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   return (
     <>
-      <TripSubHeader />
+      <TripSubHeader onExport={() => setExportModalOpen(true)} />
 
       <div
         style={{
@@ -1611,7 +1662,7 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
                     left: 12,
                     right: 12,
                     bottom: 12,
-                    zIndex: 50,
+                    zIndex: 5000, // ensure the entire overlay (and tab bar) sits above map markers
                     borderRadius: 18,
                     background: "rgba(255,255,255,0.96)",
                     border: "1px solid rgba(229,231,235,0.9)",
@@ -1733,7 +1784,19 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
                     </div>
 
                     {/* TAB BAR */}
-                    <div style={{ display: "flex", gap: 10, paddingTop: 10 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 10,
+                        paddingTop: 10,
+                        position: "sticky",
+                        top: 0,
+                        zIndex: 2000, // ensure it stays above map markers
+                        background: "#ffffff",
+                        paddingBottom: 6,
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+                      }}
+                    >
                       {(["about", "travel", "nearby", "photos"] as const).map((t) => (
                         <button
                           key={t}
@@ -1908,12 +1971,38 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
                                   background: "white",
                                 }}
                               >
-                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                                  <div style={{ fontSize: "0.84rem", fontWeight: 750, color: "#111827" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                                  <div style={{ fontSize: "0.84rem", fontWeight: 750, color: "#111827", minWidth: 0, flex: 1 }}>
                                     {p.name}
                                   </div>
-                                  <div style={{ fontSize: "0.76rem", color: "#6b7280", whiteSpace: "nowrap" }}>
-                                    {formatMeters(p.dist_m)}
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <div style={{ fontSize: "0.76rem", color: "#6b7280", whiteSpace: "nowrap" }}>
+                                      {formatMeters(p.dist_m)}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => openAddNearbyStopModal(p)}
+                                      disabled={p.lat == null || p.lon == null}
+                                      style={{
+                                        borderRadius: 999,
+                                        border: "1px solid #d1d5db",
+                                        background: p.lat == null || p.lon == null ? "#f3f4f6" : "#ffffff",
+                                        color: p.lat == null || p.lon == null ? "#9ca3af" : "#4f46e5",
+                                        padding: "4px 10px",
+                                        fontSize: "0.74rem",
+                                        fontWeight: 650,
+                                        cursor: p.lat == null || p.lon == null ? "not-allowed" : "pointer",
+                                        boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                      title={
+                                        p.lat == null || p.lon == null
+                                          ? "Location unavailable for this place"
+                                          : "Add this nearby place to your itinerary"
+                                      }
+                                    >
+                                      + Add Stop
+                                    </button>
                                   </div>
                                 </div>
                                 <div style={{ marginTop: 3, fontSize: "0.75rem", color: "#6b7280" }}>
@@ -2149,9 +2238,35 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
                   borderRadius: "12px",
                   padding: "0.6rem 0.9rem",
                   fontSize: "0.85rem",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "0.5rem",
                 }}
               >
-                {errorMsg}
+                <span>{errorMsg}</span>
+                <button
+                  onClick={() => setErrorMsg(null)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#b91c1c",
+                    cursor: "pointer",
+                    padding: "0.25rem",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: "4px",
+                    fontSize: "1.1rem",
+                    lineHeight: 1,
+                    opacity: 0.7,
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.7")}
+                  aria-label="Dismiss error"
+                >
+                  ✕
+                </button>
               </div>
             )}
 
@@ -2843,25 +2958,56 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
             >
               Add Stop to{" "}
               <span style={{ color: "#4f46e5" }}>
-                Day {days.find((d) => d.id === addStopDayId)?.day_index}
+                {addStopDayId
+                  ? `Day ${days.find((d) => d.id === addStopDayId)?.day_index}`
+                  : "Choose a day"}
               </span>
             </h2>
 
-            <div style={{ width: "94%", marginBottom: "1.3rem" }}>
-              <PlaceSearchBar
-                biasCity={trip?.main_city ?? ""}
-                biasCountry={trip?.main_country ?? ""}  
-                onSelect={(f) =>
-                  setModalPlace({
-                    name: f.text || "Selected place",
-                    fullName: f.place_name || "",
-                    address: f.place_name || "",
-                    lat: f.center?.[1],
-                    lon: f.center?.[0],
-                  })
-                }
-              />
-            </div>
+            {!addStopFromNearby && (
+              <div style={{ width: "94%", marginBottom: "1.3rem" }}>
+                <PlaceSearchBar
+                  biasCity={trip?.main_city ?? ""}
+                  biasCountry={trip?.main_country ?? ""}  
+                  onSelect={(f) =>
+                    setModalPlace({
+                      name: f.text || "Selected place",
+                      fullName: f.place_name || "",
+                      address: f.place_name || "",
+                      lat: f.center?.[1],
+                      lon: f.center?.[0],
+                    })
+                  }
+                />
+              </div>
+            )}
+
+            {(addStopFromNearby || addStopDayId === null) && (
+              <div style={{ marginBottom: "1.1rem", width: "94%" }}>
+                <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, color: "#111827", marginBottom: 6 }}>
+                  Choose day for this stop
+                </label>
+                <select
+                  value={addStopDayId ?? ""}
+                  onChange={(e) => setAddStopDayId(Number(e.target.value))}
+                  style={{
+                    width: "100%",
+                    padding: "0.55rem 0.75rem",
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    fontSize: "0.9rem",
+                    color: "#111827",
+                    background: "white",
+                  }}
+                >
+                  {days.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {formatDayHeaderSmart(trip, d)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {modalPlace && (
               <div
@@ -2900,6 +3046,7 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
                 onClick={() => {
                   setAddStopModalOpen(false);
                   setModalPlace(null);
+                  setAddStopFromNearby(false);
                 }}
                 style={{
                   padding: "0.45rem 1.1rem",
@@ -2916,7 +3063,8 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
               <button
                 onClick={async () => {
-                  if (!modalPlace || !addStopDayId) {
+                  const chosenDayId = addStopDayId ?? days?.[0]?.id ?? null;
+                  if (!modalPlace || !chosenDayId) {
                     setErrorMsg("Please select a place before adding.");
                     return;
                   }
@@ -2924,7 +3072,7 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
                   try {
                     const payload = {
                       trip: numericTripId,
-                      day: addStopDayId,
+                      day: chosenDayId,
                       title: modalPlace.name,
                       address: modalPlace.address,
                       lat: modalPlace.lat,
@@ -2932,7 +3080,7 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
                       item_type: "place",
                       is_all_day: false,
                       sort_order:
-                        getItemsForDay(items, addStopDayId).length + 1,
+                        getItemsForDay(items, chosenDayId).length + 1,
                     };
 
                     const created = await apiFetch("/f1/itinerary-items/", {
@@ -2943,6 +3091,7 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
                     setItems((prev) => [...prev, created]);
                     setAddStopModalOpen(false);
                     setModalPlace(null);
+                    setAddStopFromNearby(false);
                   } catch (err) {
                     console.error("Failed to add stop:", err);
                     setErrorMsg("Could not add stop.");
@@ -2967,6 +3116,12 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
           </div>
         </div>
       )}
+
+      <ExportPDF
+        open={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        onExport={handleExportPDF}
+      />
       <style>
         {`
           @keyframes tmShimmer {

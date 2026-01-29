@@ -140,6 +140,7 @@ class TripOverviewSerializer(serializers.ModelSerializer):
             "currency_code",
             "currency_symbol",
             "planned_total",
+            "visibility",
         ]
         
     def get_collaborators(self, obj: Trip):
