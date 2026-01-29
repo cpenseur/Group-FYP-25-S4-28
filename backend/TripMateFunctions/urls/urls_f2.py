@@ -9,6 +9,7 @@ from ..views.f2_4_views import (
     F24CommunityTripDetailView,
     F24SponsoredCountriesView,
     F24FlagTripView,
+    F24CommunityFAQListView,
 )
 from ..views.f2_5_views import (
     F25CommunityQAListCreateView,
@@ -77,6 +78,13 @@ urlpatterns = [
         "community/<int:pk>/",
         F24CommunityTripDetailView.as_view(),
         name="f2-community-detail",
+    ),
+
+    # FAQ
+    path(
+        "community_faq/", 
+        F24CommunityFAQListView.as_view(), 
+        name="community_faq_list",
     ),
 
     # F2.5 - Community Q&A

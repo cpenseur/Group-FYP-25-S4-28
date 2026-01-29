@@ -12,7 +12,9 @@ from django.utils import timezone
 from django.db.models import Count
 from django.db.models.functions import TruncDate
 from datetime import datetime, timedelta, time
-from rest_framework.decorators import api_view,  permission_classes
+from rest_framework.decorators import api_view,  permission_classes, action
+from rest_framework import status
+from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from ..models import AppUser, Trip
@@ -21,6 +23,51 @@ class F8AdminUserViewSet(BaseViewSet):
     queryset = AppUser.objects.all()
     serializer_class = F8AdminUserSerializer
 
+    # Search & sort support
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ["country", "category", "question", "answer"]
+    ordering_fields = ["country", "category", "created_at", "updated_at"]
+    ordering = ["country", "category"]
+
+    # 📦 Bulk publish / unpublish
+    @action(detail=False, methods=["post"], url_path="bulk")
+    def bulk_update(self, request):
+        """
+        POST /api/f8/destination-faqs/bulk/
+
+        Body:
+        {
+          "ids": [1, 2, 3],
+          "is_published": true
+        }
+        """
+        ids = request.data.get("ids", [])
+        is_published = request.data.get("is_published")
+
+        if not isinstance(ids, list) or not ids:
+            return Response(
+                {"detail": "ids must be a non-empty list"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if is_published is None:
+            return Response(
+                {"detail": "is_published is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        updated = DestinationFAQ.objects.filter(id__in=ids).update(
+            is_published=bool(is_published)
+        )
+
+        return Response(
+            {
+                "ok": True,
+                "updated": updated,
+                "is_published": bool(is_published),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 class F8AdminTripViewSet(BaseViewSet):
     queryset = Trip.objects.all()
@@ -109,3 +156,45 @@ def admin_analytics(request):
         "active_users_series": active_users_series,
         "active_users_prev_total": active_users_prev_total,
     })
+
+class F8AdminDestinationFAQViewSet(BaseViewSet):
+    queryset = DestinationFAQ.objects.all()
+    serializer_class = F8AdminDestinationFAQSerializer
+
+    @action(detail=False, methods=["post"], url_path="bulk")
+    def bulk_update(self, request):
+        """
+        POST /api/f8/destination-faqs/bulk/
+
+        Body:
+        {
+          "ids": [1, 2, 3],
+          "is_published": true
+        }
+        """
+        ids = request.data.get("ids", [])
+        is_published = request.data.get("is_published")
+
+        if not isinstance(ids, list) or not ids:
+            return Response(
+                {"detail": "ids must be a non-empty list"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if is_published is None:
+            return Response(
+                {"detail": "is_published is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        updated = DestinationFAQ.objects.filter(id__in=ids).update(
+            is_published=bool(is_published)
+        )
+
+        return Response(
+            {
+                "ok": True,
+                "updated": updated,
+                "is_published": bool(is_published),
+            }
+        )

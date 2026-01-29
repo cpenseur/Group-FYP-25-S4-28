@@ -8,6 +8,8 @@ from ..models import (
     ItineraryItemTag,
     TripDay,
     ItineraryItem,
+    Profile,
+    CommunityFAQ,
 )
 
 # -------------------------------------------------------------------
@@ -17,14 +19,25 @@ from ..models import (
 
 def _owner_name_from_trip(trip: Trip) -> str:
     """
-    Prefer the AppUser.full_name if available, otherwise fall back to email.
+    Prefer Profile.name (profiles table, Profile.id == AppUser.id).
+    Fallback to AppUser.full_name, then email.
     """
     owner = getattr(trip, "owner", None)
     if not owner:
         return ""
-    full_name = getattr(owner, "full_name", "") or ""
-    return full_name or owner.email
 
+    # 1) profiles.name
+    profile = Profile.objects.filter(id=owner.id).only("name").first()
+    if profile and profile.name and str(profile.name).strip():
+        return str(profile.name).strip()
+
+    # 2) AppUser.full_name
+    full_name = getattr(owner, "full_name", "") or ""
+    if full_name.strip():
+        return full_name.strip()
+
+    # 3) email fallback
+    return owner.email
 
 def _cover_photo_from_trip(trip: Trip) -> Optional[str]:
     """
@@ -44,34 +57,35 @@ def _cover_photo_from_trip(trip: Trip) -> Optional[str]:
 
 def _tags_from_trip(trip: Trip) -> List[str]:
     """
-    Gather distinct tags from all itinerary items under this trip.
+    Gather distinct tags from itinerary_item_tag linked to this trip
+    via itinerary_item (item__trip_id).
 
-    Primary source:
-      - ItineraryItemTag.tag (via item__trip)
-
-    Fallback:
-      - split Trip.travel_type by comma, e.g. "City, Food, Walks"
+    IMPORTANT:
+    - itinerary_item_tag stores one tag per row (not comma-separated).
+    - We DO NOT fallback to Trip.travel_type (user explicitly requested this).
     """
     tag_values = (
-        ItineraryItemTag.objects.filter(item__trip=trip)
+        ItineraryItemTag.objects.filter(item__trip_id=trip.id)
         .values_list("tag", flat=True)
         .distinct()
     )
-    tags = [t for t in tag_values if t]
 
-    if tags:
-        return tags
+    tags: List[str] = []
+    seen = set()
 
-    # Fallback: derive tags from travel_type string
-    if trip.travel_type:
-        derived = [
-            part.strip()
-            for part in trip.travel_type.split(",")
-            if part.strip()
-        ]
-        return derived
+    for t in tag_values:
+        if not t:
+            continue
+        tt = str(t).strip()
+        if not tt:
+            continue
+        key = tt.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        tags.append(tt)
 
-    return []
+    return tags
 
 
 # -------------------------------------------------------------------
@@ -86,7 +100,7 @@ class F24CommunityTripPreviewSerializer(serializers.ModelSerializer):
       - basic trip info
       - owner_name (derived from AppUser)
       - cover_photo_url (earliest TripPhoto)
-      - tags (aggregated itinerary tags / travel_type)
+      - tags (aggregated itinerary tags ONLY)
     """
 
     owner_name = serializers.SerializerMethodField()
@@ -198,4 +212,10 @@ class F24CommunityTripDetailSerializer(serializers.ModelSerializer):
         return _cover_photo_from_trip(obj)
 
     def get_tags(self, obj: Trip) -> List[str]:
+        # No fallback to travel_type; only itinerary_item_tag for this trip
         return _tags_from_trip(obj)
+
+class F24CommunityFAQSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CommunityFAQ
+        fields = ["id", "country", "category", "question", "answer"]

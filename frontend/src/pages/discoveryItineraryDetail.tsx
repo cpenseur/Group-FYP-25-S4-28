@@ -1,17 +1,14 @@
-import React, { useEffect, useMemo, useState } from "react";
+// discoveryItineraryDetail.tsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  Polyline,
-  Popup,
-} from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Polyline, Popup } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 import { apiFetch } from "../lib/apiClient";
+import { CopyItineraryModal } from "../components/CopyItinerary";
+import { FlagItineraryModal, FlagCategory } from "../components/FlagItinerary";
 
 // ---------------- Types matching backend detail JSON ----------------
 
@@ -25,6 +22,7 @@ type TripDayItem = {
   address: string | null;
   notes_summary: string | null;
   photo_url?: string | null;
+  thumbnail_url?: string | null;
 };
 
 type TripDay = {
@@ -56,9 +54,32 @@ type MapPoint = {
   label: string;
 };
 
+// TripDay list response from backend
+type TripDayApi = {
+  id: number;
+  trip: number;
+  date: string | null;
+  day_index: number;
+  note: string | null;
+};
+
 // -------------------------------------------------------------------
 
 const COMMUNITY_API = "http://127.0.0.1:8000/api/f2/community/";
+const COMMUNITY_BASE = new URL(COMMUNITY_API).origin;
+
+// ---------------- Helpers ----------------
+
+function resolveMediaUrl(url?: string | null): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed, COMMUNITY_BASE).toString();
+  } catch {
+    return null;
+  }
+}
 
 // numeric pill icon for markers (no PNG files required)
 function createNumberIcon(order: number): L.DivIcon {
@@ -87,16 +108,13 @@ function safeWeekdayLabel(dateStr: string | null): string {
   if (!dateStr) return "";
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return "";
-  return d
-    .toLocaleDateString(undefined, { weekday: "short" })
-    .toUpperCase();
+  return d.toLocaleDateString(undefined, { weekday: "short" }).toUpperCase();
 }
 
 function safeDayMonthLabel(dateStr: string | null): string {
   if (!dateStr) return "";
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return "";
-  // matches look like "20/10"
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   return `${dd}/${mm}`;
@@ -106,352 +124,288 @@ function safeMonthDayText(dateStr: string | null): string {
   if (!dateStr) return "";
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return "";
-  // "Oct 20"
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function formatHHMM(dt: string | null): string {
-  if (!dt) return "";
-  const d = new Date(dt);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+// Parse an ISO string but keep the wall-clock time the user entered
+function parseWallClockDate(iso?: string | null): Date | null {
+  if (!iso) return null;
+  const datePart = iso.slice(0, 10);
+  const timePart = iso.slice(11, 16);
+  if (!datePart || !timePart) return null;
+  const d = new Date(`${datePart}T${timePart}:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function renderTimeOnly(item: TripDayItem): string {
-  // Your desired UI shows a single time on the left (10:00, 13:00…)
-  // We'll prefer start_time, else end_time.
-  return formatHHMM(item.start_time) || formatHHMM(item.end_time) || "";
+function formatTimeRange(item: TripDayItem): string {
+  if (!item.start_time && !item.end_time) return "";
+
+  const fmt = (t: string | null | undefined) => {
+    const d = parseWallClockDate(t);
+    return d ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "";
+  };
+
+  const start = fmt(item.start_time);
+  const end = fmt(item.end_time);
+
+  if (start && !end) return start;
+  if (!start && end) return end;
+  if (start && end) return `${start} – ${end}`;
+  return "";
 }
 
-/* -------------------- Copy Itinerary Modal -------------------- */
-function CopyItineraryModal({
-  isOpen,
-  trip,
-  onClose,
-  onConfirm,
-  copying,
-}: {
-  isOpen: boolean;
-  trip: TripDetail | null;
-  onClose: () => void;
-  onConfirm: () => void;
-  copying: boolean;
-}) {
-  if (!isOpen || !trip) return null;
+function toISODateOnly(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
 
-  // Gather all unique destinations
-  const destinations: string[] = [];
-  (trip.days || []).forEach((day) => {
-    (day.items || []).forEach((item) => {
-      if (item.title && !destinations.includes(item.title)) {
-        destinations.push(item.title);
-      }
+// ---------------- Multi-source Image Fetching (Openverse) ----------------
+
+type ImageResult = {
+  thumbnail: string;
+  url: string;
+  source: string;
+  creator?: string;
+};
+
+/**
+ * Try Openverse API with improved error handling and CORS support
+ */
+async function fetchOpenverseImage(query: string, signal?: AbortSignal): Promise<ImageResult | null> {
+  const q = query.trim();
+  if (!q) return null;
+
+  const url = new URL("https://api.openverse.org/v1/images/");
+  url.searchParams.set("q", q);
+  url.searchParams.set("page_size", "5");
+  url.searchParams.set("license_type", "all");
+
+  try {
+    const res = await fetch(url.toString(), { 
+      method: "GET", 
+      signal,
+      mode: 'cors'
     });
-  });
+    
+    if (!res.ok) {
+      console.warn("Openverse fetch failed:", res.status, res.statusText);
+      return null;
+    }
 
-  const totalDays = trip.days?.length || 0;
+    const data = await res.json();
+    const results = data?.results || [];
 
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        backgroundColor: "rgba(0,0,0,0.5)",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        zIndex: 9999,
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          width: "480px",
-          background: "white",
-          borderRadius: "20px",
-          padding: "2rem 2rem 1.5rem",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-          position: "relative",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Close button */}
-        <button
-          onClick={onClose}
-          style={{
-            position: "absolute",
-            top: "1rem",
-            right: "1rem",
-            background: "transparent",
-            border: "none",
-            fontSize: "1.5rem",
-            cursor: "pointer",
-            color: "#6b7280",
-            padding: "0.25rem",
-            lineHeight: 1,
-          }}
-        >
-          ×
-        </button>
+    // Find first result with a valid image
+    for (const item of results) {
+      const imgUrl = item.thumbnail || item.url;
+      if (imgUrl && typeof imgUrl === 'string') {
+        // Validate it's a proper URL
+        try {
+          new URL(imgUrl);
+          return {
+            thumbnail: imgUrl,
+            url: item.url || imgUrl,
+            source: "Openverse",
+            creator: item.creator,
+          };
+        } catch {
+          continue;
+        }
+      }
+    }
 
-        {/* Title */}
-        <h2
-          style={{
-            fontSize: "1.35rem",
-            fontWeight: 700,
-            marginBottom: "0.5rem",
-            color: "#111827",
-          }}
-        >
-          {trip.title}
-        </h2>
-
-        {/* Location and duration */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "1rem",
-            marginBottom: "1.5rem",
-            fontSize: "0.9rem",
-            color: "#6b7280",
-          }}
-        >
-          {trip.main_city && (
-            <div
-              style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}
-            >
-              <span>📍</span>
-              <span>{trip.main_city}</span>
-            </div>
-          )}
-          {totalDays > 0 && (
-            <div
-              style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}
-            >
-              <span>⏱️</span>
-              <span>
-                {totalDays} Day{totalDays !== 1 ? "s" : ""}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Destinations */}
-        <div style={{ marginBottom: "1.5rem" }}>
-          <div
-            style={{
-              fontSize: "0.95rem",
-              fontWeight: 600,
-              marginBottom: "0.75rem",
-              color: "#111827",
-            }}
-          >
-            Destinations:
-          </div>
-          <ul
-            style={{
-              listStyle: "none",
-              padding: 0,
-              margin: 0,
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.5rem",
-            }}
-          >
-            {destinations.slice(0, 8).map((dest, idx) => (
-              <li
-                key={idx}
-                style={{
-                  fontSize: "0.875rem",
-                  color: "#374151",
-                  paddingLeft: "1.25rem",
-                  position: "relative",
-                }}
-              >
-                <span
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    color: "#6b7280",
-                  }}
-                >
-                  •
-                </span>
-                {dest}
-              </li>
-            ))}
-            {destinations.length > 8 && (
-              <li
-                style={{
-                  fontSize: "0.875rem",
-                  color: "#6b7280",
-                  fontStyle: "italic",
-                }}
-              >
-                +{destinations.length - 8} more destinations
-              </li>
-            )}
-          </ul>
-        </div>
-
-        {/* Creator */}
-        {trip.owner_name && (
-          <div
-            style={{
-              fontSize: "0.85rem",
-              color: "#6b7280",
-              marginBottom: "1.5rem",
-            }}
-          >
-            Created by {trip.owner_name}
-          </div>
-        )}
-
-        {/* Copy button */}
-        <button
-          onClick={onConfirm}
-          disabled={copying}
-          style={{
-            width: "100%",
-            padding: "0.75rem 1.5rem",
-            borderRadius: "12px",
-            border: "none",
-            background: copying ? "#e5e7eb" : "#6366f1",
-            color: "white",
-            fontSize: "0.95rem",
-            fontWeight: 600,
-            cursor: copying ? "not-allowed" : "pointer",
-            boxShadow: copying ? "none" : "0 8px 20px rgba(99,102,241,0.35)",
-            opacity: copying ? 0.6 : 1,
-          }}
-        >
-          {copying ? "Copying itinerary..." : "Copy itinerary"}
-        </button>
-      </div>
-    </div>
-  );
+    return null;
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      console.log("Fetch aborted for:", q);
+    } else {
+      console.warn("Openverse error:", err);
+    }
+    return null;
+  }
 }
 
-/* -------------------- Flag Itinerary Modal -------------------- */
-function FlagItineraryModal({
-  isOpen,
-  tripTitle,
-  onClose,
-  onConfirm,
-  flagging,
+/**
+ * Module-level cache with expiry
+ */
+const imageCache = new Map<string, { result: ImageResult | null; timestamp: number }>();
+const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
+
+function buildImageQuery(placeTitle: string, city?: string | null, country?: string | null): string {
+  const parts = [placeTitle, city || ""].map((s) => s.trim()).filter(Boolean);
+  return parts.join(" ");
+}
+
+/**
+ * Try Openverse with caching
+ */
+async function fetchPlaceImage(query: string, signal?: AbortSignal): Promise<ImageResult | null> {
+  const q = query.trim();
+  if (!q) return null;
+
+  // Check cache
+  const cached = imageCache.get(q);
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    console.log("Using cached result for:", q);
+    return cached.result;
+  }
+
+  console.log("Fetching image for:", q);
+
+  const result = await fetchOpenverseImage(q, signal);
+  
+  if (result) {
+    console.log("✓ Found image via Openverse:", result.thumbnail);
+  } else {
+    console.log("✗ No image found for:", q);
+  }
+  
+  imageCache.set(q, { result, timestamp: Date.now() });
+  return result;
+}
+
+/**
+ * Generate a placeholder image using a service
+ */
+function generatePlaceholderImage(text: string, width: number, height: number): string {
+  const encoded = encodeURIComponent(text.slice(0, 30));
+  return `https://via.placeholder.com/${width}x${height}/e0e7ff/6366f1?text=${encoded}`;
+}
+
+function PlaceThumb({
+  query,
+  alt,
+  width = 110,
+  height = 64,
+  radius = 12,
 }: {
-  isOpen: boolean;
-  tripTitle: string;
-  onClose: () => void;
-  onConfirm: () => void;
-  flagging: boolean;
+  query: string;
+  alt: string;
+  width?: number;
+  height?: number;
+  radius?: number;
 }) {
-  if (!isOpen) return null;
+  const [img, setImg] = useState<ImageResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [imgError, setImgError] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    // Cancel any ongoing fetch
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+    abortRef.current = new AbortController();
+
+    setImg(null);
+    setLoading(true);
+    setImgError(false);
+
+    const q = query.trim();
+    if (!q) {
+      setLoading(false);
+      return;
+    }
+
+    fetchPlaceImage(q, abortRef.current.signal)
+      .then((res) => {
+        if (!mountedRef.current) return;
+        setImg(res);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (!mountedRef.current) return;
+        if (err.name !== 'AbortError') {
+          console.error("Image fetch error:", err);
+        }
+        setLoading(false);
+      });
+
+    return () => {
+      mountedRef.current = false;
+      if (abortRef.current) {
+        abortRef.current.abort();
+      }
+    };
+  }, [query]);
+
+  const displayUrl = img?.thumbnail;
+  const usePlaceholder = !loading && (!displayUrl || imgError);
 
   return (
     <div
       style={{
-        position: "fixed",
-        inset: 0,
-        backgroundColor: "rgba(0,0,0,0.5)",
+        width,
+        height,
+        borderRadius: radius,
+        overflow: "hidden",
+        background: "linear-gradient(135deg,#e0e7ff,#c7d2fe)",
+        border: "1px solid rgba(0,0,0,0.06)",
+        position: "relative",
         display: "flex",
-        justifyContent: "center",
         alignItems: "center",
-        zIndex: 9999,
+        justifyContent: "center",
       }}
-      onClick={onClose}
+      title={
+        img
+          ? `Photo via ${img.source}${img.creator ? ` • ${img.creator}` : ""}`
+          : loading
+          ? "Loading photo..."
+          : "Searching for photo..."
+      }
     >
-      <div
-        style={{
-          width: "440px",
-          background: "white",
-          borderRadius: "18px",
-          padding: "1.6rem 1.6rem 1.25rem",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
+      {loading ? (
         <div
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: "1rem",
+            fontSize: 10,
+            color: "rgba(99,102,241,0.6)",
+            fontWeight: 600,
+            textAlign: "center",
+            padding: "0.5rem",
           }}
         >
-          <div
-            style={{ fontSize: "1.05rem", fontWeight: 800, color: "#111827" }}
-          >
-            Flag this itinerary?
-          </div>
-
-          <button
-            onClick={onClose}
-            style={{
-              background: "transparent",
-              border: "none",
-              fontSize: "1.4rem",
-              cursor: "pointer",
-              color: "#6b7280",
-              lineHeight: 1,
-            }}
-          >
-            ×
-          </button>
+          Loading...
         </div>
-
+      ) : displayUrl && !imgError ? (
+        <img
+          src={displayUrl}
+          alt={alt}
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          loading="lazy"
+          onError={(e) => {
+            console.error("Image failed to load:", displayUrl);
+            setImgError(true);
+          }}
+          crossOrigin="anonymous"
+        />
+      ) : usePlaceholder ? (
+        <img
+          src={generatePlaceholderImage(alt, width, height)}
+          alt={alt}
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          loading="lazy"
+        />
+      ) : (
         <div
-          style={{ marginTop: "0.75rem", fontSize: "0.9rem", color: "#374151" }}
+          style={{
+            fontSize: 9,
+            color: "rgba(99,102,241,0.5)",
+            fontWeight: 600,
+            textAlign: "center",
+            padding: "0.5rem",
+            lineHeight: 1.3,
+          }}
         >
-          You’re about to flag <strong>{tripTitle}</strong> for review.
+          No photo
+          <br />
+          available
         </div>
-
-        <div
-          style={{ marginTop: "0.6rem", fontSize: "0.85rem", color: "#6b7280" }}
-        >
-          This helps us keep the community safe.
-        </div>
-
-        <div style={{ display: "flex", gap: "0.7rem", marginTop: "1.25rem" }}>
-          <button
-            onClick={onClose}
-            disabled={flagging}
-            style={{
-              flex: 1,
-              padding: "0.75rem 1rem",
-              borderRadius: "12px",
-              border: "1px solid #d1d5db",
-              background: "#fff",
-              color: "#111827",
-              fontSize: "0.9rem",
-              fontWeight: 600,
-              cursor: flagging ? "not-allowed" : "pointer",
-              opacity: flagging ? 0.6 : 1,
-            }}
-          >
-            Cancel
-          </button>
-
-          <button
-            onClick={onConfirm}
-            disabled={flagging}
-            style={{
-              flex: 1,
-              padding: "0.75rem 1rem",
-              borderRadius: "12px",
-              border: "none",
-              background: flagging ? "#f3f4f6" : "#111827",
-              color: "#fff",
-              fontSize: "0.9rem",
-              fontWeight: 700,
-              cursor: flagging ? "not-allowed" : "pointer",
-              opacity: flagging ? 0.7 : 1,
-            }}
-          >
-            {flagging ? "Submitting..." : "Flag itinerary"}
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -459,6 +413,7 @@ function FlagItineraryModal({
 export default function DiscoveryItineraryDetail() {
   const { tripId } = useParams<{ tripId: string }>();
   const navigate = useNavigate();
+
   const [trip, setTrip] = useState<TripDetail | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -492,23 +447,15 @@ export default function DiscoveryItineraryDetail() {
         const contentType = res.headers.get("content-type") || "";
         if (!contentType.includes("application/json")) {
           const text = await res.text();
-          throw new Error(
-            `Expected JSON but got '${contentType}'. First part of response: ${text.slice(
-              0,
-              120
-            )}…`
-          );
+          throw new Error(`Expected JSON but got '${contentType}'. First part of response: ${text.slice(0, 120)}…`);
         }
 
         const data = (await res.json()) as TripDetail;
 
         if (isMounted) {
           setTrip(data);
-          if (data.days && data.days.length > 0) {
-            setExpandedDayId(data.days[0].id);
-          } else {
-            setExpandedDayId(null);
-          }
+          if (data.days && data.days.length > 0) setExpandedDayId(data.days[0].id);
+          else setExpandedDayId(null);
         }
       } catch (err: any) {
         if (isMounted) setError(err.message || "Something went wrong.");
@@ -531,19 +478,8 @@ export default function DiscoveryItineraryDetail() {
 
     for (const day of trip.days) {
       for (const item of day.items || []) {
-        if (
-          item.lat !== null &&
-          item.lat !== undefined &&
-          item.lon !== null &&
-          item.lon !== undefined
-        ) {
-          points.push({
-            id: item.id,
-            order: counter,
-            lat: item.lat,
-            lon: item.lon,
-            label: item.title,
-          });
+        if (item.lat != null && item.lon != null) {
+          points.push({ id: item.id, order: counter, lat: item.lat, lon: item.lon, label: item.title });
           counter += 1;
         }
       }
@@ -553,10 +489,8 @@ export default function DiscoveryItineraryDetail() {
 
   const mapCenter: [number, number] = useMemo(() => {
     if (mapPoints.length === 0) return [1.3521, 103.8198];
-    const avgLat =
-      mapPoints.reduce((sum, p) => sum + p.lat, 0) / mapPoints.length;
-    const avgLon =
-      mapPoints.reduce((sum, p) => sum + p.lon, 0) / mapPoints.length;
+    const avgLat = mapPoints.reduce((sum, p) => sum + p.lat, 0) / mapPoints.length;
+    const avgLon = mapPoints.reduce((sum, p) => sum + p.lon, 0) / mapPoints.length;
     return [avgLat, avgLon];
   }, [mapPoints]);
 
@@ -564,24 +498,38 @@ export default function DiscoveryItineraryDetail() {
     return mapPoints.map((p) => [p.lat, p.lon] as [number, number]);
   }, [mapPoints]);
 
+  // COPY (unchanged)
   const handleCopyItinerary = async () => {
     if (!trip) return;
 
+    const sourceDays = trip.days || [];
+    if (sourceDays.length === 0) {
+      alert("This itinerary has no days to copy.");
+      setShowCopyModal(false);
+      return;
+    }
+
     setCopying(true);
     try {
-      // Create a new trip by copying the current trip data
+      const totalDays = Math.max(sourceDays.length, 1);
+
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      start.setDate(start.getDate() + 7);
+
+      const end = new Date(start);
+      end.setDate(end.getDate() + (totalDays - 1));
+
+      const newStart = toISODateOnly(start);
+      const newEnd = toISODateOnly(end);
+
       const newTripPayload = {
         title: `${trip.title} (Copy)`,
         main_city: trip.main_city,
         main_country: trip.main_country,
-        description: trip.description,
-        travel_type: trip.travel_type,
-        start_date:
-          trip.days && trip.days.length > 0 ? trip.days[0].date : null,
-        end_date:
-          trip.days && trip.days.length > 0
-            ? trip.days[trip.days.length - 1].date
-            : null,
+        travel_type: trip.travel_type ?? null,
+        start_date: newStart,
+        end_date: newEnd,
       };
 
       const newTrip = await apiFetch("/f1/trips/", {
@@ -589,27 +537,21 @@ export default function DiscoveryItineraryDetail() {
         body: JSON.stringify(newTripPayload),
       });
 
-      // Copy days
-      const dayIdMap = new Map<number, number>(); // old day ID -> new day ID
+      const createdDays = (await apiFetch(`/f1/trip-days/?trip=${newTrip.id}`, {
+        method: "GET",
+      })) as TripDayApi[];
 
-      for (const day of trip.days || []) {
-        const newDay = await apiFetch("/f1/trip-days/", {
-          method: "POST",
-          body: JSON.stringify({
-            trip: newTrip.id,
-            day_index: day.day_index,
-            date: day.date,
-            note: day.note,
-          }),
-        });
-        dayIdMap.set(day.id, newDay.id);
-      }
+      const dayIndexToNewDayId = new Map<number, number>();
+      for (const d of createdDays) dayIndexToNewDayId.set(d.day_index, d.id);
 
-      // Copy items
-      for (const day of trip.days || []) {
-        const newDayId = dayIdMap.get(day.id);
+      for (const srcDay of sourceDays) {
+        const newDayId = dayIndexToNewDayId.get(srcDay.day_index);
+        if (!newDayId) continue;
 
-        for (const item of day.items || []) {
+        const items = srcDay.items || [];
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+
           await apiFetch("/f1/itinerary-items/", {
             method: "POST",
             body: JSON.stringify({
@@ -621,37 +563,33 @@ export default function DiscoveryItineraryDetail() {
               lon: item.lon,
               start_time: item.start_time,
               end_time: item.end_time,
-              notes_summary: item.notes_summary,
-              sort_order: day.items.indexOf(item) + 1,
+              sort_order: i + 1,
               item_type: "place",
             }),
           });
         }
       }
 
-      // Navigate to the editor
       navigate(`/trip/${newTrip.id}/itinerary`);
-    } catch (error) {
-      console.error("Failed to copy itinerary:", error);
-      alert("Failed to copy itinerary. Please try again.");
+    } catch (err) {
+      console.error("Failed to copy itinerary:", err);
+      alert("Failed to copy itinerary. Please make sure you are logged in and try again.");
     } finally {
       setCopying(false);
       setShowCopyModal(false);
     }
   };
 
-  const handleFlagItinerary = async () => {
+  // FLAG (unchanged)
+  const handleFlagItinerary = async (payload: { flag_category: FlagCategory; flag_reason: string }) => {
     if (!tripId) return;
 
     setFlagging(true);
     try {
       const res = await fetch(`${COMMUNITY_API}${tripId}/flag/`, {
         method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({}),
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -660,7 +598,6 @@ export default function DiscoveryItineraryDetail() {
       }
 
       setShowFlagModal(false);
-      // Go back to previous page (the page before this)
       navigate(-1);
     } catch (e: any) {
       console.error(e);
@@ -670,18 +607,24 @@ export default function DiscoveryItineraryDetail() {
     }
   };
 
-  // ---------------- Render states ----------------
-
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f7", padding: "2rem" }}>
         <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
-          <Link
-            to="/discovery-local"
-            style={{ fontSize: "0.85rem", color: "#555", textDecoration: "none" }}
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            style={{
+              fontSize: "0.85rem",
+              color: "#555",
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+            }}
           >
             ← Back to Discovery
-          </Link>
+          </button>
           <p style={{ marginTop: "1.5rem", color: "#555" }}>Loading…</p>
         </div>
       </div>
@@ -692,12 +635,20 @@ export default function DiscoveryItineraryDetail() {
     return (
       <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f7", padding: "2rem" }}>
         <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
-          <Link
-            to="/discovery-local"
-            style={{ fontSize: "0.85rem", color: "#555", textDecoration: "none" }}
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            style={{
+              fontSize: "0.85rem",
+              color: "#555",
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+            }}
           >
             ← Back to Discovery
-          </Link>
+          </button>
           <p style={{ marginTop: "1.5rem", color: "crimson" }}>
             {error || "Trip not found."}
           </p>
@@ -706,22 +657,21 @@ export default function DiscoveryItineraryDetail() {
     );
   }
 
-  const tags = (trip.tags || []).slice(0, 4);
-  const locationLabel = trip.main_city
-    ? `${trip.main_city}, ${trip.main_country || ""}`.trim()
-    : trip.main_country || "";
 
+  const tags = (trip.tags || []).slice(0, 4);
+  const locationLabel = trip.main_city ? `${trip.main_city}, ${trip.main_country || ""}`.trim() : trip.main_country || "";
   const days = trip.days || [];
+
+  const dayColorPalette = ["#746ee5ff", "#b13171ff", "#2fa57eff", "#eb904eff", "#56acd4ff", "#bc78fbff"];
+  const getDayColor = (dayIndex: number | null | undefined): string => {
+    if (!dayIndex || dayIndex <= 0) return "#6b7280";
+    const idx = ((dayIndex - 1) % dayColorPalette.length + dayColorPalette.length) % dayColorPalette.length;
+    return dayColorPalette[idx];
+  };
 
   return (
     <>
-      <div
-        style={{
-          minHeight: "100vh",
-          backgroundColor: "#ffffff",
-          padding: "1.6rem 2rem",
-        }}
-      >
+      <div style={{ minHeight: "100vh", backgroundColor: "#ffffff", padding: "1.6rem 2rem" }}>
         <div
           style={{
             maxWidth: "1320px",
@@ -732,15 +682,7 @@ export default function DiscoveryItineraryDetail() {
             alignItems: "start",
           }}
         >
-          {/* LEFT: rounded map card */}
-          <div
-            style={{
-              borderRadius: "22px",
-              overflow: "hidden",
-              background: "#cfe0ff",
-              height: "420px",
-            }}
-          >
+          <div style={{ borderRadius: "22px", overflow: "hidden", background: "#cfe0ff", height: "420px" }}>
             {mapPoints.length === 0 ? (
               <div
                 style={{
@@ -755,22 +697,14 @@ export default function DiscoveryItineraryDetail() {
                 Map view coming soon
               </div>
             ) : (
-              <MapContainer
-                center={mapCenter}
-                zoom={13}
-                style={{ height: "420px", width: "100%" }}
-                scrollWheelZoom={false}
-              >
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                {polylinePositions.length > 1 && (
-                  <Polyline positions={polylinePositions as any} />
-                )}
+              <MapContainer center={mapCenter} zoom={13} style={{ height: "420px", width: "100%" }} scrollWheelZoom={false}>
+                <TileLayer
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution="&copy; OpenStreetMap contributors"
+                />
+                {polylinePositions.length > 1 && <Polyline positions={polylinePositions as any} />}
                 {mapPoints.map((p) => (
-                  <Marker
-                    key={p.id}
-                    position={[p.lat, p.lon] as any}
-                    icon={createNumberIcon(p.order) as any}
-                  >
+                  <Marker key={p.id} position={[p.lat, p.lon] as any} icon={createNumberIcon(p.order) as any}>
                     <Popup>{p.label}</Popup>
                   </Marker>
                 ))}
@@ -778,42 +712,31 @@ export default function DiscoveryItineraryDetail() {
             )}
           </div>
 
-          {/* MIDDLE: content (compact, like screenshot) */}
           <div>
-            {/* top row */}
             <div style={{ display: "flex", alignItems: "flex-start", gap: "1rem" }}>
               <div>
-                <Link
-                  to="/discovery-local"
+                <button
+                  type="button"
+                  onClick={() => navigate(-1)}
                   style={{
                     fontSize: "0.85rem",
                     color: "#6b7280",
-                    textDecoration: "none",
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    cursor: "pointer",
                   }}
                 >
                   ← Back to Discovery
-                </Link>
+                </button>
 
-                <div style={{ marginTop: "0.45rem", fontSize: "1rem", fontWeight: 600 }}>
-                  {trip.title}
-                </div>
 
-                {locationLabel && (
-                  <div style={{ fontSize: "0.85rem", color: "#6b7280", marginTop: "0.1rem" }}>
-                    {locationLabel}
-                  </div>
-                )}
+                <div style={{ marginTop: "0.45rem", fontSize: "1rem", fontWeight: 600 }}>{trip.title}</div>
+
+                {locationLabel && <div style={{ fontSize: "0.85rem", color: "#6b7280", marginTop: "0.1rem" }}>{locationLabel}</div>}
               </div>
 
-              {/* Copy + Flag buttons */}
-              <div
-                style={{
-                  marginLeft: "auto",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "0.55rem",
-                }}
-              >
+              <div style={{ marginLeft: "auto", display: "flex", flexDirection: "column", gap: "0.55rem" }}>
                 <button
                   onClick={() => setShowCopyModal(true)}
                   style={{
@@ -848,7 +771,6 @@ export default function DiscoveryItineraryDetail() {
               </div>
             </div>
 
-            {/* tags row */}
             {tags.length > 0 && (
               <div style={{ display: "flex", gap: "0.6rem", marginTop: "0.75rem" }}>
                 {tags.map((tag) => (
@@ -869,13 +791,8 @@ export default function DiscoveryItineraryDetail() {
               </div>
             )}
 
-            {trip.owner_name && (
-              <div style={{ marginTop: "0.6rem", fontSize: "0.85rem", color: "#6b7280" }}>
-                by {trip.owner_name}
-              </div>
-            )}
+            {trip.owner_name && <div style={{ marginTop: "0.6rem", fontSize: "0.85rem", color: "#6b7280" }}>by {trip.owner_name}</div>}
 
-            {/* Accordion days */}
             <div style={{ marginTop: "1.15rem", display: "flex", flexDirection: "column", gap: "0.8rem" }}>
               {days.length === 0 && (
                 <div style={{ fontSize: "0.9rem", color: "#6b7280" }}>
@@ -888,16 +805,14 @@ export default function DiscoveryItineraryDetail() {
                 const dayLabel = `DAY ${day.day_index}`;
                 const dateLabel = safeMonthDayText(day.date);
 
+                const baseColor = getDayColor(day.day_index);
+                const hex7 = baseColor.slice(0, 7);
+                const bubbleBg = hex7 + "22";
+                const bubbleBorder = hex7 + "55";
+                const bubbleText = hex7;
+
                 return (
-                  <div
-                    key={day.id}
-                    style={{
-                      borderRadius: "12px",
-                      background: "#eef0ff",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {/* header bar */}
+                  <div key={day.id} style={{ borderRadius: "12px", background: "#eef0ff", overflow: "hidden" }}>
                     <button
                       onClick={() => setExpandedDayId(isOpen ? null : day.id)}
                       style={{
@@ -912,20 +827,8 @@ export default function DiscoveryItineraryDetail() {
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
-                        <span
-                          style={{
-                            fontSize: "0.75rem",
-                            fontWeight: 700,
-                            color: "#1f2937",
-                          }}
-                        >
-                          {dayLabel}
-                        </span>
-                        {dateLabel && (
-                          <span style={{ fontSize: "0.8rem", color: "#374151" }}>
-                            {dateLabel}
-                          </span>
-                        )}
+                        <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#1f2937" }}>{dayLabel}</span>
+                        {dateLabel && <span style={{ fontSize: "0.8rem", color: "#374151" }}>{dateLabel}</span>}
                       </div>
 
                       <span
@@ -945,121 +848,122 @@ export default function DiscoveryItineraryDetail() {
                       </span>
                     </button>
 
-                    {/* body */}
                     <div
                       style={{
-                        maxHeight: isOpen ? "520px" : "0px",
+                        maxHeight: isOpen ? "900px" : "0px",
                         overflow: "hidden",
                         transition: "max-height 0.25s ease",
                         background: "#f7f7ff",
                       }}
                     >
-                      <div style={{ padding: "0.85rem 0.95rem 0.95rem" }}>
-                        {/* timeline list */}
-                        <div
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: "0.9rem",
-                          }}
-                        >
-                          {(day.items || []).map((item) => {
-                            const t = renderTimeOnly(item);
+                      <div style={{ padding: "0.9rem 0.95rem 1rem" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {(day.items || []).map((item, idx) => {
+                            const timeLabel = formatTimeRange(item);
+                            const seq = idx + 1;
+
+                            // Build image search query from location title + city context
+                            const imgQuery = buildImageQuery(item.title, trip.main_city, trip.main_country);
+
                             return (
                               <div
                                 key={item.id}
                                 style={{
+                                  borderRadius: "12px",
+                                  border: "1px solid #e5e7eb",
+                                  background: "white",
+                                  padding: "0.6rem 0.8rem",
                                   display: "grid",
-                                  gridTemplateColumns: "52px 10px minmax(0, 1fr)",
-                                  columnGap: "0.8rem",
-                                  alignItems: "start",
+                                  gridTemplateColumns: "auto 110px minmax(0, 1fr) auto",
+                                  columnGap: "0.75rem",
+                                  alignItems: "center",
                                 }}
                               >
-                                {/* time */}
+                                {/* Sequence bubble */}
                                 <div
                                   style={{
-                                    fontSize: "0.78rem",
-                                    color: "#6b7280",
-                                    paddingTop: "0.15rem",
-                                  }}
-                                >
-                                  {t}
-                                </div>
-
-                                {/* dot */}
-                                <div style={{ paddingTop: "0.45rem" }}>
-                                  <div
-                                    style={{
-                                      width: "7px",
-                                      height: "7px",
-                                      borderRadius: "999px",
-                                      background: "#4f46e5",
-                                    }}
-                                  />
-                                </div>
-
-                                {/* item row (flat, like screenshot) */}
-                                <div
-                                  style={{
+                                    width: 26,
+                                    height: 26,
+                                    borderRadius: "999px",
+                                    backgroundColor: bubbleBg,
+                                    color: bubbleText,
+                                    border: `1px solid ${bubbleBorder}`,
                                     display: "flex",
-                                    gap: "0.75rem",
-                                    alignItems: "flex-start",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    fontSize: "0.75rem",
+                                    fontWeight: 600,
                                   }}
+                                  title={`Stop ${seq}`}
                                 >
+                                  {seq}
+                                </div>
+
+                                {/* Place photo thumbnail */}
+                                <PlaceThumb query={imgQuery} alt={item.title} width={110} height={64} radius={12} />
+
+                                {/* Text content */}
+                                <div style={{ minWidth: 0 }}>
                                   <div
                                     style={{
-                                      width: "52px",
-                                      height: "52px",
-                                      borderRadius: "12px",
-                                      background: "#e9e9ff",
-                                      overflow: "hidden",
-                                      flex: "0 0 52px",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      marginBottom: 2,
+                                      gap: 8,
                                     }}
                                   >
-                                    {item.photo_url ? (
-                                      <img
-                                        src={item.photo_url}
-                                        alt={item.title}
-                                        style={{
-                                          width: "100%",
-                                          height: "100%",
-                                          objectFit: "cover",
-                                        }}
-                                      />
-                                    ) : null}
-                                  </div>
-
-                                  <div style={{ minWidth: 0 }}>
                                     <div
                                       style={{
-                                        fontSize: "0.85rem",
+                                        fontSize: "0.9rem",
                                         fontWeight: 600,
                                         color: "#111827",
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap",
                                       }}
+                                      title={item.title}
                                     >
                                       {item.title}
                                     </div>
-                                    {item.notes_summary && (
-                                      <div
-                                        style={{
-                                          marginTop: "0.15rem",
-                                          fontSize: "0.78rem",
-                                          color: "#6b7280",
-                                        }}
-                                      >
-                                        {item.notes_summary}
+
+                                    {timeLabel && (
+                                      <div style={{ fontSize: "0.75rem", color: "#6b7280", whiteSpace: "nowrap" }}>
+                                        {timeLabel}
                                       </div>
                                     )}
                                   </div>
+
+                                  {item.address && (
+                                    <div
+                                      style={{
+                                        fontSize: "0.8rem",
+                                        color: "#6b7280",
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                      title={item.address}
+                                    >
+                                      {item.address}
+                                    </div>
+                                  )}
+
+                                  {item.notes_summary && (
+                                    <div style={{ marginTop: 4, fontSize: "0.78rem", color: "#4b5563", lineHeight: 1.35 }}>
+                                      {item.notes_summary}
+                                    </div>
+                                  )}
                                 </div>
+
+                                {/* Right spacer */}
+                                <div style={{ width: 1, height: 1 }} />
                               </div>
                             );
                           })}
 
                           {(day.items || []).length === 0 && (
-                            <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>
-                              No stops added for this day.
-                            </div>
+                            <div style={{ fontSize: "0.85rem", color: "#6b7280" }}>No stops added for this day.</div>
                           )}
                         </div>
                       </div>
@@ -1070,25 +974,8 @@ export default function DiscoveryItineraryDetail() {
             </div>
           </div>
 
-          {/* RIGHT: small itinerary sidebar */}
-          <aside
-            style={{
-              borderRadius: "16px",
-              background: "#eaf0ff",
-              padding: "0.9rem 0.75rem",
-              height: "fit-content",
-            }}
-          >
-            <div
-              style={{
-                fontSize: "0.78rem",
-                fontWeight: 700,
-                color: "#374151",
-                marginBottom: "0.7rem",
-              }}
-            >
-              Itinerary
-            </div>
+          <aside style={{ borderRadius: "16px", background: "#eaf0ff", padding: "0.9rem 0.75rem", height: "fit-content" }}>
+            <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#374151", marginBottom: "0.7rem" }}>Itinerary</div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
               {days.map((day) => {
@@ -1108,22 +995,12 @@ export default function DiscoveryItineraryDetail() {
                       textAlign: "left",
                     }}
                   >
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr",
-                        gap: "0.15rem",
-                        color: isActive ? "#4f46e5" : "#374151",
-                      }}
-                    >
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.15rem", color: isActive ? "#4f46e5" : "#374151" }}>
                       <div style={{ fontSize: "0.7rem", fontWeight: 700 }}>
                         {dow} {dm}
                       </div>
-                      <div style={{ fontSize: "0.72rem", opacity: 0.9 }}>
-                        Day {day.day_index}
-                      </div>
+                      <div style={{ fontSize: "0.72rem", opacity: 0.9 }}>Day {day.day_index}</div>
 
-                      {/* active indicator */}
                       <div
                         style={{
                           height: "2px",
@@ -1143,7 +1020,6 @@ export default function DiscoveryItineraryDetail() {
         </div>
       </div>
 
-      {/* Copy Itinerary Modal */}
       <CopyItineraryModal
         isOpen={showCopyModal}
         trip={trip}
@@ -1152,12 +1028,11 @@ export default function DiscoveryItineraryDetail() {
         copying={copying}
       />
 
-      {/* Flag Itinerary Modal */}
       <FlagItineraryModal
         isOpen={showFlagModal}
         tripTitle={trip.title}
         onClose={() => setShowFlagModal(false)}
-        onConfirm={handleFlagItinerary}
+        onSubmit={handleFlagItinerary}
         flagging={flagging}
       />
     </>

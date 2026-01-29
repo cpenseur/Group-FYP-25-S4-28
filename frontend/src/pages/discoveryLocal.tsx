@@ -6,13 +6,14 @@ type TripPreview = {
   title: string;
   main_city: string | null;
   main_country: string | null;
-  travel_type: string | null;
+  travel_type: string | null; // kept for type-compat, but NOT used for tags anymore
   start_date: string | null;
   end_date: string | null;
   visibility: string;
   owner_name: string;
   cover_photo_url?: string | null;
-  tags?: string[];
+  tags?: string[]; // comes from itinerary_item_tag via serializer
+  is_flagged?: boolean;
 };
 
 type DRFPage<T> = {
@@ -25,11 +26,67 @@ type DRFPage<T> = {
 const COMMUNITY_API = "http://127.0.0.1:8000/api/f2/community/";
 const PAGE_SIZE = 3;
 
+// ---------------- helpers ----------------
+
 function startsWithField(value: string | null | undefined, q: string): boolean {
   const query = q.trim().toLowerCase();
   if (!query) return true;
   const text = (value || "").trim().toLowerCase();
   return text.startsWith(query);
+}
+
+function normalizeTags(tags: string[] | undefined | null): string[] {
+  return (tags || [])
+    .map((t) => (t || "").trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+// deterministic hash so each card tends to pick a different image
+function hashInt(input: number): number {
+  let x = input | 0;
+  x = (x ^ 61) ^ (x >>> 16);
+  x = x + (x << 3);
+  x = x ^ (x >>> 4);
+  x = x * 0x27d4eb2d;
+  x = x ^ (x >>> 15);
+  return Math.abs(x);
+}
+async function fetchOpenverseImageForPlace(
+  city: string | null | undefined,
+  country: string | null | undefined,
+  seed: number
+): Promise<string | null> {
+  try {
+    const safeCity = (city || "").trim();
+    const safeCountry = (country || "").trim();
+
+    // Priority: country → fallback
+    const queryText =
+      safeCountry ||
+      "travel";
+
+    const q = encodeURIComponent(queryText);
+    const pageSize = 20;
+
+    // NOTE: keep identical to International (including filters)
+    const url = `https://api.openverse.org/v1/images/?q=${q}&page_size=${pageSize}&license_type=commercial&aspect_ratio=wide`;
+
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const results: any[] = data?.results || [];
+    if (results.length === 0) return null;
+
+    // deterministic selection
+    const idx = Math.abs(seed) % results.length;
+    const picked = results[idx];
+
+    return picked?.thumbnail || picked?.url || null;
+  } catch {
+    return null;
+  }
 }
 
 export default function DiscoveryLocal() {
@@ -40,13 +97,20 @@ export default function DiscoveryLocal() {
   const [page, setPage] = useState<number>(1);
   const [searchQuery, setSearchQuery] = useState<string>("");
 
+  // per-trip Openverse background
+  const [bgByTripId, setBgByTripId] = useState<Record<number, string | null>>(
+    {}
+  );
+
   useEffect(() => {
     const fetchAllTrips = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        let url: string | null = `${COMMUNITY_API}?main_country=Singapore`;
+        let url: string | null =
+          `${COMMUNITY_API}?main_country=Singapore&visibility=public&is_flagged=false`;
+
         const all: TripPreview[] = [];
 
         while (url) {
@@ -78,7 +142,17 @@ export default function DiscoveryLocal() {
           url = data.next ?? null;
         }
 
-        setAllTrips(all);
+        // Client-side safety filter (in case backend doesn't filter yet)
+        const cleaned = all.filter((t) => {
+          const isPublic = (t.visibility || "").toLowerCase() === "public";
+          const notFlagged =
+            t.is_flagged === undefined ? true : t.is_flagged === false;
+          const isSingapore =
+            (t.main_country || "").toLowerCase() === "singapore";
+          return isPublic && notFlagged && isSingapore;
+        });
+
+        setAllTrips(cleaned);
       } catch (err: any) {
         setError(err.message || "Something went wrong.");
       } finally {
@@ -94,6 +168,7 @@ export default function DiscoveryLocal() {
     setPage(1);
   }, [searchQuery]);
 
+  // ---------------- filtering ----------------
   const filteredTrips = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return allTrips;
@@ -104,23 +179,16 @@ export default function DiscoveryLocal() {
         const author = trip.owner_name;
         const title = trip.title;
 
-        const pillTags: string[] =
-          (trip.tags && trip.tags.length > 0
-            ? trip.tags
-            : (trip.travel_type || "").split(",")) || [];
-        const cleanTags = pillTags
-          .map((t) => t.trim().toLowerCase())
-          .filter(Boolean);
+        const pillTags = normalizeTags(trip.tags);
+        const cleanTags = pillTags.map((t) => t.toLowerCase());
 
         let rank = Infinity;
 
-        // Priority: country, author, title, then tags – all using "startsWith"
         if (startsWithField(country, q)) rank = Math.min(rank, 1);
         if (startsWithField(author, q)) rank = Math.min(rank, 2);
         if (startsWithField(title, q)) rank = Math.min(rank, 3);
-        if (cleanTags.some((tag) => tag.startsWith(q))) {
+        if (cleanTags.some((tag) => tag.startsWith(q)))
           rank = Math.min(rank, 4);
-        }
 
         return { trip, rank };
       })
@@ -129,25 +197,53 @@ export default function DiscoveryLocal() {
       .map((item) => item.trip);
   }, [allTrips, searchQuery]);
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredTrips.length / PAGE_SIZE) || 1
-  );
+  const totalPages = Math.max(1, Math.ceil(filteredTrips.length / PAGE_SIZE) || 1);
   const currentPage = Math.min(page, totalPages);
   const startIndex = (currentPage - 1) * PAGE_SIZE;
   const pagedTrips = filteredTrips.slice(startIndex, startIndex + PAGE_SIZE);
 
+  // ---------------- Openverse hydration (same pattern as International) ----------------
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateTripImages = async () => {
+      const jobs: Promise<void>[] = [];
+
+      for (const trip of pagedTrips) {
+        if (bgByTripId[trip.id] !== undefined) continue;
+
+        jobs.push(
+          (async () => {
+            const img = await fetchOpenverseImageForPlace(
+              trip.main_city,
+              trip.main_country,
+              trip.id
+            );
+            if (cancelled) return;
+            setBgByTripId((prev) => ({ ...prev, [trip.id]: img }));
+          })()
+        );
+      }
+
+      await Promise.all(jobs);
+    };
+
+    hydrateTripImages();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pagedTrips]);
+
   const renderTripCard = (trip: TripPreview) => {
-    const pillTags: string[] =
-      (trip.tags && trip.tags.length > 0
-        ? trip.tags
-        : (trip.travel_type || "").split(",")) || [];
-    const cleanTags = pillTags.map((t) => t.trim()).filter(Boolean);
+    const cleanTags = normalizeTags(trip.tags);
+    const bgUrl = bgByTripId[trip.id] || null;
 
     return (
       <Link
         key={trip.id}
-        to={`/discovery-itinerary/${trip.id}`} // 👈 matches your App.tsx route
+        to={`/discovery-itinerary/${trip.id}`}
         style={{
           position: "relative",
           display: "block",
@@ -160,7 +256,7 @@ export default function DiscoveryLocal() {
           color: "#fff",
         }}
       >
-        {/* Fallback background */}
+        {/* fallback background */}
         <div
           style={{
             position: "absolute",
@@ -169,9 +265,10 @@ export default function DiscoveryLocal() {
           }}
         />
 
-        {trip.cover_photo_url && (
+        {/* Openverse image */}
+        {bgUrl && (
           <img
-            src={trip.cover_photo_url}
+            src={bgUrl}
             alt={trip.title}
             style={{
               position: "absolute",
@@ -179,6 +276,11 @@ export default function DiscoveryLocal() {
               width: "100%",
               height: "100%",
               objectFit: "cover",
+              filter: "saturate(1.05)",
+            }}
+            onError={(e) => {
+              const el = e.currentTarget as HTMLImageElement;
+              el.style.display = "none";
             }}
           />
         )}
@@ -189,29 +291,18 @@ export default function DiscoveryLocal() {
             position: "absolute",
             inset: 0,
             background:
-              "linear-gradient(to right, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.7) 60%, rgba(0,0,0,0) 100%)",
+              "linear-gradient(to right, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.72) 60%, rgba(0,0,0,0) 100%)",
             display: "flex",
             flexDirection: "column",
             padding: "1.8rem 2rem",
           }}
         >
-          <h2
-            style={{
-              marginBottom: "auto",
-              fontSize: "1.4rem",
-              fontWeight: 600,
-            }}
-          >
+          <h2 style={{ marginBottom: "auto", fontSize: "1.4rem", fontWeight: 600 }}>
             {trip.title}
           </h2>
 
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.55rem",
-            }}
-          >
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+            {/* Local: COUNTRY ONLY */}
             {trip.main_country && (
               <div
                 style={{
@@ -222,21 +313,12 @@ export default function DiscoveryLocal() {
                 }}
               >
                 <span aria-hidden="true">📍</span>
-                <span>
-                  {trip.main_city
-                    ? `${trip.main_city}, ${trip.main_country}`
-                    : trip.main_country}
-                </span>
+                <span>{trip.main_country}</span>
               </div>
             )}
 
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: "0.5rem",
-              }}
-            >
+            {/* tags from trip.tags */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
               {cleanTags.slice(0, 4).map((tag) => (
                 <span
                   key={tag}
@@ -254,13 +336,7 @@ export default function DiscoveryLocal() {
               ))}
             </div>
 
-            <div
-              style={{
-                fontSize: "0.8rem",
-                color: "#e5e5e5",
-                marginTop: "0.3rem",
-              }}
-            >
+            <div style={{ fontSize: "0.8rem", color: "#e5e5e5", marginTop: "0.3rem" }}>
               {trip.owner_name && <span>by {trip.owner_name}</span>}
             </div>
           </div>
@@ -284,12 +360,15 @@ export default function DiscoveryLocal() {
         <header style={{ textAlign: "center", marginBottom: "2.5rem" }}>
           <h1
             style={{
-              fontSize: "2.5rem",
-              fontWeight: 700,
-              marginBottom: "0.5rem",
+              margin: 0,
+              fontSize: "2.6rem",
+              fontWeight: 800,
+              lineHeight: 1.05,
+              letterSpacing: "-0.02em",
             }}
           >
-            Discovery
+            <span style={{ display: "block" }}>Community Itinerary</span>
+            <span style={{ display: "block" }}>Discovery</span>
           </h1>
           <p style={{ color: "#555", marginBottom: "1.5rem" }}>
             Discover journeys. Inspire adventures.
@@ -352,13 +431,7 @@ export default function DiscoveryLocal() {
             </a>
           </div>
 
-          <p
-            style={{
-              color: "#777",
-              marginTop: "0.2rem",
-              marginBottom: "0.6rem",
-            }}
-          >
+          <p style={{ color: "#777", marginTop: "0.2rem", marginBottom: "0.6rem" }}>
             Local itineraries in <strong>Singapore</strong>
           </p>
 
@@ -383,12 +456,8 @@ export default function DiscoveryLocal() {
         </header>
 
         {/* States */}
-        {loading && (
-          <p style={{ textAlign: "center", color: "#555" }}>Loading trips…</p>
-        )}
-        {error && (
-          <p style={{ textAlign: "center", color: "crimson" }}>{error}</p>
-        )}
+        {loading && <p style={{ textAlign: "center", color: "#555" }}>Loading local itineraries…</p>}
+        {error && <p style={{ textAlign: "center", color: "crimson" }}>{error}</p>}
         {!loading && !error && filteredTrips.length === 0 && (
           <p style={{ textAlign: "center", color: "#555" }}>
             No itineraries found matching your search.
@@ -396,25 +465,13 @@ export default function DiscoveryLocal() {
         )}
 
         {/* Cards */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "1.5rem",
-          }}
-        >
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
           {pagedTrips.map(renderTripCard)}
         </div>
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div
-            style={{
-              marginTop: "2.5rem",
-              display: "flex",
-              justifyContent: "center",
-            }}
-          >
+          <div style={{ marginTop: "2.5rem", display: "flex", justifyContent: "center" }}>
             <div
               style={{
                 display: "inline-flex",
@@ -467,15 +524,12 @@ export default function DiscoveryLocal() {
 
               <button
                 disabled={currentPage === totalPages}
-                onClick={() =>
-                  currentPage < totalPages && setPage(currentPage + 1)
-                }
+                onClick={() => currentPage < totalPages && setPage(currentPage + 1)}
                 style={{
                   border: "none",
                   background: "transparent",
                   padding: "0.25rem 0.5rem",
-                  cursor:
-                    currentPage === totalPages ? "default" : "pointer",
+                  cursor: currentPage === totalPages ? "default" : "pointer",
                   opacity: currentPage === totalPages ? 0.3 : 1,
                 }}
               >

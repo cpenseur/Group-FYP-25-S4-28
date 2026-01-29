@@ -254,6 +254,8 @@ class Trip(models.Model):
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     is_flagged = models.BooleanField(default=False)
+    flag_category = models.CharField(max_length=64, blank=True, null=True)
+    flag_reason = models.TextField(blank=True, null=True)
 
 
     class Meta:
@@ -773,6 +775,27 @@ class TripHistoryEntry(models.Model):
 # COMMUNITY FAQ & Q&A
 # --------------------------------------------------
 
+class CommunityFAQ(models.Model):
+    country = models.CharField(max_length=100)
+    category = models.CharField(max_length=50)
+    question = models.TextField()
+    answer = models.TextField()
+
+    is_published = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "community_faq"
+        unique_together = ("country", "category", "question")
+        indexes = [
+            models.Index(fields=["country"]),
+            models.Index(fields=["country", "category"]),
+        ]
+
+    def __str__(self):
+        return f"{self.country} [{self.category}] {self.question[:40]}"
 
 class DestinationFAQ(models.Model):
     class SourceType(models.TextChoices):
