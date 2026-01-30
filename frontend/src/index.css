@@ -85,3 +85,9 @@ button:focus-visible {
   }
 }
 @import url('https://unpkg.com/leaflet/dist/leaflet.css');
+
+/* Global spinner animation */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

@@ -16,6 +16,7 @@ import {
   ChevronDown,
   Bot,
   Info,
+  Check,
 } from "lucide-react";
 
 
@@ -236,6 +237,103 @@ export default function DashboardPage() {
   const [trips, setTrips] = useState<TripOverview[]>([]);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  
+  // Pending invitation overlay state
+  const [showInvitationOverlay, setShowInvitationOverlay] = useState(false);
+  const [invitationProgress, setInvitationProgress] = useState(0);
+  const [invitationTripTitle, setInvitationTripTitle] = useState("");
+
+  // Check for pending invitation from TripInvitationPage
+  useEffect(() => {
+    const processPendingInvitation = async () => {
+      const pendingData = sessionStorage.getItem('pendingInvitation');
+      if (!pendingData) return;
+      
+      try {
+        const { token, tripTitle } = JSON.parse(pendingData);
+        if (!token) return;
+        
+        // Clear it immediately to prevent re-processing
+        sessionStorage.removeItem('pendingInvitation');
+        
+        // Show the overlay
+        setShowInvitationOverlay(true);
+        setInvitationTripTitle(tripTitle || 'your trip');
+        setInvitationProgress(10);
+        
+        // Wait for auth to be fully established - check repeatedly
+        let authReady = false;
+        for (let i = 0; i < 10; i++) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) {
+            authReady = true;
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 300));
+          setInvitationProgress(10 + i * 3);
+        }
+        
+        if (!authReady) {
+          console.error('Auth not ready after waiting');
+          setShowInvitationOverlay(false);
+          return;
+        }
+        
+        setInvitationProgress(40);
+        
+        // Additional delay to ensure backend session is synced
+        await new Promise(resolve => setTimeout(resolve, 500));
+        setInvitationProgress(50);
+        
+        // Accept the invitation
+        console.log('Accepting invitation with token:', token);
+        const response = await apiFetch(`/f1/trip-invitation/${token}/accept/`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        // Only show overlay and redirect if invitation is valid
+        const tripId = response.trip_id;
+        if (tripId) {
+          setInvitationTripTitle(response.trip_title || tripTitle || 'your trip');
+          setInvitationProgress(70);
+          setShowInvitationOverlay(true);
+          setInvitationProgress(90);
+          await new Promise(resolve => setTimeout(resolve, 600));
+          setInvitationProgress(100);
+          await new Promise(resolve => setTimeout(resolve, 300));
+          navigate(`/trip/${tripId}/itinerary`);
+        } else {
+          setShowInvitationOverlay(false);
+          return;
+        }
+      } catch (err: any) {
+        console.error('Failed to process pending invitation:', err);
+        
+        // Check if it's an "already accepted" case with trip_id
+        const errorData = err.data || err;
+        const tripIdFromError = errorData?.trip_id;
+        // If we have a tripId from error, show overlay and redirect
+        if ((err.message?.includes('already') || tripIdFromError)) {
+          if (tripIdFromError) {
+            setInvitationTripTitle(errorData?.trip_title || tripTitle || 'your trip');
+            setInvitationProgress(90);
+            setShowInvitationOverlay(true);
+            setInvitationProgress(100);
+            await new Promise(resolve => setTimeout(resolve, 300));
+            navigate(`/trip/${tripIdFromError}/itinerary`);
+            return;
+          } else {
+            // Already accepted but no tripId, do NOT show overlay or route
+            setShowInvitationOverlay(false);
+            return;
+          }
+        }
+        setShowInvitationOverlay(false);
+      }
+    };
+    
+    processPendingInvitation();
+  }, [navigate]);
 
   useEffect(() => {
     (async () => {
@@ -277,11 +375,22 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    loadTrips().catch((e) => {
-      console.error(e);
-      setTrips([]);
-      setLoading(false);
+    let wasLoggedIn = false;
+    supabase.auth.getSession().then(({ data }) => {
+      wasLoggedIn = !!data.session;
     });
+    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" && !wasLoggedIn) {
+        loadTrips();
+        wasLoggedIn = true;
+      }
+      if (event === "SIGNED_OUT") {
+        wasLoggedIn = false;
+      }
+    });
+    return () => {
+      authListener?.subscription.unsubscribe();
+    };
   }, []);
 
   const today = new Date();
@@ -302,10 +411,13 @@ export default function DashboardPage() {
 
   return (
     <div style={pageBg}>
-    <Onboarding
-      isOpen={showOnboarding}
-      onClose={() => setShowOnboarding(false)}
-    />     
+    {/* Only show onboarding if not processing invitation */}
+    {!showInvitationOverlay && (
+      <Onboarding
+        isOpen={showOnboarding}
+        onClose={() => setShowOnboarding(false)}
+      />
+    )}
       <div style={container}>
         {/* Header */}
         <div style={{ marginTop: 8 }}>
@@ -492,6 +604,27 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+      
+      {/* Invitation acceptance overlay */}
+      {showInvitationOverlay && (
+        <div style={invitationOverlayStyle}>
+          <div style={invitationModalStyle}>
+            <div style={invitationIconStyle}>
+              <Check size={40} color="#10b981" />
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: '#111827', marginBottom: 8 }}>
+              Welcome Aboard! 🎉
+            </div>
+            <div style={{ fontSize: 16, color: '#6b7280', marginBottom: 24 }}>
+              Taking you to "{invitationTripTitle}"...
+            </div>
+            <div style={invitationSpinnerStyle} />
+            <div style={invitationProgressBarStyle}>
+              <div style={{ ...invitationProgressFillStyle, width: `${invitationProgress}%` }} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -802,3 +935,76 @@ const upcomingCards: React.CSSProperties = {
   overflow: "hidden",
   alignItems: "center",
 };
+
+// Invitation overlay styles
+const invitationOverlayStyle: React.CSSProperties = {
+  position: "fixed",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  background: "rgba(0, 0, 0, 0.6)",
+  backdropFilter: "blur(4px)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  zIndex: 9999,
+};
+
+const invitationModalStyle: React.CSSProperties = {
+  background: "white",
+  borderRadius: 24,
+  padding: "3rem",
+  maxWidth: 420,
+  width: "90%",
+  textAlign: "center",
+  boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.25)",
+};
+
+const invitationIconStyle: React.CSSProperties = {
+  width: 80,
+  height: 80,
+  borderRadius: "50%",
+  background: "rgba(16, 185, 129, 0.1)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  margin: "0 auto 1.5rem",
+};
+
+const invitationSpinnerStyle: React.CSSProperties = {
+  width: 32,
+  height: 32,
+  border: "3px solid #e5e7eb",
+  borderTop: "3px solid #4f46e5",
+  borderRadius: "50%",
+  margin: "0 auto 1rem",
+  animation: "spin 1s linear infinite",
+};
+
+const invitationProgressBarStyle: React.CSSProperties = {
+  width: "100%",
+  height: 6,
+  background: "#e5e7eb",
+  borderRadius: 3,
+  overflow: "hidden",
+};
+
+const invitationProgressFillStyle: React.CSSProperties = {
+  height: "100%",
+  background: "linear-gradient(90deg, #4f46e5, #6366f1)",
+  borderRadius: 3,
+  transition: "width 0.3s ease",
+};
+
+// Helper function to show overlay and redirect
+function setInvitationOverlayAndRedirect(tripIdToUse) {
+  setShowInvitationOverlay(true);
+  setInvitationProgress(90);
+  setTimeout(() => {
+    setInvitationProgress(100);
+    setTimeout(() => {
+      navigate(`/trip/${tripIdToUse || tripId}/itinerary`);
+    }, 300);
+  }, 600);
+}

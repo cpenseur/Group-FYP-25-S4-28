@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import styled from "styled-components";
 import { MapPin, CalendarDays, Settings, Globe, Lock, BedDouble } from "lucide-react";
 import { apiFetch } from "../lib/apiClient";
+import InviteCollaboratorModal from "./InviteCollaboratorModal";
 
 type CollaboratorSummary = {
   id: string;
@@ -509,6 +510,7 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
   const [loading, setLoading] = useState<boolean>(true);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
   const [hotelsModalOpen, setHotelsModalOpen] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
 
   const [editingDates, setEditingDates] = useState(false);
   const [startDraft, setStartDraft] = useState<string>("");
@@ -729,7 +731,7 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
                     );
                   })}
 
-                  <InviteButton>+ invite collaborators</InviteButton>
+                  <InviteButton onClick={() => setInviteModalOpen(true)}>+ invite collaborators</InviteButton>
                   <ShareButton>Share</ShareButton>
                   <ExportButton onClick={onExport}>Export</ExportButton>
                   
@@ -956,7 +958,12 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
         onClose={() => setHotelsModalOpen(false)}
         stayLabel={stayLabel}
       />
-    </>
+
+      <InviteCollaboratorModal
+        isOpen={inviteModalOpen}
+        onClose={() => setInviteModalOpen(false)}
+        tripId={Number(tripId)}
+        tripTitle={trip.title}
+      />    </>
   );
 }
-

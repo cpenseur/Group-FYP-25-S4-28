@@ -15,6 +15,7 @@ import ItineraryEditor from "./pages/itineraryEditor";
 import PlanbotPage from "./pages/chatbot";
 import Trips from "./pages/trips";
 import AITripGeneratorWait from "./pages/aiTripGeneratorWait";
+import TripInvitationPage from "./pages/TripInvitationPage";
 
 // PohYee
 import LandingPage from "./pages/landingPage";
@@ -79,22 +80,20 @@ export default function App() {
         console.error("Failed to initialize CSRF token:", error);
       }
     };
-
     initializeCsrf();
-
+    // Only refresh CSRF after SIGNED_IN, not SIGNED_OUT
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event) => {
-        if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
+        if (event === "SIGNED_IN") {
           try {
             await ensureCsrfToken();
-            console.log("CSRF token refreshed after", event);
+            console.log("CSRF token refreshed after SIGNED_IN");
           } catch (error) {
-            console.error("Failed to refresh CSRF token:", error);
+            console.error("Failed to refresh CSRF token after SIGNED_IN:", error);
           }
         }
       }
     );
-
     return () => {
       authListener?.subscription.unsubscribe();
     };
@@ -162,6 +161,7 @@ export default function App() {
         <Route path="/trip/:tripId/chatbot" element={<PlanbotPage />} />
         <Route path="/trips" element={<Trips />} />
         <Route path="/ai-trip-generator/wait" element={<AITripGeneratorWait />} />
+        <Route path="/trip-invitation/:token" element={<TripInvitationPage />} />
 
         {/* KK */}
         <Route path="/discovery-local" element={<DiscoveryLocal />} />
