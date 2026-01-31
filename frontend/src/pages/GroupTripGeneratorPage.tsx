@@ -1,12 +1,19 @@
 // frontend/src/pages/GroupTripGeneratorPage.tsx
 
-import React, { useState } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
 import { supabase } from "../lib/supabaseClient";
-import { COUNTRIES_WITH_CITIES } from "../lib/countriesWithCities";
+
+// Import the JSON data directly from the data folder
+import countriesCitiesRaw from "../data/countriesCities.json";
 
 type ChipValue = string;
+
+interface CountryCity {
+  country: string;
+  cities: string[];
+}
 
 /* ---------------- DATE HELPERS ---------------- */
 
@@ -63,11 +70,20 @@ function getDaysInMonth(year: number, month: number): Date[] {
 export default function GroupTripGeneratorPage() {
   const navigate = useNavigate();
 
+  /* -------------------- TRANSFORM DATA -------------------- */
+  const COUNTRIES_WITH_CITIES: CountryCity[] = useMemo(() => {
+    return (countriesCitiesRaw as any[]).map((item: any) => ({
+      country: item.name,
+      cities: item.cities || []
+    }));
+  }, []);
+
   /* -------------------- STATES -------------------- */
 
   const [selectedDestinations, setSelectedDestinations] = useState<string[]>([]);
   const [countryModalOpen, setCountryModalOpen] = useState(false);
   const [countrySearch, setCountrySearch] = useState("");
+  const [expandedCountries, setExpandedCountries] = useState<Set<string>>(new Set());
 
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
@@ -118,7 +134,6 @@ export default function GroupTripGeneratorPage() {
   const [selectedActivities, setSelectedActivities] = useState<ChipValue[]>([]);
 
   const [activitiesExpanded, setActivitiesExpanded] = useState(false);
-
   const [destTypesExpanded, setDestTypesExpanded] = useState(false);
 
   const [selectedCurrency, setSelectedCurrency] = useState("USD");
@@ -164,24 +179,64 @@ export default function GroupTripGeneratorPage() {
     );
   };
 
-  const toggleDestination = (destination: string) => {
+  const toggleDestination = useCallback((destination: string) => {
     setSelectedDestinations((prev) =>
       prev.includes(destination)
         ? prev.filter((d) => d !== destination)
         : [...prev, destination]
     );
-  };
+  }, []);
 
   const removeDestination = (destination: string) => {
     setSelectedDestinations((prev) => prev.filter((d) => d !== destination));
   };
 
-  /* -------------------- COUNTRY/CITY MODAL -------------------- */
+  const toggleCountryExpansion = useCallback((country: string) => {
+    setExpandedCountries(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(country)) {
+        newSet.delete(country);
+      } else {
+        newSet.add(country);
+      }
+      return newSet;
+    });
+  }, []);
 
-  const filteredCountries = COUNTRIES_WITH_CITIES.filter((item) =>
-    item.country.toLowerCase().includes(countrySearch.toLowerCase()) ||
-    item.cities.some((city) => city.toLowerCase().includes(countrySearch.toLowerCase()))
-  );
+  /* -------------------- COUNTRY/CITY MODAL - OPTIMIZED -------------------- */
+
+  const filteredCountries = useMemo(() => {
+    if (!countrySearch.trim()) {
+      return COUNTRIES_WITH_CITIES.slice(0, 50);
+    }
+    
+    const searchLower = countrySearch.toLowerCase().trim();
+    
+    const filtered = COUNTRIES_WITH_CITIES
+      .map(item => {
+        const countryMatches = item.country.toLowerCase().includes(searchLower);
+        
+        if (countryMatches) {
+          return item;
+        }
+        
+        const matchingCities = item.cities.filter(city => 
+          city.toLowerCase().includes(searchLower)
+        );
+        
+        if (matchingCities.length > 0) {
+          return {
+            country: item.country,
+            cities: matchingCities.slice(0, 20)
+          };
+        }
+        
+        return null;
+      })
+      .filter(Boolean) as CountryCity[];
+    
+    return filtered.slice(0, 30);
+  }, [COUNTRIES_WITH_CITIES, countrySearch]);
 
   /* -------------------- CALENDAR LOGIC -------------------- */
 
@@ -430,16 +485,6 @@ export default function GroupTripGeneratorPage() {
     }
   };
 
-  // Sparkles SVG Icon for Done button
-  const SparklesIcon = () => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 2L13.09 7.26L15.18 3.82L14.82 9.54L19.07 5.93L16.18 10.18L21.5 9.5L16.88 12L21.5 14.5L16.18 13.82L19.07 18.07L14.82 14.46L15.18 20.18L13.09 16.74L12 22L10.91 16.74L8.82 20.18L9.18 14.46L4.93 18.07L7.82 13.82L2.5 14.5L7.12 12L2.5 9.5L7.82 10.18L4.93 5.93L9.18 9.54L8.82 3.82L10.91 7.26L12 2Z" 
-        fill="currentColor"
-        fillOpacity="0.9"
-      />
-    </svg>
-  );
-
   /* -------------------- STYLES -------------------- */
 
   const styles: Record<string, React.CSSProperties> = {
@@ -681,7 +726,7 @@ export default function GroupTripGeneratorPage() {
     },
 
     countryGroup: {
-      marginBottom: "20px",
+      marginBottom: "16px",
     },
 
     countryHeader: {
@@ -704,6 +749,7 @@ export default function GroupTripGeneratorPage() {
       gridTemplateColumns: "1fr 1fr",
       gap: "8px",
       paddingLeft: "12px",
+      marginTop: "8px",
     },
 
     destinationItem: {
@@ -837,7 +883,7 @@ export default function GroupTripGeneratorPage() {
         <div style={styles.pageSub}>Share your preferences</div>
         <div style={styles.pageTitle}>AI Trip Generator</div>
 
-        {/* DESTINATION SELECTION (MULTI-SELECT) */}
+        {/* DESTINATION SELECTION */}
         <div 
           style={{
             ...styles.card,
@@ -896,6 +942,7 @@ export default function GroupTripGeneratorPage() {
               if (e.target === e.currentTarget) {
                 setCountryModalOpen(false);
                 setCountrySearch("");
+                setExpandedCountries(new Set());
               }
             }}
           >
@@ -919,6 +966,7 @@ export default function GroupTripGeneratorPage() {
                   onClick={() => {
                     setCountryModalOpen(false);
                     setCountrySearch("");
+                    setExpandedCountries(new Set());
                   }}
                 >
                   ×
@@ -935,66 +983,107 @@ export default function GroupTripGeneratorPage() {
               />
 
               <div style={styles.countryList}>
-                {filteredCountries.map((item) => (
-                  <div key={item.country} style={styles.countryGroup}>
-                    <div
-                      style={{
-                        ...styles.countryHeader,
-                        ...(selectedDestinations.includes(item.country)
-                          ? { background: "#4f46e5", color: "#ffffff" }
-                          : {}),
-                      }}
-                      onClick={() => toggleDestination(item.country)}
-                      onMouseEnter={(e) => {
-                        if (!selectedDestinations.includes(item.country)) {
-                          e.currentTarget.style.background = "#e8edff";
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!selectedDestinations.includes(item.country)) {
-                          e.currentTarget.style.background = "#f0f0ff";
-                        }
-                      }}
-                    >
-                      <span>{item.country}</span>
-                      <span>{selectedDestinations.includes(item.country) ? "✓" : "+"}</span>
-                    </div>
-
-                    {item.cities.length > 0 && (
-                      <div style={styles.cityGrid}>
-                        {item.cities.map((city) => {
-                          const cityLabel = `${city}, ${item.country}`;
-                          const isSelected = selectedDestinations.includes(cityLabel);
-
-                          return (
-                            <div
-                              key={city}
-                              style={{
-                                ...styles.destinationItem,
-                                ...(isSelected ? styles.destinationItemSelected : {}),
-                              }}
-                              onClick={() => toggleDestination(cityLabel)}
-                              onMouseEnter={(e) => {
-                                if (!isSelected) {
-                                  e.currentTarget.style.background = "#eef1ff";
-                                  e.currentTarget.style.borderColor = "#c5ccff";
-                                }
-                              }}
-                              onMouseLeave={(e) => {
-                                if (!isSelected) {
-                                  e.currentTarget.style.background = "#fafbff";
-                                  e.currentTarget.style.borderColor = "#e5e9ff";
-                                }
-                              }}
-                            >
-                              {city}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                {filteredCountries.length === 0 ? (
+                  <div style={{ 
+                    display: "flex", 
+                    alignItems: "center", 
+                    justifyContent: "center", 
+                    padding: "40px", 
+                    fontSize: "16px", 
+                    color: "#6d6d8c" 
+                  }}>
+                    No matching countries or cities found
                   </div>
-                ))}
+                ) : (
+                  filteredCountries.map((item) => {
+                    const isExpanded = expandedCountries.has(item.country);
+                    const citiesToShow = isExpanded ? item.cities.slice(0, 50) : [];
+                    
+                    return (
+                      <div key={item.country} style={styles.countryGroup}>
+                        <div
+                          style={{
+                            ...styles.countryHeader,
+                            ...(selectedDestinations.includes(item.country)
+                              ? { background: "#4f46e5", color: "#ffffff" }
+                              : {}),
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!selectedDestinations.includes(item.country)) {
+                              e.currentTarget.style.background = "#e8edff";
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!selectedDestinations.includes(item.country)) {
+                              e.currentTarget.style.background = "#f0f0ff";
+                            }
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1 }}>
+                            {item.cities.length > 0 && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleCountryExpansion(item.country);
+                                }}
+                                style={{
+                                  background: "transparent",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  fontSize: "14px",
+                                  padding: "0 4px",
+                                  color: "inherit",
+                                }}
+                              >
+                                {isExpanded ? "▼" : "▶"}
+                              </button>
+                            )}
+                            <span onClick={() => toggleDestination(item.country)} style={{ flex: 1, cursor: "pointer" }}>
+                              {item.country}
+                            </span>
+                          </div>
+                          <span onClick={() => toggleDestination(item.country)} style={{ cursor: "pointer" }}>
+                            {selectedDestinations.includes(item.country) ? "✓" : "+"}
+                          </span>
+                        </div>
+
+                        {isExpanded && item.cities.length > 0 && (
+                          <div style={styles.cityGrid}>
+                            {citiesToShow.map((city) => {
+                              const cityLabel = `${city}, ${item.country}`;
+                              const isSelected = selectedDestinations.includes(cityLabel);
+
+                              return (
+                                <div
+                                  key={city}
+                                  style={{
+                                    ...styles.destinationItem,
+                                    ...(isSelected ? styles.destinationItemSelected : {}),
+                                  }}
+                                  onClick={() => toggleDestination(cityLabel)}
+                                  onMouseEnter={(e) => {
+                                    if (!isSelected) {
+                                      e.currentTarget.style.background = "#eef1ff";
+                                      e.currentTarget.style.borderColor = "#c5ccff";
+                                    }
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    if (!isSelected) {
+                                      e.currentTarget.style.background = "#fafbff";
+                                      e.currentTarget.style.borderColor = "#e5e9ff";
+                                    }
+                                  }}
+                                >
+                                  {city}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
               </div>
 
               <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end" }}>
@@ -1013,6 +1102,7 @@ export default function GroupTripGeneratorPage() {
                   onClick={() => {
                     setCountryModalOpen(false);
                     setCountrySearch("");
+                    setExpandedCountries(new Set());
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.background = "#4338ca";
@@ -1174,7 +1264,6 @@ export default function GroupTripGeneratorPage() {
               })}
             </div>
 
-            {/* Show More / Show Less Button */}
             <div style={{ marginTop: "12px", textAlign: "center" }}>
               <button
                 onClick={() => setActivitiesExpanded(!activitiesExpanded)}
@@ -1251,7 +1340,6 @@ export default function GroupTripGeneratorPage() {
               })}
             </div>
 
-            {/* Show More / Show Less Button */}
             <div style={{ marginTop: "12px", textAlign: "center" }}>
               <button
                 onClick={() => setDestTypesExpanded(!destTypesExpanded)}

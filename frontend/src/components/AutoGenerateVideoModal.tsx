@@ -1,8 +1,7 @@
 // frontend/src/components/AutoGenerateVideoModal.tsx
-// ENHANCED: Starting location + background music + REMOVED PLACEHOLDER BUTTON
 
 import React, { useState, useEffect } from "react";
-import { X, MapPin, Music, Upload as UploadIcon, Plane, Train, Car, Ship } from "lucide-react";
+import { X, MapPin, Plane, Train, Car, Ship } from "lucide-react";
 
 interface Photo {
   id: number;
@@ -74,12 +73,12 @@ export default function AutoGenerateVideoModal({
   const [transportModes, setTransportModes] = useState<Record<string, string>>({});
   const [excludedPhotos, setExcludedPhotos] = useState<Set<number>>(new Set());
   
-  // ✅ Starting location states (for airport/station before first stop)
+  // Starting location states (for airport/station before first stop)
   const [useStartingLocation, setUseStartingLocation] = useState(false);
   const [startingLocation, setStartingLocation] = useState<string>("");
   const [customStartLat, setCustomStartLat] = useState("");
   const [customStartLon, setCustomStartLon] = useState("");
-  const [firstStopTransport, setFirstStopTransport] = useState("plane");
+  const [firstStopTransport, setFirstStopTransport] = useState("car");  // ✅ FIXED: Changed from "plane" to "car"
 
   useEffect(() => {
     if (show) {
@@ -88,7 +87,7 @@ export default function AutoGenerateVideoModal({
   }, [show, photos, stops]);
 
   const autoGroupPhotos = () => {
-    // ✅ NEW: Show ALL stops, not just stops with photos
+    // Show ALL stops, not just stops with photos
     const allStopsWithPhotos = stops.map(stop => ({
       stop,
       photos: photos.filter(p => p.itinerary_item === stop.id && !excludedPhotos.has(p.id)),
@@ -97,12 +96,12 @@ export default function AutoGenerateVideoModal({
     
     setPhotoGroups(allStopsWithPhotos);
 
-    // Auto-set transport modes between ALL consecutive stops
+    // Auto-set transport modes to "car" instead of "plane"
     const modes: Record<string, string> = {};
     for (let i = 0; i < allStopsWithPhotos.length - 1; i++) {
       const from = allStopsWithPhotos[i].stop;
       const to = allStopsWithPhotos[i + 1].stop;
-      modes[`${from.id}-${to.id}`] = "plane";
+      modes[`${from.id}-${to.id}`] = "car";  // ✅ Changed from "plane" to "car"
     }
     setTransportModes(modes);
   };
@@ -122,7 +121,7 @@ export default function AutoGenerateVideoModal({
       return;
     }
 
-    // ✅ Prepare starting location if selected
+    // Prepare starting location if selected
     let startLocation = undefined;
     if (useStartingLocation) {
       const selected = popularStartingPoints.find(p => p.title === startingLocation);
@@ -141,7 +140,7 @@ export default function AutoGenerateVideoModal({
       ? `Trip to ${photoGroups[photoGroups.length - 1].stop.title}`
       : "Trip Video";
 
-    // ✅ Generate video with starting location
+    // Generate video with starting location
     onGenerate(
       photoGroups, 
       transportModes, 
@@ -279,7 +278,7 @@ export default function AutoGenerateVideoModal({
                 <br />
                 • {totalPhotos} photos total
                 <br />
-                • Estimated duration: ~{Math.round((totalPhotos * 2.5 + photoGroups.length * 5 + 4))}s
+                • Estimated duration: ~{Math.round((totalPhotos * 5 + (photoGroups.length - 1) * 7 + 4 + 2))}s
               </div>
             </div>
 
@@ -518,57 +517,6 @@ const transportButtonActive: React.CSSProperties = {
   borderColor: "#f59e0b",
 };
 
-const musicModeButtons: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, 1fr)",
-  gap: 8,
-  marginBottom: 12,
-};
-
-const musicModeButton: React.CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: 8,
-  border: "1px solid #e5e7eb",
-  background: "white",
-  fontSize: 13,
-  fontWeight: 600,
-  cursor: "pointer",
-  transition: "all 0.2s",
-};
-
-const musicModeButtonActive: React.CSSProperties = {
-  background: "#8b5cf6",
-  color: "white",
-  borderColor: "#8b5cf6",
-};
-
-const uploadLabel: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 8,
-  padding: "12px 16px",
-  borderRadius: 8,
-  border: "2px dashed #e5e7eb",
-  background: "white",
-  fontSize: 13,
-  fontWeight: 600,
-  cursor: "pointer",
-  color: "#6b7280",
-  transition: "all 0.2s",
-};
-
-const audioPreview: React.CSSProperties = {
-  width: "100%",
-  marginTop: 12,
-};
-
-const hint: React.CSSProperties = {
-  fontSize: 11,
-  color: "#9ca3af",
-  marginTop: 8,
-};
-
 const routeHeader: React.CSSProperties = {
   background: "#fef3c7",
   padding: 16,
@@ -678,7 +626,6 @@ const modalFooter: React.CSSProperties = {
   borderTop: "1px solid #e5e7eb",
 };
 
-// ✅ NEW: Single generate button style (full width, prominent)
 const generateButton: React.CSSProperties = {
   width: "100%",
   padding: "14px 24px",

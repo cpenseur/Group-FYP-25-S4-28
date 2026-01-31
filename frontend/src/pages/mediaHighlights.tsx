@@ -1,7 +1,4 @@
 // frontend/src/pages/mediaHighlights.tsx
-// ✅ HYBRID SYNC: Immediate local updates + Realtime for others
-// ✅ Self upload: Shows immediately (optimistic update)
-// ✅ Others upload: Realtime sync
 
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -24,6 +21,11 @@ import {
   Calendar,
   Download,
 } from "lucide-react";
+
+// Video timing constants (must match videoGenerator.ts)
+const TRAVEL_DURATION = 7;   
+const PHOTO_DURATION = 5;   
+const TITLE_DURATION = 4;    
 
 // Types (same as before)
 interface TripPhoto {
@@ -103,7 +105,6 @@ export default function MediaHighlights() {
   const [photos, setPhotos] = useState<TripPhoto[]>([]);
   const [highlights, setHighlights] = useState<MediaHighlight[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // Modals
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -154,96 +155,57 @@ export default function MediaHighlights() {
     return date.toISOString().slice(0, 16);
   };
 
-  useEffect(() => {
-    async function getCurrentUser() {
-      try {
-        const { data: { user }, error } = await supabase.auth.getUser();
-        
-        if (error) {
-          console.error("❌ Supabase auth error:", error);
-          return;
-        }
-        
-        if (user) {
-          console.log("✅ Supabase user:", user.id, user.email);
-          setCurrentUserId(user.id);
-        }
-      } catch (error) {
-        console.error("❌ Failed to get current user:", error);
-      }
+  // POLLING: Refresh photos and highlights helpers
+  const refreshPhotos = async () => {
+    if (!tripId || Number.isNaN(Number(tripId))) return;
+    try {
+      const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
+      const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
+      const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
+      setPhotos(tripPhotos);
+    } catch (error) {
+      console.error("Failed to refresh photos:", error);
     }
-    
-    getCurrentUser();
-  }, []);
+  };
 
-  // ✅ REALTIME: Only for events from OTHER users
+  const refreshHighlights = async () => {
+    if (!tripId || Number.isNaN(Number(tripId))) return;
+    try {
+      const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
+      const highlightsList = Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || [];
+      // TRIP FILTERING: Only show highlights for THIS specific trip
+      const tripHighlights = highlightsList.filter((h: MediaHighlight) => h.trip === parseInt(tripId));
+      setHighlights(tripHighlights);
+      console.log(`✅ Loaded ${tripHighlights.length} highlights for trip ${tripId} (filtered from ${highlightsList.length} total)`);
+    } catch (error) {
+      console.error("Failed to refresh highlights:", error);
+    }
+  };
+
+  // POLLING: Load + poll photos & highlights every 5 seconds
   useEffect(() => {
-    if (!tripId || !currentUserId) return;
+    if (!tripId || Number.isNaN(Number(tripId))) return;
 
-    console.log("🔌 Setting up Realtime subscription for trip", tripId);
+    let isActive = true;
+    
+    const poll = async () => {
+      if (!isActive) return;
+      await Promise.all([refreshPhotos(), refreshHighlights()]);
+    };
 
-    const channel = supabase
-      .channel(`trip-photos-${tripId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'trip_photo', // ✅ Your table name
-          filter: `trip=eq.${tripId}`,
-        },
-        (payload) => {
-          console.log('📡 Realtime event received:', payload);
-
-          // ✅ Check if event is from another user
-          const photoUserId = payload.new?.user || payload.old?.user;
-          const isOwnEvent = photoUserId === parseInt(currentUserId);
-          
-          if (isOwnEvent) {
-            console.log('⏭️  Skipping own event (already updated locally)');
-            return;
-          }
-
-          // Handle events from OTHER users
-          if (payload.eventType === 'INSERT') {
-            const newPhoto = payload.new as TripPhoto;
-            console.log('➕ Adding photo from another user:', newPhoto.id);
-            
-            setPhotos(prev => {
-              if (prev.some(p => p.id === newPhoto.id)) {
-                console.log('⚠️  Photo already exists, skipping');
-                return prev;
-              }
-              return [...prev, newPhoto];
-            });
-          } 
-          else if (payload.eventType === 'UPDATE') {
-            const updatedPhoto = payload.new as TripPhoto;
-            console.log('✏️ Updating photo from another user:', updatedPhoto.id);
-            
-            setPhotos(prev =>
-              prev.map(p => p.id === updatedPhoto.id ? updatedPhoto : p)
-            );
-          } 
-          else if (payload.eventType === 'DELETE') {
-            const deletedPhoto = payload.old as TripPhoto;
-            console.log('🗑️ Removing photo deleted by another user:', deletedPhoto.id);
-            
-            setPhotos(prev => prev.filter(p => p.id !== deletedPhoto.id));
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log('📡 Subscription status:', status);
-      });
+    // Initial load
+    poll();
+    
+    // Poll every 5 seconds
+    const intervalId = window.setInterval(poll, 5000);
 
     return () => {
-      console.log("🔌 Cleaning up Realtime subscription...");
-      supabase.removeChannel(channel);
+      isActive = false;
+      window.clearInterval(intervalId);
     };
-  }, [tripId, currentUserId]);
+  }, [tripId]);
 
-  // Load initial data
+  // Load initial data (trip, items, days)
   useEffect(() => {
     if (!tripId) return;
 
@@ -296,16 +258,8 @@ export default function MediaHighlights() {
         setMapItems(mapped);
         console.log(`🗺️ Set ${mapped.length} map items`);
 
-        const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
-        const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
-        
-        const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
-        console.log(`📸 Photos loaded: ${tripPhotos.length} (filtered from ${photosList.length})`);
-        
-        setPhotos(tripPhotos);
-
-        const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
-        setHighlights(Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || []);
+        // Initial load of photos and highlights
+        await Promise.all([refreshPhotos(), refreshHighlights()]);
         
         console.log("=== ✅ Data Loading Complete ===\n");
       } catch (error) {
@@ -328,12 +282,20 @@ export default function MediaHighlights() {
     if (!confirm("Delete this video highlight?")) return;
 
     try {
-      await apiFetch(`/f5/highlights/${highlightId}/`, { method: "DELETE" });
+      // Optimistic update
       setHighlights(prev => prev.filter(h => h.id !== highlightId));
-      alert("✅ Video deleted successfully!");
+      
+      await apiFetch(`/f5/highlights/${highlightId}/`, { method: "DELETE" });
+      console.log("✅ Highlight deleted:", highlightId);
+      
+      // Refresh to sync with server
+      await refreshHighlights();
     } catch (error) {
       console.error("Failed to delete highlight:", error);
       alert("❌ Failed to delete video.");
+      
+      // Revert on error
+      await refreshHighlights();
     }
   };
 
@@ -483,22 +445,12 @@ export default function MediaHighlights() {
             lon: photoLon,
           };
 
-          // ✅ POST to API
-          const createdPhoto = await apiFetch("/f5/photos/", {
+          await apiFetch("/f5/photos/", {
             method: "POST",
             body: JSON.stringify(photoData),
           });
           
-          console.log("✅ Photo created:", createdPhoto);
-
-          // ✅ IMMEDIATELY add to local state (optimistic update)
-          setPhotos(prev => {
-            // Check if already exists (prevent duplicates)
-            if (prev.some(p => p.id === createdPhoto.id)) {
-              return prev;
-            }
-            return [...prev, createdPhoto];
-          });
+          console.log("✅ Photo uploaded successfully");
           
         } catch (storageError: any) {
           console.error("Storage error:", storageError);
@@ -507,10 +459,13 @@ export default function MediaHighlights() {
         }
       }
 
-      // Reload trip data (items and days)
+      // Refresh trip data
       const tripData = await apiFetch(`/f1/trips/${tripId}/`, { method: "GET" });
       setItems(tripData.items || []);
       setDays(tripData.days || []);
+
+      // Refresh photos immediately after upload
+      await refreshPhotos();
 
       setSelectedFiles([]);
       setPhotoForms(new Map());
@@ -527,22 +482,20 @@ export default function MediaHighlights() {
     if (!confirm("Delete this photo?")) return;
 
     try {
-      // ✅ IMMEDIATELY remove from local state (optimistic update)
+      // Optimistic update
       setPhotos(prev => prev.filter(p => p.id !== photoId));
       
-      // Then delete from backend
       await apiFetch(`/f5/photos/${photoId}/`, { method: "DELETE" });
       console.log("✅ Photo deleted:", photoId);
       
+      // Refresh to sync with server
+      await refreshPhotos();
     } catch (error) {
       console.error("Failed to delete photo:", error);
       alert("Failed to delete photo.");
       
-      // ✅ On error, reload photos to restore deleted photo
-      const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
-      const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
-      const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId!));
-      setPhotos(tripPhotos);
+      // Revert on error
+      await refreshPhotos();
     }
   };
 
@@ -570,17 +523,15 @@ export default function MediaHighlights() {
         lon: photoLon,
       };
 
-      const updatedPhoto = await apiFetch(`/f5/photos/${editingPhoto.id}/`, {
+      await apiFetch(`/f5/photos/${editingPhoto.id}/`, {
         method: "PATCH",
         body: JSON.stringify(updateData),
       });
 
-      console.log("✅ Photo updated:", updatedPhoto);
+      console.log("✅ Photo updated");
 
-      // ✅ IMMEDIATELY update local state (optimistic update)
-      setPhotos(prev =>
-        prev.map(p => p.id === updatedPhoto.id ? updatedPhoto : p)
-      );
+      // Refresh photos after edit
+      await refreshPhotos();
 
       setShowEditModal(false);
       setEditingPhoto(null);
@@ -676,10 +627,10 @@ export default function MediaHighlights() {
         videoUrl = urlData.publicUrl;
         
         videoDuration = 
-          3 + 
-          (segments.length - 1) * 5 + 
-          selectedPhotos.length * 3 + 
-          3;
+          TITLE_DURATION +
+          (segments.length - 1) * TRAVEL_DURATION +
+          selectedPhotos.length * PHOTO_DURATION +
+          2;
         
         console.log("☁️ Video uploaded to:", videoUrl);
         setGenerateStatus("Saving to database...");
@@ -710,8 +661,10 @@ export default function MediaHighlights() {
         body: JSON.stringify(highlightData),
       });
 
-      const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
-      setHighlights(Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || []);
+      console.log("✅ Highlight created");
+
+      // Refresh highlights after creation
+      await refreshHighlights();
 
       setShowGenerateModal(false);
       
@@ -1046,7 +999,7 @@ export default function MediaHighlights() {
         </div>
       </div>
 
-      {/* Rest of modals - same as before */}
+      {/* Photo viewer modal */}
       {selectedPhoto && (
         <div
           style={{
@@ -1163,6 +1116,7 @@ export default function MediaHighlights() {
         </div>
       )}
 
+      {/* Upload modal */}
       {showUploadModal && (
         <div style={modalOverlay} onClick={() => setShowUploadModal(false)}>
           <div style={modalContent} onClick={(e) => e.stopPropagation()}>
@@ -1283,6 +1237,7 @@ export default function MediaHighlights() {
         </div>
       )}
 
+      {/* Edit photo modal */}
       {showEditModal && editingPhoto && (
         <div style={modalOverlay} onClick={() => setShowEditModal(false)}>
           <div style={modalContent} onClick={(e) => e.stopPropagation()}>
@@ -1343,6 +1298,7 @@ export default function MediaHighlights() {
         </div>
       )}
 
+      {/* Generate video modal */}
       {showGenerateModal && (
         <AutoGenerateVideoModal
           show={showGenerateModal}
@@ -1371,7 +1327,7 @@ export default function MediaHighlights() {
   );
 }
 
-// Styles (same as before)
+// Styles
 const loadingContainer: React.CSSProperties = { minHeight: "calc(100vh - 90px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#f9fafb" };
 const pageContainer: React.CSSProperties = { background: "#f5f7fb", minHeight: "100vh", padding: 0, fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' };
 const actionButtons: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10, background: "#fff", borderRadius: 16, padding: "16px 18px", boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)", border: "1px solid #e8edff" };

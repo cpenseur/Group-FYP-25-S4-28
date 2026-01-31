@@ -2,10 +2,11 @@
 """
 F1.5 - AI-Powered Recommendations (Real-time AI, No Database)
 
-FIXED: Better day-specific location detection and city filtering
-- Analyzes addresses more accurately
-- Filters out wrong cities comprehensively
-- Day-aware recommendations
+UPDATED: Now includes user profile preferences for personalized recommendations
+- User-specific preferences from Profile model
+- Each user gets personalized recommendations (not shared with collaborators)
+- Better day-specific location detection and city filtering
+- Allows both trip owners AND collaborators to access recommendations
 """
 
 import os
@@ -20,8 +21,9 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.conf import settings
+from django.db.models import Q
 
-from ..models import Trip, TripDay, ItineraryItem
+from ..models import Trip, TripDay, ItineraryItem, AppUser, Profile
 
 logger = logging.getLogger(__name__)
 
@@ -77,24 +79,38 @@ def call_sealion_ai(prompt: str, temperature: float = 0.7, max_tokens: int = 200
 
 
 # ============================================================================
-# F1.5 - AI Recommendations View (FIXED)
+# F1.5 - AI Recommendations View (WITH USER PROFILE PREFERENCES)
 # ============================================================================
 
 class AIRecommendationsView(APIView):
     """
-    GET /f1/recommendations/ai/?trip_id=367&day_index=1&location=Sapporo
+    GET/POST /f1/recommendations/ai/?trip_id=367&day_index=1&location=Sapporo
     
-    FIXED VERSION:
+    UPDATED VERSION:
+    - ✅ Uses current user's profile preferences (NOT collaborators)
+    - ✅ Personalized recommendations per user
     - Better location detection from addresses
     - More comprehensive city filtering
     - Day-specific recommendations
+    - Allows both owners AND collaborators
     """
     permission_classes = [IsAuthenticated]
     
     def get(self, request, *args, **kwargs):
-        trip_id = request.query_params.get('trip_id')
-        day_index_param = request.query_params.get('day_index')
-        location_override = request.query_params.get('location')
+        """Handle GET requests (backward compatibility)"""
+        return self._handle_request(request)
+    
+    def post(self, request, *args, **kwargs):
+        """Handle POST requests with user preferences in body"""
+        return self._handle_request(request)
+    
+    def _handle_request(self, request):
+        """Main request handler for both GET and POST"""
+        
+        # Get parameters from either GET or POST
+        trip_id = request.query_params.get('trip_id') or request.data.get('trip_id')
+        day_index_param = request.query_params.get('day_index') or request.data.get('day_index')
+        location_override = request.query_params.get('location') or request.data.get('location')
         
         if not trip_id:
             return Response(
@@ -102,9 +118,42 @@ class AIRecommendationsView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # ====================================================================
+        # GET CURRENT USER AND THEIR PROFILE PREFERENCES
+        # ====================================================================
+        user = request.user
+        
+        # Get AppUser
         try:
-            # Load trip data
-            trip = Trip.objects.get(id=trip_id, owner=request.user)
+            if hasattr(user, 'email'):
+                app_user = AppUser.objects.get(email=user.email)
+            else:
+                app_user = user
+        except AppUser.DoesNotExist:
+            return Response(
+                {"success": False, "error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Fetch CURRENT USER'S profile preferences (NOT collaborators)
+        user_preferences = self._get_user_preferences(app_user)
+        logger.info(f"✅ Loaded preferences for {app_user.email}: {user_preferences}")
+        
+        # ====================================================================
+        # VERIFY TRIP ACCESS
+        # ====================================================================
+        try:
+            # Allow both owner AND collaborators to access
+            trip = Trip.objects.filter(
+                Q(id=trip_id) & (Q(owner=app_user) | Q(collaborators__user=app_user))
+            ).distinct().first()
+            
+            if not trip:
+                return Response(
+                    {"success": False, "error": "Trip not found or you don't have permission"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
             all_items = ItineraryItem.objects.filter(trip=trip).order_by('day__day_index', 'sort_order')
             
             # Determine target day and items
@@ -139,7 +188,7 @@ class AIRecommendationsView(APIView):
                         for item in day_items:
                             logger.info(f"  - {item.title}: {item.address}")
                         
-                        # IMPROVED: Try to detect location from day's items
+                        # Try to detect location from day's items
                         if not location_override and day_items:
                             detected_location = self._detect_location_from_items(day_items)
                             if detected_location:
@@ -154,16 +203,20 @@ class AIRecommendationsView(APIView):
             
             logger.info(f"🎯 Final destination for recommendations: {destination}")
             logger.info(f"🎯 Using {len(day_items)} items for recommendations")
+            logger.info(f"👤 Generating personalized recommendations for: {app_user.email}")
             
             # Generate itinerary hash
             itinerary_hash = self._compute_itinerary_hash(day_items)
             
-            # Generate categorized recommendations for this specific day/location
+            # ====================================================================
+            # GENERATE PERSONALIZED RECOMMENDATIONS (WITH USER PREFERENCES)
+            # ====================================================================
             categories = self._generate_categorized_recommendations(
                 destination=destination,
                 trip=trip,
                 items=day_items,
-                day_index=target_day_index
+                day_index=target_day_index,
+                user_preferences=user_preferences  # NEW: Pass user preferences
             )
             
             return Response({
@@ -171,14 +224,10 @@ class AIRecommendationsView(APIView):
                 "destination": destination,
                 "day_index": target_day_index,
                 "itinerary_hash": itinerary_hash,
-                "categories": categories
+                "categories": categories,
+                "personalized": True,  # Flag to indicate personalized results
             })
             
-        except Trip.DoesNotExist:
-            return Response(
-                {"success": False, "error": "Trip not found or you don't have permission"},
-                status=status.HTTP_404_NOT_FOUND
-            )
         except Exception as e:
             logger.error(f"AI recommendations failed: {e}", exc_info=True)
             
@@ -188,8 +237,39 @@ class AIRecommendationsView(APIView):
                 "destination": "Unknown",
                 "day_index": target_day_index if 'target_day_index' in locals() else None,
                 "itinerary_hash": "",
-                "categories": self._fallback_categories()
+                "categories": self._fallback_categories(),
+                "personalized": False,
             })
+    
+    def _get_user_preferences(self, app_user: AppUser) -> Dict[str, Any]:
+        """
+        Fetch the current user's profile preferences.
+        Returns preferences for THIS user only (not collaborators).
+        """
+        try:
+            profile = Profile.objects.get(id=app_user.id)
+            
+            preferences = {
+                'interests': profile.interests or [],
+                'travel_pace': profile.travel_pace,
+                'budget_level': profile.budget_level,
+                'diet_preference': profile.diet_preference,
+                'mobility_needs': profile.mobility_needs,
+                'name': profile.name or app_user.full_name or 'Traveler',
+            }
+            
+            return preferences
+            
+        except Profile.DoesNotExist:
+            logger.warning(f"No profile found for user {app_user.email}, using defaults")
+            return {
+                'interests': [],
+                'travel_pace': None,
+                'budget_level': None,
+                'diet_preference': None,
+                'mobility_needs': None,
+                'name': app_user.full_name or 'Traveler',
+            }
     
     def _detect_location_from_items(self, items: List[ItineraryItem]) -> str:
         """
@@ -320,9 +400,13 @@ class AIRecommendationsView(APIView):
         destination: str, 
         trip: Trip,
         items: List[ItineraryItem],
-        day_index: int = None
+        day_index: int = None,
+        user_preferences: Dict[str, Any] = None  # NEW: User preferences parameter
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """Generate recommendations in 3 categories for specific day/location."""
+        """
+        Generate recommendations in 3 categories for specific day/location.
+        NOW WITH USER PREFERENCES for personalization.
+        """
         
         # Get existing places for context
         existing_places = [item.title for item in items if item.title]
@@ -335,40 +419,115 @@ class AIRecommendationsView(APIView):
             trip_duration = len(set(item.day_id for item in items if item.day_id)) or 1
             trip_context = f"{trip_duration}-day trip to {destination}"
         
+        # Use default preferences if none provided
+        if user_preferences is None:
+            user_preferences = {
+                'interests': [],
+                'travel_pace': None,
+                'budget_level': None,
+                'diet_preference': None,
+                'mobility_needs': None,
+                'name': 'Traveler',
+            }
+        
         categories = {}
         
-        # 1. NEARBY: Places near current itinerary (day-specific)
+        # 1. NEARBY: Places near current itinerary (day-specific + personalized)
         categories["nearby"] = self._generate_nearby_recommendations(
-            destination, existing_places_str, trip_context
+            destination, existing_places_str, trip_context, user_preferences
         )
         
-        # 2. FOOD: Dining experiences (location-specific)
+        # 2. FOOD: Dining experiences (location-specific + personalized)
         categories["food"] = self._generate_food_recommendations(
-            destination, trip_context
+            destination, trip_context, user_preferences
         )
         
-        # 3. CULTURE: Cultural attractions (location-specific)
+        # 3. CULTURE: Cultural attractions (location-specific + personalized)
         categories["culture"] = self._generate_culture_recommendations(
-            destination, trip_context
+            destination, trip_context, user_preferences
         )
         
         return categories
     
+    def _build_preference_context(self, user_preferences: Dict[str, Any]) -> str:
+        """Build a string describing user preferences for AI prompt."""
+        
+        parts = []
+        
+        # Interests
+        if user_preferences.get('interests'):
+            interests_str = ", ".join(user_preferences['interests'])
+            parts.append(f"Interests: {interests_str}")
+        
+        # Travel pace
+        if user_preferences.get('travel_pace'):
+            parts.append(f"Pace: {user_preferences['travel_pace']}")
+        
+        # Budget level
+        if user_preferences.get('budget_level'):
+            parts.append(f"Budget: {user_preferences['budget_level']}")
+        
+        # Diet preference
+        if user_preferences.get('diet_preference'):
+            parts.append(f"Diet: {user_preferences['diet_preference']}")
+        
+        # Mobility needs
+        if user_preferences.get('mobility_needs'):
+            parts.append(f"Mobility: {user_preferences['mobility_needs']}")
+        
+        if parts:
+            return "USER PREFERENCES: " + " | ".join(parts)
+        else:
+            return ""
+    
     def _generate_nearby_recommendations(
-        self, destination: str, existing_places: str, trip_context: str
+        self, 
+        destination: str, 
+        existing_places: str, 
+        trip_context: str,
+        user_preferences: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Generate nearby place recommendations using AI."""
+        """Generate nearby place recommendations using AI with user preferences."""
+        
+        # Build preference context
+        pref_context = self._build_preference_context(user_preferences)
+        
+        # Build personalization instructions
+        personalization = ""
+        if user_preferences.get('interests'):
+            interests = ", ".join(user_preferences['interests'])
+            personalization += f"\n- Focus on places related to: {interests}"
+        
+        if user_preferences.get('budget_level'):
+            if user_preferences['budget_level'].lower() in ['budget', 'low']:
+                personalization += f"\n- Prioritize FREE or low-cost options"
+            elif user_preferences['budget_level'].lower() in ['luxury', 'high']:
+                personalization += f"\n- Include premium experiences"
+        
+        if user_preferences.get('mobility_needs') and user_preferences['mobility_needs'].lower() != 'none':
+            personalization += f"\n- Ensure accessibility for: {user_preferences['mobility_needs']}"
+        
+        if user_preferences.get('travel_pace'):
+            if user_preferences['travel_pace'].lower() in ['relaxed', 'slow']:
+                personalization += f"\n- Suggest leisurely activities, avoid rushed itineraries"
+            elif user_preferences['travel_pace'].lower() in ['fast', 'packed']:
+                personalization += f"\n- Include activities that can be done efficiently"
         
         prompt = f"""You are a local travel expert in {destination}. The user is planning a {trip_context}.
+
+{pref_context}
 
 Current itinerary includes: {existing_places}
 
 Suggest 3-4 nearby places they should add, ALL located in {destination}.
 
+PERSONALIZATION REQUIREMENTS:{personalization}
+
 CRITICAL REQUIREMENTS:
 - ALL suggestions MUST be in {destination} (not other cities!)
 - Must be within walking distance or short travel from their existing stops
 - Must complement what they already have
+- Must match user's interests and preferences
 - Must be diverse (different types of attractions)
 - Must be real, well-known places in {destination}
 
@@ -376,26 +535,29 @@ Format as JSON array:
 [
   {{
     "name": "Place name (must be in {destination})",
-    "description": "Why visit (1 sentence, max 100 chars)",
+    "description": "Why visit (explain how it matches user's preferences, max 100 chars)",
     "category": "nearby",
     "duration": "30 min",
     "cost": "Free",
     "best_time": "Morning",
     "highlight": false,
-    "nearby_to": "Name of existing stop it's near"
+    "nearby_to": "Name of existing stop it's near",
+    "matched_preferences": ["Interest: culture", "Budget: free"]
   }}
 ]
 
-Example for Sapporo (if existing places include "Sapporo TV Tower"):
-- ✅ "Odori Park" - nearby to Sapporo TV Tower, in Sapporo
-- ✅ "Susukino District" - nearby to Sapporo TV Tower, in Sapporo
-- ❌ "Shibuya Crossing" - in Tokyo, NOT in Sapporo!
+IMPORTANT: The "matched_preferences" field should list which user preferences this recommendation matches.
+Examples:
+- If matches interest in "food": ["Interest: food"]
+- If matches budget preference "budget": ["Budget-friendly"]
+- If matches diet "vegetarian": ["Vegetarian options"]
+- If accessible: ["Wheelchair accessible"]
 
-VERIFY: Each suggestion is actually located in {destination}!
+VERIFY: Each suggestion is actually located in {destination} AND matches user preferences!
 
-Mark the BEST recommendation with "highlight": true.
+Mark the BEST recommendation (that best matches user preferences) with "highlight": true.
 Keep descriptions under 100 characters.
-Use realistic costs and durations.
+Use realistic costs matching user's budget preference.
 Respond ONLY with valid JSON array, no markdown."""
 
         try:
@@ -403,25 +565,52 @@ Respond ONLY with valid JSON array, no markdown."""
             content = self._clean_json(content)
             recs = json.loads(content)
             validated = self._validate_recommendations(recs)
-            # IMPROVED: Better filtering
             filtered = self._filter_wrong_location(validated, destination)
-            logger.info(f"✅ Generated {len(filtered)} nearby recommendations for {destination}")
+            logger.info(f"✅ Generated {len(filtered)} personalized nearby recommendations for {destination}")
             return filtered
         except Exception as e:
             logger.warning(f"AI nearby recommendations failed: {e}")
             return self._fallback_nearby(destination)
     
     def _generate_food_recommendations(
-        self, destination: str, trip_context: str
+        self, 
+        destination: str, 
+        trip_context: str,
+        user_preferences: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Generate food & dining recommendations using AI."""
+        """Generate food & dining recommendations using AI with user preferences."""
+        
+        # Build preference context
+        pref_context = self._build_preference_context(user_preferences)
+        
+        # Build diet-specific instructions
+        diet_requirements = ""
+        if user_preferences.get('diet_preference'):
+            diet_pref = user_preferences['diet_preference']
+            if diet_pref.lower() in ['vegetarian', 'vegan', 'halal', 'kosher']:
+                diet_requirements = f"\n⚠️ CRITICAL: User is {diet_pref}. ONLY recommend restaurants that serve {diet_pref} options!"
+            elif diet_pref.lower() != 'no restrictions':
+                diet_requirements = f"\n⚠️ IMPORTANT: User has dietary preference: {diet_pref}. Consider this in recommendations."
+        
+        # Budget instructions
+        budget_guidance = ""
+        if user_preferences.get('budget_level'):
+            if user_preferences['budget_level'].lower() in ['budget', 'low']:
+                budget_guidance = "\n💰 Focus on affordable local eateries and street food"
+            elif user_preferences['budget_level'].lower() in ['luxury', 'high']:
+                budget_guidance = "\n💎 Include fine dining and premium restaurants"
         
         prompt = f"""You are a local food expert in {destination}. Suggest 3-4 must-try food experiences specifically in {destination}.
+
+{pref_context}
+{diet_requirements}
+{budget_guidance}
 
 IMPORTANT: ALL suggestions MUST be:
 - Actually located IN {destination} (not other cities)
 - Real, existing restaurants or food areas in {destination}
 - Popular with both locals and tourists in {destination}
+- MATCH user's dietary preferences
 
 Context: {trip_context}
 
@@ -434,23 +623,29 @@ Format as JSON array:
 [
   {{
     "name": "Restaurant/Food name (must be in {destination})",
-    "description": "What makes it special (1 sentence, max 100 chars)",
+    "description": "What makes it special + why it matches user preferences (max 100 chars)",
     "category": "food",
     "duration": "1-2 hours",
     "cost": "$20-40",
     "best_time": "Lunch",
-    "highlight": false
+    "highlight": false,
+    "matched_preferences": ["Interest: food", "Diet: vegetarian"]
   }}
 ]
 
-Example for Sapporo:
-- ✅ "Sapporo Ramen Yokocho" (in Sapporo)
-- ✅ "Nijo Market" (in Sapporo)
-- ❌ "Tsukiji Market" (in Tokyo, not Sapporo)
+IMPORTANT: The "matched_preferences" field should list which user preferences this recommendation matches.
+Examples:
+- If vegetarian restaurant: ["Vegetarian-friendly"]
+- If budget option: ["Budget-friendly"]
+- If matches food interest: ["Interest: food"]
+- If local specialty: ["Local cuisine"]
 
-CRITICAL: Verify each suggestion is actually in {destination}, not another city!
+CRITICAL: Verify each suggestion:
+1. Is actually in {destination} (not another city)
+2. Matches user's dietary preference{' (' + user_preferences.get('diet_preference') + ')' if user_preferences.get('diet_preference') else ''}
+3. Fits user's budget level{' (' + user_preferences.get('budget_level') + ')' if user_preferences.get('budget_level') else ''}
 
-Mark the BEST recommendation with "highlight": true.
+Mark the BEST recommendation (that best matches ALL preferences) with "highlight": true.
 Keep descriptions under 100 characters.
 Use realistic price ranges for {destination}.
 Respond ONLY with valid JSON array, no markdown."""
@@ -461,23 +656,50 @@ Respond ONLY with valid JSON array, no markdown."""
             recs = json.loads(content)
             validated = self._validate_recommendations(recs)
             filtered = self._filter_wrong_location(validated, destination)
-            logger.info(f"✅ Generated {len(filtered)} food recommendations for {destination}")
+            logger.info(f"✅ Generated {len(filtered)} personalized food recommendations for {destination}")
             return filtered
         except Exception as e:
             logger.warning(f"AI food recommendations failed: {e}")
             return self._fallback_food(destination)
     
     def _generate_culture_recommendations(
-        self, destination: str, trip_context: str
+        self, 
+        destination: str, 
+        trip_context: str,
+        user_preferences: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Generate cultural attraction recommendations using AI."""
+        """Generate cultural attraction recommendations using AI with user preferences."""
+        
+        # Build preference context
+        pref_context = self._build_preference_context(user_preferences)
+        
+        # Build interest-specific guidance
+        interest_guidance = ""
+        if user_preferences.get('interests'):
+            interests = user_preferences['interests']
+            if 'culture' in interests or 'history' in interests:
+                interest_guidance += "\n- User loves culture/history - emphasize historical significance"
+            if 'art' in interests or 'photography' in interests:
+                interest_guidance += "\n- User interested in art/photography - suggest visually stunning sites"
+            if 'nature' in interests:
+                interest_guidance += "\n- User loves nature - include cultural sites with gardens/natural elements"
+        
+        # Mobility considerations
+        accessibility_note = ""
+        if user_preferences.get('mobility_needs') and user_preferences['mobility_needs'].lower() != 'none':
+            accessibility_note = f"\n♿ IMPORTANT: Ensure recommendations are accessible for: {user_preferences['mobility_needs']}"
         
         prompt = f"""You are a cultural guide for {destination}. Suggest 3-4 cultural attractions specifically in {destination}.
+
+{pref_context}
+{interest_guidance}
+{accessibility_note}
 
 IMPORTANT: ALL suggestions MUST be:
 - Actually located IN {destination} (not other cities)
 - Real, existing cultural sites in {destination}
 - Famous landmarks or attractions IN {destination}
+- MATCH user's interests and accessibility needs
 
 Context: {trip_context}
 
@@ -491,28 +713,30 @@ Format as JSON array:
 [
   {{
     "name": "Attraction name (must be in {destination})",
-    "description": "Why visit (1 sentence, max 100 chars)",
+    "description": "Why visit + how it matches user interests (max 100 chars)",
     "category": "culture",
     "duration": "2-3 hours",
     "cost": "$10-20",
     "best_time": "Morning",
-    "highlight": false
+    "highlight": false,
+    "matched_preferences": ["Interest: culture", "Interest: history"]
   }}
 ]
 
-Example for Sapporo:
-- ✅ "Hokkaido Shrine" (in Sapporo)
-- ✅ "Sapporo Clock Tower" (in Sapporo)
-- ❌ "Senso-ji Temple" (in Tokyo, not Sapporo)
+IMPORTANT: The "matched_preferences" field should list which user preferences this recommendation matches.
+Examples:
+- If historical site and user likes history: ["Interest: history"]
+- If art museum and user likes art: ["Interest: art"]
+- If accessible: ["Wheelchair accessible"]
+- If photogenic and user likes photography: ["Interest: photography"]
+- If includes nature: ["Interest: nature"]
 
-Example for Kyoto:
-- ✅ "Fushimi Inari Shrine" (in Kyoto)
-- ✅ "Kinkaku-ji Temple" (in Kyoto)
-- ❌ "Tokyo National Museum" (in Tokyo, not Kyoto)
+CRITICAL: Verify each suggestion:
+1. Is actually in {destination} (not another city)
+2. Matches user's interests{' (' + ', '.join(user_preferences.get('interests', [])) + ')' if user_preferences.get('interests') else ''}
+3. Is accessible if needed{' (' + user_preferences.get('mobility_needs') + ')' if user_preferences.get('mobility_needs') and user_preferences['mobility_needs'] != 'none' else ''}
 
-CRITICAL: Verify each suggestion is actually in {destination}, not another city!
-
-Mark the BEST recommendation with "highlight": true.
+Mark the BEST recommendation (that best matches user's profile) with "highlight": true.
 Keep descriptions under 100 characters.
 Use realistic entry fees and durations.
 Respond ONLY with valid JSON array, no markdown."""
@@ -523,7 +747,7 @@ Respond ONLY with valid JSON array, no markdown."""
             recs = json.loads(content)
             validated = self._validate_recommendations(recs)
             filtered = self._filter_wrong_location(validated, destination)
-            logger.info(f"✅ Generated {len(filtered)} culture recommendations for {destination}")
+            logger.info(f"✅ Generated {len(filtered)} personalized culture recommendations for {destination}")
             return filtered
         except Exception as e:
             logger.warning(f"AI culture recommendations failed: {e}")
@@ -555,6 +779,11 @@ Respond ONLY with valid JSON array, no markdown."""
                 if len(description) > 150:
                     description = description[:147] + "..."
                 
+                # Get matched preferences (may be empty list)
+                matched_prefs = rec.get("matched_preferences", [])
+                if not isinstance(matched_prefs, list):
+                    matched_prefs = []
+                
                 validated.append({
                     "name": rec.get("name", "Unknown"),
                     "description": description,
@@ -565,6 +794,7 @@ Respond ONLY with valid JSON array, no markdown."""
                     "highlight": rec.get("highlight", False),
                     "nearby_to": rec.get("nearby_to"),
                     "action": rec.get("action"),
+                    "matched_preferences": matched_prefs,  # NEW: Include matched preferences
                 })
         
         return validated
@@ -579,7 +809,6 @@ Respond ONLY with valid JSON array, no markdown."""
             return recommendations
         
         # City database - FIXED: Handle Hokkaido/Sapporo relationship properly
-        # Note: Sapporo is IN Hokkaido, so Hokkaido landmarks in Sapporo are valid
         city_groups = {
             # Japan - Major Cities
             "tokyo": ["tokyo", "shibuya", "shinjuku", "harajuku", "asakusa", "ginza", "roppongi", "akihabara"],
@@ -587,11 +816,8 @@ Respond ONLY with valid JSON array, no markdown."""
             "kyoto": ["kyoto", "gion", "arashiyama", "fushimi"],
             
             # Hokkaido Region - Special handling
-            # Sapporo is the capital city of Hokkaido prefecture
-            # When user is in Sapporo, allow both "sapporo" AND "hokkaido" mentions
-            # since many Sapporo attractions are named "Hokkaido X"
             "sapporo": ["sapporo", "susukino", "hokkaido"],  # Include hokkaido for Sapporo
-            "otaru": ["otaru"],  # Other Hokkaido cities filter separately
+            "otaru": ["otaru"],
             "hakodate": ["hakodate"],
             "niseko": ["niseko"],
             
@@ -633,12 +859,11 @@ Respond ONLY with valid JSON array, no markdown."""
             logger.info(f"⚠️ Location '{expected_location}' not in filter database, skipping strict filter")
             return recommendations
         
-        # FIXED: Get all other cities' aliases (cities to filter out)
-        # Only add cities from OTHER groups (not the expected city's group)
+        # Get all other cities' aliases (cities to filter out)
         wrong_cities = []
         for city_key, aliases in city_groups.items():
-            if city_key != expected_city_key:  # Only add OTHER city groups
-                safe_aliases = [a for a in aliases if len(a) >= 4]  # Avoid short aliases
+            if city_key != expected_city_key:
+                safe_aliases = [a for a in aliases if len(a) >= 4]
                 wrong_cities.extend(safe_aliases)
         
         logger.info(f"🚫 Will filter out mentions of: {wrong_cities[:10]}... (showing first 10)")
@@ -657,7 +882,6 @@ Respond ONLY with valid JSON array, no markdown."""
             detected_wrong = None
             
             for wrong_city in wrong_cities:
-                # Use word boundary regex for accuracy
                 pattern = r'\b' + re.escape(wrong_city) + r'\b'
                 
                 if re.search(pattern, name_lower) or re.search(pattern, desc_lower):
@@ -665,8 +889,6 @@ Respond ONLY with valid JSON array, no markdown."""
                     detected_wrong = wrong_city
                     break
             
-            # KEEP if it doesn't mention wrong cities
-            # (It's OK if it mentions the correct city - that's expected!)
             if not contains_wrong_city:
                 filtered.append(rec)
                 logger.info(f"  ✅ KEPT: {rec.get('name')}")
@@ -726,7 +948,7 @@ Respond ONLY with valid JSON array, no markdown."""
 
 
 # ============================================================================
-# Quick Add Recommendation
+# Quick Add Recommendation (WITH USER ACCESS CHECK)
 # ============================================================================
 
 class QuickAddRecommendationView(APIView):
@@ -734,6 +956,7 @@ class QuickAddRecommendationView(APIView):
     POST /f1/recommendations/quick-add/
     
     Quickly add an AI-generated recommendation to trip itinerary.
+    ✅ Allows both owners AND collaborators
     """
     permission_classes = [IsAuthenticated]
     
@@ -748,9 +971,25 @@ class QuickAddRecommendationView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Get AppUser
+        user = request.user
         try:
-            trip = Trip.objects.get(id=trip_id, owner=request.user)
-        except Trip.DoesNotExist:
+            if hasattr(user, 'email'):
+                app_user = AppUser.objects.get(email=user.email)
+            else:
+                app_user = user
+        except AppUser.DoesNotExist:
+            return Response(
+                {"success": False, "error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Allow both owner AND collaborators to add recommendations
+        trip = Trip.objects.filter(
+            Q(id=trip_id) & (Q(owner=app_user) | Q(collaborators__user=app_user))
+        ).distinct().first()
+        
+        if not trip:
             return Response(
                 {"success": False, "error": "Trip not found or you don't have permission"},
                 status=status.HTTP_404_NOT_FOUND

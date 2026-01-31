@@ -33,10 +33,10 @@ interface GenerateVideoOptions {
 const CANVAS_WIDTH = 1280;
 const CANVAS_HEIGHT = 720;
 const FPS = 24;
-const TRAVEL_DURATION = 3;
-const PHOTO_DURATION = 2.5;
-const TRANSITION_DURATION = 0.5;
-const TITLE_DURATION = 2;
+const TRAVEL_DURATION = 7;        
+const PHOTO_DURATION = 5;         
+const TRANSITION_DURATION = 1.0;  
+const TITLE_DURATION = 4;         
 
 const transportEmojis: Record<string, string> = {
   plane: "✈️",
@@ -76,7 +76,7 @@ export class MapVideoGenerator {
       const stream = this.canvas.captureStream(FPS);
       this.mediaRecorder = new MediaRecorder(stream, {
         mimeType: "video/webm;codecs=vp9",
-        videoBitsPerSecond: 3000000,
+        videoBitsPerSecond: 1500000,  // ✅ REDUCED: 1.5 Mbps (was 3 Mbps) - 50% smaller files
       });
 
       this.recordedChunks = [];
@@ -91,7 +91,7 @@ export class MapVideoGenerator {
       let totalFrames = FPS * TITLE_DURATION;
       for (let i = 0; i < groups.length; i++) {
         if (i > 0) {
-          totalFrames += 5 * FPS;
+          totalFrames += TRAVEL_DURATION * FPS;  // ✅ FIXED: Use constant
         }
         totalFrames += TRANSITION_DURATION * FPS;
         totalFrames += groups[i].photos.length * PHOTO_DURATION * FPS;
@@ -118,7 +118,7 @@ export class MapVideoGenerator {
             // Show journey from starting location to first stop
             if (onProgress) {
               const progress = (currentFrame / totalFrames) * 100;
-              const transport = options.firstStopTransport || "plane";
+              const transport = options.firstStopTransport || "car";  // ✅ FIXED: Changed from "plane" to "car"
               onProgress(progress, `${transportEmojis[transport]} from ${options.startingLocation.title} to ${group.stop.title}...`);
             }
 
@@ -130,10 +130,10 @@ export class MapVideoGenerator {
                 lon: options.startingLocation.lon,
               },
               group.stop,
-              options.firstStopTransport || "plane",
-              5
+              options.firstStopTransport || "car",  // ✅ FIXED: Changed from "plane" to "car"
+              TRAVEL_DURATION  // ✅ FIXED: Use constant instead of hardcoded 5
             );
-            currentFrame += 5 * FPS;
+            currentFrame += TRAVEL_DURATION * FPS;  // ✅ FIXED: Use constant
           } else {
             // No starting location, just show first stop briefly
             if (onProgress) {
@@ -147,7 +147,7 @@ export class MapVideoGenerator {
           // TRAVEL ANIMATION between stops
           const prevGroup = groups[i - 1];
           const key = `${prevGroup.stop.id}-${group.stop.id}`;
-          const transport = transportModes[key] || "plane";
+          const transport = transportModes[key] || "car";  // ✅ FIXED: Changed from "plane" to "car"
 
           if (onProgress) {
             const progress = (currentFrame / totalFrames) * 100;
@@ -158,9 +158,9 @@ export class MapVideoGenerator {
             prevGroup.stop,
             group.stop,
             transport,
-            5
+            TRAVEL_DURATION  // ✅ FIXED: Use constant instead of hardcoded 5
           );
-          currentFrame += 5 * FPS;
+          currentFrame += TRAVEL_DURATION * FPS;  // ✅ FIXED: Use constant
         }
 
         // Photos at this location (if any)
@@ -369,10 +369,15 @@ export class MapVideoGenerator {
       [Math.max(from.lon, to.lon), Math.max(from.lat, to.lat)]
     );
 
+    // ✅ FIXED: Match map animation duration to actual frame duration
+    // Convert duration to milliseconds and match exactly
+    const mapDuration = duration * 1000;
+    
     this.map!.fitBounds(bounds, {
       padding: 150,
-      duration: duration * 1000,
+      duration: mapDuration,  // ✅ Use exact duration
       essential: true,
+      easing: (t) => t,  // ✅ Linear easing for consistent speed
     });
 
     for (let i = 0; i < frames; i++) {
@@ -555,7 +560,6 @@ export class MapVideoGenerator {
       ctx.globalAlpha = opacity;
       ctx.fillStyle = "white";
       
-      // Smaller end font (70px instead of 100px)
       ctx.font = "bold 70px Arial";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -566,28 +570,44 @@ export class MapVideoGenerator {
     }
   }
 
+  // Updated to handle very long text with smaller font and aggressive truncation
   private drawLocationLabel(text: string, x: number, y: number, opacity: number = 1) {
     const ctx = this.ctx;
     
     ctx.save();
     ctx.globalAlpha = opacity;
     
-    ctx.font = "bold 36px Arial";
-    const metrics = ctx.measureText(text);
+    // FURTHER REDUCED: Font size from 28px to 24px to prevent overflow
+    ctx.font = "bold 24px Arial";
+    
+    // REDUCED: Limit label width to 60% of canvas width (was 70%)
+    const maxWidth = CANVAS_WIDTH * 0.6;
+    let displayText = text;
+    let metrics = ctx.measureText(displayText);
+    
+    // Truncate with ellipsis if too long
+    if (metrics.width > maxWidth) {
+      while (metrics.width > maxWidth && displayText.length > 0) {
+        displayText = displayText.slice(0, -1);
+        metrics = ctx.measureText(displayText + "...");
+      }
+      displayText = displayText + "...";
+    }
+    
     const textWidth = metrics.width;
-    const padding = 20;
-    const boxWidth = textWidth + padding * 2;
-    const boxHeight = 55;
+    const padding = 14;  // ✅ Reduced from 16 to 14
+    const boxWidth = Math.min(textWidth + padding * 2, maxWidth + padding * 2);
+    const boxHeight = 44;  // ✅ Reduced from 48 to 44
     
     ctx.fillStyle = "rgba(17, 24, 39, 0.85)";
     ctx.beginPath();
-    ctx.roundRect(x - boxWidth/2, y - boxHeight/2, boxWidth, boxHeight, 28);
+    ctx.roundRect(x - boxWidth/2, y - boxHeight/2, boxWidth, boxHeight, 22);  // ✅ Reduced border radius
     ctx.fill();
 
     ctx.fillStyle = "white";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(text, x, y);
+    ctx.fillText(displayText, x, y);
     
     ctx.restore();
   }
