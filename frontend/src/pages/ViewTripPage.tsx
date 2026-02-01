@@ -1,8 +1,8 @@
 // frontend/src/pages/ViewTripPage.tsx
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import styled from "styled-components";
-import { MapPin, CalendarDays, Eye, Clock, Bed, DollarSign, FileText, Camera, Lightbulb } from "lucide-react";
+import { MapPin, Eye, Bed, CalendarDays, FileText, DollarSign, Camera, Lightbulb } from "lucide-react";
+import ItineraryMap, { MapItineraryItem } from "../components/ItineraryMap";
 
 type TripDay = {
   id: number;
@@ -19,6 +19,10 @@ type ItineraryItem = {
   start_time: string | null;
   end_time: string | null;
   sort_order: number;
+  lat?: number | null;
+  lon?: number | null;
+  address?: string | null;
+  thumbnail_url?: string | null;
 };
 
 type ViewTripData = {
@@ -37,469 +41,12 @@ type ViewTripData = {
 
 type ActiveTab = 'itinerary' | 'notes' | 'budget' | 'media' | 'recommendations';
 
-/* ============================
-   Styled Components
-============================= */
-
-const PageContainer = styled.div`
-  min-height: 100vh;
-  background: #f8fafb;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-`;
-
-const ViewOnlyBanner = styled.div`
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border-bottom: 2px solid #f59e0b;
-  padding: 0.75rem;
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.6rem;
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: #92400e;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-`;
-
-const Header = styled.div`
-  background: white;
-  border-bottom: 1px solid #e5e7eb;
-  padding: 1.25rem 2rem;
-`;
-
-const HeaderContent = styled.div`
-  max-width: 1600px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 1.5rem;
-`;
-
-const LeftSection = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  flex: 1;
-`;
-
-const Avatar = styled.div`
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: 700;
-  font-size: 1.1rem;
-  flex-shrink: 0;
-  border: 2px solid white;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-`;
-
-const TripInfo = styled.div`
-  flex: 1;
-`;
-
-const TripTitle = styled.h1`
-  margin: 0 0 0.5rem 0;
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #111827;
-  line-height: 1.2;
-`;
-
-const StatsRow = styled.div`
-  display: flex;
-  gap: 2rem;
-  align-items: center;
-  flex-wrap: wrap;
-`;
-
-const StatItem = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-`;
-
-const StatLabel = styled.div`
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: #9ca3af;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-`;
-
-const StatValue = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #111827;
-`;
-
-const BookButton = styled.button`
-  border-radius: 999px;
-  padding: 0.65rem 1.2rem;
-  border: 1px solid #10b981;
-  background: #ecfdf3;
-  color: #065f46;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: default;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-shrink: 0;
-`;
-
-const MainContainer = styled.div`
-  display: flex;
-  height: calc(100vh - 140px);
-  max-width: 1600px;
-  margin: 0 auto;
-  gap: 1.5rem;
-  padding: 1.5rem;
-
-  @media (max-width: 1024px) {
-    flex-direction: column;
-    height: auto;
-  }
-`;
-
-const MapSection = styled.div`
-  flex: 0 0 35%;
-  background: white;
-  border-radius: 16px;
-  border: 1px solid #e5e7eb;
-  overflow: hidden;
-  position: relative;
-  min-height: 500px;
-
-  @media (max-width: 1024px) {
-    flex: none;
-    height: 400px;
-  }
-`;
-
-const MapPlaceholder = styled.div`
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  text-align: center;
-  padding: 2rem;
-  position: relative;
-  overflow: hidden;
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
-    animation: pulse 4s ease-in-out infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { transform: scale(1); opacity: 0.3; }
-    50% { transform: scale(1.1); opacity: 0.5; }
-  }
-`;
-
-const MapIcon = styled.div`
-  font-size: 3rem;
-  margin-bottom: 1rem;
-  animation: float 3s ease-in-out infinite;
-
-  @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-10px); }
-  }
-`;
-
-const MapText = styled.div`
-  font-size: 1.3rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
-  z-index: 1;
-`;
-
-const MapSubtext = styled.div`
-  font-size: 0.95rem;
-  opacity: 0.9;
-  z-index: 1;
-`;
-
-const ContentSection = styled.div`
-  flex: 1;
-  background: white;
-  border-radius: 16px;
-  border: 1px solid #e5e7eb;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-`;
-
-const TabsBar = styled.div`
-  display: flex;
-  border-bottom: 1px solid #e5e7eb;
-  background: #fafbfc;
-  padding: 0 1.5rem;
-  overflow-x: auto;
-`;
-
-const Tab = styled.div<{ $active?: boolean }>`
-  padding: 1rem 1.2rem;
-  font-size: 0.9rem;
-  font-weight: ${(p) => (p.$active ? 650 : 500)};
-  color: ${(p) => (p.$active ? "#1f2937" : "#6b7280")};
-  border-bottom: 3px solid ${(p) => (p.$active ? "#3730a3" : "transparent")};
-  cursor: pointer;
-  white-space: nowrap;
-  position: relative;
-  top: 1px;
-  transition: all 0.2s ease;
-
-  &:hover {
-    color: #1f2937;
-    background: ${(p) => (p.$active ? 'transparent' : '#f3f4f6')};
-  }
-`;
-
-const TabContent = styled.div`
-  flex: 1;
-  overflow-y: auto;
-  padding: 1.5rem;
-`;
-
-const ContentHeader = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1.5rem;
-  gap: 1rem;
-  flex-wrap: wrap;
-`;
-
-const SectionTitle = styled.h2`
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: #111827;
-  margin: 0;
-`;
-
-const DayCard = styled.div`
-  margin-bottom: 1.5rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  overflow: hidden;
-  background: white;
-`;
-
-const DayHeader = styled.div`
-  background: linear-gradient(135deg, #fafbfc 0%, #fff 100%);
-  padding: 0.9rem 1.25rem;
-  border-bottom: 1px solid #e5e7eb;
-`;
-
-const DayTitle = styled.h3`
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 700;
-  color: #111827;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-`;
-
-const ItemsList = styled.div`
-  padding: 0;
-`;
-
-const ItemCard = styled.div`
-  display: flex;
-  gap: 1rem;
-  padding: 1.25rem;
-  border-bottom: 1px solid #f3f4f6;
-  transition: background 0.15s ease;
-
-  &:last-child {
-    border-bottom: none;
-  }
-
-  &:hover {
-    background: #f9fafb;
-  }
-`;
-
-const ItemNumber = styled.div`
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: #f3f4f6;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.85rem;
-  font-weight: 650;
-  color: #6b7280;
-  margin-top: 2px;
-`;
-
-const ItemImage = styled.div`
-  flex-shrink: 0;
-  width: 72px;
-  height: 72px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  overflow: hidden;
-  
-  img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-`;
-
-const ItemContent = styled.div`
-  flex: 1;
-  min-width: 0;
-`;
-
-const ItemHeader = styled.div`
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.5rem;
-`;
-
-const ItemTitle = styled.h4`
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 650;
-  color: #111827;
-  line-height: 1.3;
-`;
-
-const ItemMeta = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-`;
-
-const ItemTime = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.85rem;
-  color: #6b7280;
-  font-weight: 500;
-`;
-
-const ItemLocation = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.85rem;
-  color: #6b7280;
-`;
-
-const EmptyTabContent = styled.div`
-  text-align: center;
-  padding: 4rem 2rem;
-  color: #9ca3af;
-`;
-
-const EmptyIcon = styled.div`
-  font-size: 3rem;
-  margin-bottom: 1rem;
-  opacity: 0.5;
-`;
-
-const EmptyTitle = styled.h3`
-  margin: 0 0 0.5rem 0;
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: #6b7280;
-`;
-
-const EmptyText = styled.p`
-  margin: 0;
-  font-size: 0.95rem;
-  color: #9ca3af;
-`;
-
-const LoadingContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 60vh;
-  gap: 1rem;
-`;
-
-const LoadingSpinner = styled.div`
-  width: 48px;
-  height: 48px;
-  border: 4px solid #e5e7eb;
-  border-top-color: #6366f1;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-`;
-
-const ErrorContainer = styled.div`
-  max-width: 600px;
-  margin: 4rem auto;
-  background: white;
-  border-radius: 16px;
-  padding: 3rem 2rem;
-  text-align: center;
-  border: 1px solid #e5e7eb;
-`;
-
-const ErrorTitle = styled.h2`
-  margin: 0 0 1rem 0;
-  font-size: 1.8rem;
-  font-weight: 700;
-  color: #dc2626;
-`;
-
-const ErrorMessage = styled.p`
-  margin: 0;
-  font-size: 1.1rem;
-  color: #6b7280;
-  line-height: 1.6;
-`;
-
-/* ============================
-   Main Component
-============================= */
-
 export default function ViewTripPage() {
   const { tripId } = useParams<{ tripId: string }>();
   const [tripData, setTripData] = useState<ViewTripData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeDay, setActiveDay] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('itinerary');
 
   useEffect(() => {
@@ -514,11 +61,16 @@ export default function ViewTripPage() {
           if (response.status === 404) {
             throw new Error("Trip not found");
           }
-          throw new Error(`Failed to load trip (Status: ${response.status})`);
+          throw new Error(`Failed to load trip`);
         }
 
         const data = await response.json();
+        console.log("Trip data loaded:", data);
         setTripData(data);
+        
+        if (data.days && data.days.length > 0) {
+          setActiveDay(data.days[0].day_index);
+        }
       } catch (err) {
         console.error("Error fetching trip:", err);
         setError(err instanceof Error ? err.message : "Something went wrong");
@@ -531,7 +83,7 @@ export default function ViewTripPage() {
   }, [tripId]);
 
   const formatDate = (dateString: string | null) => {
-    if (!dateString) return "Date not set";
+    if (!dateString) return "";
     const date = new Date(dateString);
     return date.toLocaleDateString("en-US", {
       weekday: "long",
@@ -541,24 +93,36 @@ export default function ViewTripPage() {
     });
   };
 
+  const formatDateShort = (dateString: string | null) => {
+    if (!dateString) return "";
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" });
+  };
+
   const formatTime = (timeString: string | null) => {
-    if (!timeString) return null;
+    if (!timeString) return "";
     
     try {
-      // Handle different time formats
       let dateObj: Date;
       
+      // Parse different time formats
       if (timeString.includes('T')) {
-        // Full ISO datetime
+        // ISO format with T: "2026-02-24T07:00:00"
         dateObj = new Date(timeString);
+      } else if (timeString.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/)) {
+        // Format: "2026-02-24 07:00:00+00:00"
+        const cleanTime = timeString.split('+')[0].trim(); // Remove timezone
+        dateObj = new Date(cleanTime);
       } else if (timeString.includes(':')) {
-        // Time only (HH:MM or HH:MM:SS)
-        dateObj = new Date(`2000-01-01T${timeString}`);
+        // Time only: "07:00:00" or "07:00"
+        const timePart = timeString.split('.')[0]; // Remove milliseconds if present
+        dateObj = new Date(`2000-01-01T${timePart}`);
       } else {
         return timeString;
       }
 
       if (isNaN(dateObj.getTime())) {
+        console.warn("Invalid time:", timeString);
         return timeString;
       }
 
@@ -567,7 +131,8 @@ export default function ViewTripPage() {
         minute: "2-digit",
         hour12: true,
       });
-    } catch {
+    } catch (err) {
+      console.error("Error formatting time:", timeString, err);
       return timeString;
     }
   };
@@ -581,236 +146,657 @@ export default function ViewTripPage() {
     return `${days} DAYS - ${nights} NIGHTS`;
   };
 
-  const formatBudget = (amount: number = 90000) => {
-    return amount.toLocaleString();
-  };
+  const mapItems: MapItineraryItem[] = tripData?.days.flatMap((day) =>
+    day.items
+      .filter(item => item.lat != null && item.lon != null)
+      .map((item, idx) => ({
+        id: item.id,
+        title: item.title,
+        address: item.address || item.location || null,
+        lat: item.lat || null,
+        lon: item.lon || null,
+        sort_order: item.sort_order,
+        day_index: day.day_index,
+        stop_index: idx + 1,
+      }))
+  ) || [];
 
   const renderTabContent = () => {
-    switch (activeTab) {
-      case 'itinerary':
-        return (
-          <>
-            <ContentHeader>
-              <SectionTitle>Itinerary Planner</SectionTitle>
-            </ContentHeader>
+    if (activeTab !== 'itinerary') {
+      const tabIcons: Record<ActiveTab, React.ReactNode> = {
+        itinerary: null,
+        notes: <FileText size={48} strokeWidth={1.5} />,
+        budget: <DollarSign size={48} strokeWidth={1.5} />,
+        media: <Camera size={48} strokeWidth={1.5} />,
+        recommendations: <Lightbulb size={48} strokeWidth={1.5} />,
+      };
 
-            {tripData && tripData.days.length === 0 ? (
-              <EmptyTabContent>
-                <EmptyIcon>📅</EmptyIcon>
-                <EmptyText>
-                  This trip doesn't have any planned activities yet.
-                </EmptyText>
-              </EmptyTabContent>
-            ) : (
-              tripData?.days.map((day) => (
-                <DayCard key={day.id}>
-                  <DayHeader>
-                    <DayTitle>
-                      DAY {day.day_index} {formatDate(day.date)}
-                    </DayTitle>
-                  </DayHeader>
+      const tabTitles: Record<ActiveTab, string> = {
+        itinerary: '',
+        notes: 'Notes & Checklists',
+        budget: 'Budget',
+        media: 'Media Highlights',
+        recommendations: 'Recommendations',
+      };
 
-                  {day.items.length === 0 ? (
-                    <EmptyTabContent>
-                      <EmptyText>No activities planned for this day</EmptyText>
-                    </EmptyTabContent>
-                  ) : (
-                    <ItemsList>
-                      {day.items.map((item, index) => (
-                        <ItemCard key={item.id}>
-                          <ItemNumber>{index + 1}</ItemNumber>
-                          
-                          <ItemImage />
-
-                          <ItemContent>
-                            <ItemHeader>
-                              <ItemTitle>{item.title}</ItemTitle>
-                            </ItemHeader>
-
-                            <ItemMeta>
-                              {(item.start_time || item.end_time) && (
-                                <ItemTime>
-                                  {item.start_time && formatTime(item.start_time)}
-                                  {item.start_time && item.end_time && " – "}
-                                  {item.end_time && formatTime(item.end_time)}
-                                </ItemTime>
-                              )}
-
-                              {item.location && (
-                                <ItemLocation>
-                                  <MapPin size={13} strokeWidth={2} />
-                                  {item.location}
-                                </ItemLocation>
-                              )}
-                            </ItemMeta>
-                          </ItemContent>
-                        </ItemCard>
-                      ))}
-                    </ItemsList>
-                  )}
-                </DayCard>
-              ))
-            )}
-          </>
-        );
-
-      case 'notes':
-        return (
-          <EmptyTabContent>
-            <EmptyIcon><FileText size={48} strokeWidth={1.5} /></EmptyIcon>
-            <EmptyTitle>Notes & Checklists</EmptyTitle>
-            <EmptyText>
-              Notes and checklists are not available in view-only mode.
-            </EmptyText>
-          </EmptyTabContent>
-        );
-
-      case 'budget':
-        return (
-          <EmptyTabContent>
-            <EmptyIcon><DollarSign size={48} strokeWidth={1.5} /></EmptyIcon>
-            <EmptyTitle>Budget</EmptyTitle>
-            <EmptyText>
-              Budget details are not available in view-only mode.
-            </EmptyText>
-          </EmptyTabContent>
-        );
-
-      case 'media':
-        return (
-          <EmptyTabContent>
-            <EmptyIcon><Camera size={48} strokeWidth={1.5} /></EmptyIcon>
-            <EmptyTitle>Media Highlights</EmptyTitle>
-            <EmptyText>
-              Media highlights are not available in view-only mode.
-            </EmptyText>
-          </EmptyTabContent>
-        );
-
-      case 'recommendations':
-        return (
-          <EmptyTabContent>
-            <EmptyIcon><Lightbulb size={48} strokeWidth={1.5} /></EmptyIcon>
-            <EmptyTitle>Recommendations</EmptyTitle>
-            <EmptyText>
-              Recommendations are not available in view-only mode.
-            </EmptyText>
-          </EmptyTabContent>
-        );
-
-      default:
-        return null;
+      return (
+        <div style={emptyTabContent}>
+          <div style={emptyIcon}>{tabIcons[activeTab]}</div>
+          <h3 style={emptyTitle}>{tabTitles[activeTab]}</h3>
+          <p style={emptyText}>
+            This content is not available in view-only mode.
+          </p>
+        </div>
+      );
     }
+
+    const currentDayData = tripData?.days.find(d => d.day_index === activeDay);
+    const currentItems = currentDayData?.items || [];
+
+    return (
+      <>
+        <div style={itineraryHeader}>
+          <h2 style={{ margin: 0, fontSize: "1.3rem", fontWeight: 700, color: "#111827" }}>
+            Itinerary Planner
+          </h2>
+        </div>
+
+        {currentDayData && (
+          <div style={daySection}>
+            <div style={dayHeader}>
+              DAY {currentDayData.day_index} {formatDate(currentDayData.date)}
+            </div>
+
+            {currentItems.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "3rem 2rem", color: "#9ca3af" }}>
+                No activities planned for this day
+              </div>
+            ) : (
+              <div>
+                {currentItems.map((item, index) => (
+                  <div key={item.id} style={itemCard}>
+                    <div style={itemNumber}>{index + 1}</div>
+
+                    <div style={itemImage}>
+                      {item.thumbnail_url ? (
+                        <img 
+                          src={item.thumbnail_url} 
+                          alt={item.title}
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      ) : null}
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ marginBottom: "0.5rem" }}>
+                        <h4 style={itemTitle}>{item.title}</h4>
+                      </div>
+
+                      {(item.start_time || item.end_time) && (
+                        <div style={itemTime}>
+                          {formatTime(item.start_time)}
+                          {item.start_time && item.end_time && " – "}
+                          {formatTime(item.end_time)}
+                        </div>
+                      )}
+
+                      {item.location && (
+                        <div style={itemLocation}>
+                          <MapPin size={13} strokeWidth={2} />
+                          {item.location}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </>
+    );
   };
 
   if (loading) {
     return (
-      <PageContainer>
-        <LoadingContainer>
-          <LoadingSpinner />
-          <p style={{ fontSize: "1.05rem", fontWeight: 500, color: "#6b7280" }}>
-            Loading trip...
-          </p>
-        </LoadingContainer>
-      </PageContainer>
+      <div style={pageContainer}>
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: "60vh",
+          color: "#6b7280",
+        }}>
+          Loading trip...
+        </div>
+      </div>
     );
   }
 
   if (error || !tripData) {
     return (
-      <PageContainer>
-        <ErrorContainer>
-          <ErrorTitle>Oops! {error || "Trip not found"}</ErrorTitle>
-          <ErrorMessage>
+      <div style={pageContainer}>
+        <div style={{
+          maxWidth: 600,
+          margin: "4rem auto",
+          background: "white",
+          borderRadius: 16,
+          padding: "3rem 2rem",
+          textAlign: "center",
+        }}>
+          <h2 style={{ color: "#dc2626", marginBottom: "1rem" }}>
+            Oops! {error || "Trip not found"}
+          </h2>
+          <p style={{ color: "#6b7280" }}>
             {error === "Trip not found"
               ? "This trip doesn't exist or has been removed."
               : "We couldn't load this trip. Please try again later."}
-          </ErrorMessage>
-        </ErrorContainer>
-      </PageContainer>
+          </p>
+        </div>
+      </div>
     );
   }
 
   const duration = calculateDuration(tripData.start_date, tripData.end_date);
   const ownerInitial = tripData.owner?.name?.charAt(0)?.toUpperCase() || "P";
 
-  return (
-    <PageContainer>
-      <ViewOnlyBanner>
-        <Eye size={16} strokeWidth={2.5} />
-        <span>View-Only Mode — You're viewing a shared trip itinerary</span>
-      </ViewOnlyBanner>
+  console.log("Map items:", mapItems);
 
-      <Header>
-        <HeaderContent>
-          <LeftSection>
-            <Avatar>{ownerInitial}</Avatar>
+  return (
+    <div style={pageContainer}>
+      <div style={viewOnlyBanner}>
+        <Eye size={16} strokeWidth={2.5} style={{ color: "#92400e" }} />
+        <span>View-Only Mode — You're viewing a shared trip itinerary</span>
+      </div>
+
+      <div style={header}>
+        <div style={headerContent}>
+          <div style={{ display: "flex", alignItems: "center", gap: "1.5rem", flex: 1 }}>
+            <div style={avatar}>{ownerInitial}</div>
             
-            <TripInfo>
-              <TripTitle>{tripData.title}</TripTitle>
+            <div style={{ flex: 1 }}>
+              <h1 style={tripTitle}>{tripData.title}</h1>
               
-              <StatsRow>
+              <div style={{ display: "flex", gap: "2rem", alignItems: "center", marginTop: "0.5rem" }}>
+                {tripData.destination && (
+                  <div>
+                    <div style={statLabel}>LOCATION</div>
+                    <div style={statValue}>
+                      <MapPin size={14} strokeWidth={2.2} style={{ color: "#111827" }} />
+                      <span>{tripData.destination.toUpperCase()}</span>
+                    </div>
+                  </div>
+                )}
+                
                 {duration && (
-                  <StatItem>
-                    <StatLabel>Duration</StatLabel>
-                    <StatValue>
-                      <CalendarDays size={14} strokeWidth={2.2} />
+                  <div>
+                    <div style={statLabel}>DURATION</div>
+                    <div style={statValue}>
+                      <CalendarDays size={14} strokeWidth={2.2} style={{ color: "#111827" }} />
                       <span>{duration}</span>
-                    </StatValue>
-                  </StatItem>
+                    </div>
+                  </div>
                 )}
 
-                <StatItem>
-                  <StatLabel>Budget</StatLabel>
-                  <StatValue>
-                    <span style={{ fontSize: '1rem', fontWeight: 600 }}>$</span>
-                    <span>{formatBudget()}</span>
-                  </StatValue>
-                </StatItem>
-              </StatsRow>
-            </TripInfo>
-          </LeftSection>
+                <div>
+                  <div style={statLabel}>BUDGET</div>
+                  <div style={statValue}>
+                    <span style={{ fontSize: "1rem", fontWeight: 600 }}>$</span>
+                    <span>90,000</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
-          <BookButton>
+          <button style={bookButton}>
             <Bed size={16} strokeWidth={2} />
             Book hotels
-          </BookButton>
-        </HeaderContent>
-      </Header>
+          </button>
+        </div>
+      </div>
 
-      <MainContainer>
-        <MapSection>
-          <MapPlaceholder>
-            <MapIcon>📍</MapIcon>
-            <MapText>{tripData.destination || "Map View"}</MapText>
-            <MapSubtext>Interactive map view</MapSubtext>
-          </MapPlaceholder>
-        </MapSection>
+      <div style={tabsContainer}>
+        <button 
+          style={{ ...tab, ...(activeTab === 'itinerary' ? activeTabStyle : {}) }}
+          onClick={() => setActiveTab('itinerary')}
+        >
+          Itinerary
+        </button>
+        <button 
+          style={{ ...tab, ...(activeTab === 'notes' ? activeTabStyle : {}) }}
+          onClick={() => setActiveTab('notes')}
+        >
+          Notes & Checklists
+        </button>
+        <button 
+          style={{ ...tab, ...(activeTab === 'budget' ? activeTabStyle : {}) }}
+          onClick={() => setActiveTab('budget')}
+        >
+          Budget
+        </button>
+        <button 
+          style={{ ...tab, ...(activeTab === 'media' ? activeTabStyle : {}) }}
+          onClick={() => setActiveTab('media')}
+        >
+          Media Highlights
+        </button>
+        <button 
+          style={{ ...tab, ...(activeTab === 'recommendations' ? activeTabStyle : {}) }}
+          onClick={() => setActiveTab('recommendations')}
+        >
+          Recommendations
+        </button>
+      </div>
 
-        <ContentSection>
-          <TabsBar>
-            <Tab $active={activeTab === 'itinerary'} onClick={() => setActiveTab('itinerary')}>
-              Itinerary
-            </Tab>
-            <Tab $active={activeTab === 'notes'} onClick={() => setActiveTab('notes')}>
-              Notes & Checklists
-            </Tab>
-            <Tab $active={activeTab === 'budget'} onClick={() => setActiveTab('budget')}>
-              Budget
-            </Tab>
-            <Tab $active={activeTab === 'media'} onClick={() => setActiveTab('media')}>
-              Media Highlights
-            </Tab>
-            <Tab $active={activeTab === 'recommendations'} onClick={() => setActiveTab('recommendations')}>
-              Recommendations
-            </Tab>
-          </TabsBar>
+      {/* FIT MAP TO FULL HEIGHT */}
+      <div style={mainGrid}>
+        <div style={mapSection}>
+          {mapItems.length > 0 ? (
+            <ItineraryMap items={mapItems} />
+          ) : (
+            <div style={mapPlaceholder}>
+              <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>📍</div>
+              <div style={{ fontSize: "1.3rem", fontWeight: 700, marginBottom: "0.5rem" }}>
+                {tripData.destination || "Map View"}
+              </div>
+              <div style={{ fontSize: "0.95rem", opacity: 0.9 }}>
+                No location coordinates available
+              </div>
+            </div>
+          )}
+        </div>
 
-          <TabContent>
-            {renderTabContent()}
-          </TabContent>
-        </ContentSection>
-      </MainContainer>
-    </PageContainer>
+        <div style={itinerarySection}>
+          {renderTabContent()}
+        </div>
+
+        {/* IMPROVED SIDEBAR */}
+        <div style={daySidebar}>
+          <div style={sidebarTitle}>
+            Itinerary
+          </div>
+
+          {tripData.days.map((day) => {
+            const dayDate = new Date(day.date || "");
+            const dayOfWeek = dayDate.toLocaleDateString("en-US", { weekday: "short" });
+            const monthDay = formatDateShort(day.date);
+
+            return (
+              <button
+                key={day.id}
+                onClick={() => {
+                  setActiveDay(day.day_index);
+                  setActiveTab('itinerary');
+                }}
+                style={{
+                  ...dayButton,
+                  ...(activeDay === day.day_index ? activeDayButton : {}),
+                }}
+              >
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <div style={dayOfWeekStyle}>
+                    {dayOfWeek}
+                  </div>
+                  <div style={dayDateStyle}>
+                    {monthDay}
+                  </div>
+                </div>
+                <div style={dayMetaStyle}>
+                  <div style={dayIndexStyle}>Day {day.day_index}</div>
+                  <div style={stopsCountStyle}>
+                    {day.items.length} stops · — km
+                  </div>
+                  <div style={timeStyle}>time n/a</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
+
+/* Styles */
+const pageContainer: React.CSSProperties = {
+  minHeight: "100vh",
+  background: "#f8fafb",
+  fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+};
+
+const viewOnlyBanner: React.CSSProperties = {
+  background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
+  borderBottom: "2px solid #f59e0b",
+  padding: "0.75rem",
+  textAlign: "center",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "0.6rem",
+  fontWeight: 600,
+  fontSize: "0.9rem",
+  color: "#92400e",
+};
+
+const header: React.CSSProperties = {
+  background: "white",
+  borderBottom: "1px solid #e5e7eb",
+  padding: "1.25rem 2rem",
+};
+
+const headerContent: React.CSSProperties = {
+  maxWidth: 1600,
+  margin: "0 auto",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "1.5rem",
+};
+
+const avatar: React.CSSProperties = {
+  width: 44,
+  height: 44,
+  borderRadius: "50%",
+  background: "linear-gradient(135deg, #f97316 0%, #fb923c 100%)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "white",
+  fontWeight: 700,
+  fontSize: "1.1rem",
+  border: "2px solid white",
+  boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+};
+
+const tripTitle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "1.5rem",
+  fontWeight: 700,
+  color: "#111827",
+  lineHeight: 1.2,
+};
+
+const statLabel: React.CSSProperties = {
+  fontSize: "0.7rem",
+  fontWeight: 600,
+  color: "#9ca3af",
+  textTransform: "uppercase",
+  letterSpacing: "0.5px",
+  marginBottom: "0.25rem",
+};
+
+const statValue: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.4rem",
+  fontSize: "0.9rem",
+  fontWeight: 600,
+  color: "#111827",
+};
+
+const bookButton: React.CSSProperties = {
+  borderRadius: 999,
+  padding: "0.65rem 1.2rem",
+  border: "1px solid #10b981",
+  background: "#ecfdf3",
+  color: "#065f46",
+  fontSize: "0.9rem",
+  fontWeight: 600,
+  cursor: "default",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "0.5rem",
+};
+
+const tabsContainer: React.CSSProperties = {
+  background: "white",
+  borderBottom: "1px solid #e5e7eb",
+  display: "flex",
+  gap: "2rem",
+  padding: "0 2rem",
+  maxWidth: 1600,
+  margin: "0 auto",
+};
+
+const tab: React.CSSProperties = {
+  background: "transparent",
+  border: "none",
+  padding: "1rem 0",
+  fontSize: "0.95rem",
+  fontWeight: 500,
+  color: "#6b7280",
+  cursor: "pointer",
+  borderBottom: "3px solid transparent",
+  position: "relative",
+  top: 1,
+  transition: "all 0.2s ease",
+};
+
+const activeTabStyle: React.CSSProperties = {
+  fontWeight: 650,
+  color: "#1f2937",
+  borderBottom: "3px solid #1f2937",
+};
+
+// FIT MAP: Changed height to match full viewport minus header
+const mainGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 2.5fr) minmax(0, 2fr) minmax(0, 0.35fr)",
+  maxWidth: 1600,
+  margin: "0 auto",
+  alignItems: "flex-start",
+  height: "calc(100vh - 230px)", // Added height constraint
+};
+
+const mapSection: React.CSSProperties = {
+  position: "sticky",
+  top: 0,
+  height: "calc(100vh - 230px)", // Match parent height
+  background: "#e5e7eb",
+  overflow: "hidden",
+};
+
+const mapPlaceholder: React.CSSProperties = {
+  width: "100%",
+  height: "100%",
+  background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%)",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  color: "white",
+  textAlign: "center",
+  padding: "2rem",
+};
+
+const itinerarySection: React.CSSProperties = {
+  background: "white",
+  minHeight: "calc(100vh - 230px)",
+  padding: "1.5rem",
+  overflowY: "auto",
+  maxHeight: "calc(100vh - 230px)",
+};
+
+const itineraryHeader: React.CSSProperties = {
+  marginBottom: "1.5rem",
+};
+
+const daySection: React.CSSProperties = {
+  marginBottom: "1.5rem",
+};
+
+const dayHeader: React.CSSProperties = {
+  background: "linear-gradient(135deg, #fafbfc 0%, #fff 100%)",
+  padding: "0.9rem 1.25rem",
+  borderTop: "1px solid #e5e7eb",
+  borderLeft: "1px solid #e5e7eb",
+  borderRight: "1px solid #e5e7eb",
+  borderTopLeftRadius: 12,
+  borderTopRightRadius: 12,
+  fontSize: "1rem",
+  fontWeight: 700,
+  color: "#111827",
+  textTransform: "uppercase",
+  letterSpacing: "0.3px",
+};
+
+const itemCard: React.CSSProperties = {
+  display: "flex",
+  gap: "1rem",
+  padding: "1.25rem",
+  borderBottom: "1px solid #e5e7eb",
+  borderLeft: "1px solid #e5e7eb",
+  borderRight: "1px solid #e5e7eb",
+  background: "white",
+};
+
+const itemNumber: React.CSSProperties = {
+  width: 32,
+  height: 32,
+  borderRadius: "50%",
+  background: "#f3f4f6",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontSize: "0.85rem",
+  fontWeight: 650,
+  color: "#6b7280",
+  flexShrink: 0,
+  marginTop: 2,
+};
+
+const itemImage: React.CSSProperties = {
+  width: 72,
+  height: 72,
+  borderRadius: 8,
+  background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
+  flexShrink: 0,
+  overflow: "hidden",
+};
+
+const itemTitle: React.CSSProperties = {
+  margin: 0,
+  fontSize: "1rem",
+  fontWeight: 650,
+  color: "#111827",
+  lineHeight: 1.3,
+};
+
+const itemTime: React.CSSProperties = {
+  fontSize: "0.85rem",
+  color: "#6b7280",
+  fontWeight: 500,
+  marginBottom: "0.3rem",
+};
+
+const itemLocation: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.3rem",
+  fontSize: "0.85rem",
+  color: "#6b7280",
+};
+
+// IMPROVED SIDEBAR STYLES
+const daySidebar: React.CSSProperties = {
+  position: "sticky",
+  top: 0,
+  padding: "1.5rem 0.75rem",
+  background: "white",
+  borderLeft: "1px solid #e5e7eb",
+  height: "calc(100vh - 230px)",
+  overflowY: "auto",
+};
+
+const sidebarTitle: React.CSSProperties = {
+  fontSize: "1rem",
+  fontWeight: 700,
+  marginBottom: "1rem",
+  color: "#111827",
+  paddingLeft: "0.5rem",
+};
+
+const dayButton: React.CSSProperties = {
+  width: "100%",
+  padding: "1rem 0.75rem",
+  marginBottom: "0.75rem",
+  border: "1px solid #e5e7eb",
+  borderRadius: 12,
+  background: "white",
+  cursor: "pointer",
+  textAlign: "left",
+  transition: "all 0.2s ease",
+};
+
+const activeDayButton: React.CSSProperties = {
+  background: "#f3f4f6",
+  borderColor: "#6366f1",
+  boxShadow: "0 2px 8px rgba(99, 102, 241, 0.15)",
+};
+
+const dayOfWeekStyle: React.CSSProperties = {
+  fontWeight: 700,
+  fontSize: "0.95rem",
+  color: "#111827",
+  lineHeight: 1.3,
+};
+
+const dayDateStyle: React.CSSProperties = {
+  fontSize: "0.85rem",
+  color: "#6b7280",
+  marginTop: "0.15rem",
+};
+
+const dayMetaStyle: React.CSSProperties = {
+  borderTop: "1px solid #f3f4f6",
+  paddingTop: "0.75rem",
+  marginTop: "0.75rem",
+};
+
+const dayIndexStyle: React.CSSProperties = {
+  fontSize: "0.75rem",
+  fontWeight: 700,
+  color: "#6b7280",
+  marginBottom: "0.3rem",
+};
+
+const stopsCountStyle: React.CSSProperties = {
+  fontSize: "0.7rem",
+  color: "#9ca3af",
+  marginBottom: "0.15rem",
+};
+
+const timeStyle: React.CSSProperties = {
+  fontSize: "0.7rem",
+  color: "#9ca3af",
+};
+
+const emptyTabContent: React.CSSProperties = {
+  textAlign: "center",
+  padding: "4rem 2rem",
+  color: "#9ca3af",
+};
+
+const emptyIcon: React.CSSProperties = {
+  display: "inline-block",
+  marginBottom: "1rem",
+  opacity: 0.5,
+  color: "#6b7280",
+};
+
+const emptyTitle: React.CSSProperties = {
+  margin: "0 0 0.5rem 0",
+  fontSize: "1.2rem",
+  fontWeight: 600,
+  color: "#6b7280",
+};
+
+const emptyText: React.CSSProperties = {
+  margin: 0,
+  fontSize: "0.95rem",
+  color: "#9ca3af",
+};

@@ -1910,36 +1910,44 @@ class ViewTripView(APIView):
         return Response(trip_data, status=status.HTTP_200_OK)
 
     def _get_trip_days(self, trip):
-            """
-            Helper method to get trip days with itinerary items.
-            """
-            days = TripDay.objects.filter(trip=trip).order_by('day_index')
+        """
+        Helper method to get trip days with itinerary items.
+        Includes lat, lon, address, thumbnail_url for map display.
+        """
+        days = TripDay.objects.filter(trip=trip).order_by('day_index')
+        
+        days_data = []
+        for day in days:
+            # Changed: trip_day → day (based on your model structure)
+            items = ItineraryItem.objects.filter(day=day).order_by('sort_order')
             
-            days_data = []
-            for day in days:
-                # Changed: trip_day → day (based on your model structure)
-                items = ItineraryItem.objects.filter(day=day).order_by('sort_order')
-                
-                items_data = []
-                for item in items:
-                    items_data.append({
-                        "id": item.id,
-                        "title": item.title,
-                        "description": getattr(item, 'description', None),
-                        "location": getattr(item, 'location', None),
-                        "start_time": str(getattr(item, 'start_time', None)) if getattr(item, 'start_time', None) else None,
-                        "end_time": str(getattr(item, 'end_time', None)) if getattr(item, 'end_time', None) else None,
-                        "sort_order": item.sort_order,
-                    })
-                
-                days_data.append({
-                    "id": day.id,
-                    "day_index": day.day_index,
-                    "date": day.date.isoformat() if day.date else None,
-                    "items": items_data,
+            items_data = []
+            for item in items:
+                items_data.append({
+                    "id": item.id,
+                    "title": item.title,
+                    "description": getattr(item, 'description', None),
+                    "location": getattr(item, 'location', None),
+                    "address": getattr(item, 'address', None),
+                    "start_time": str(getattr(item, 'start_time', None)) if getattr(item, 'start_time', None) else None,
+                    "end_time": str(getattr(item, 'end_time', None)) if getattr(item, 'end_time', None) else None,
+                    "sort_order": getattr(item, 'sort_order', None),
+                    # Add coordinates for map
+                    "lat": float(item.lat) if hasattr(item, 'lat') and item.lat is not None else None,
+                    "lon": float(item.lon) if hasattr(item, 'lon') and item.lon is not None else None,
+                    # Add thumbnail for images
+                    "thumbnail_url": getattr(item, 'thumbnail_url', None),
                 })
             
-            return days_data
+            days_data.append({
+                "id": day.id,
+                "day_index": day.day_index,
+                "date": day.date.isoformat() if day.date else None,
+                "items": items_data,
+            })
+        
+        return days_data
+
 class GenerateShareLinkView(APIView):
     """
     POST /api/f1/trip/{trip_id}/generate-share-link/

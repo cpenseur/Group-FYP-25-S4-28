@@ -52,9 +52,40 @@ const COUNTRY_META: Record<string, { code: string; flag: string; coords?: [numbe
   France: { code: "FR", flag: "fr", coords: [48.8566, 2.3522] },
   "Paris, France": { code: "FR", flag: "fr", coords: [48.8566, 2.3522] },
   Italy: { code: "IT", flag: "it", coords: [41.9028, 12.4964] },
-
-  Others: { code: "🌐", flag: "" },
+  Switzerland: { code: "CH", flag: "ch", coords: [46.8182, 8.2275] },
+  
+  Others: { code: "🌐", flag: "", coords: [20, 0] },
 };
+
+function normalizeCountryLabel(raw: string) {
+  const s = (raw || "").trim();
+  if (!s) return "Others";
+  if (s.toLowerCase() === "others") return "Others";
+
+  // If format is "City, Country" OR "Something, Something, Country"
+  const parts = s.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    return parts[parts.length - 1]; 
+  }
+  return s; 
+}
+
+function mergePercentsByKey<T extends { percent: number }>(
+  items: T[],
+  getKey: (x: T) => string,
+  makeItem: (key: string, percent: number) => T
+) {
+  const map = new Map<string, number>();
+  for (const it of items) {
+    const key = getKey(it);
+    map.set(key, (map.get(key) ?? 0) + (Number(it.percent) || 0));
+  }
+
+  return Array.from(map.entries())
+    .map(([key, percent]) => makeItem(key, Math.round(percent)))
+    .sort((a, b) => (b.percent || 0) - (a.percent || 0));
+}
+
 
 function buildLinePath(values: number[], w = 560, h = 220, pad = 20) {
   if (!values.length) return "";
@@ -90,10 +121,8 @@ type AnalyticsApiResponse = {
   active_users_series?: number[];
   active_users_prev_total?: number;
 
-  country_stats?: CountryStat[];
-  countryStats?: CountryStat[];
-  popular_itineraries?: PopularItinerary[];
-  popularItineraries?: PopularItinerary[];
+  country_stats?: { country: string; percent: number }[];
+  popular_itineraries?: { place: string; percent: number }[];
 
   stats?: {
     activeUsers?: number;
@@ -122,6 +151,7 @@ export default function AnalyticsView({
 
   const [apiCountryStats, setApiCountryStats] = useState<CountryStat[]>(countryStatsProp ?? []);
   const [apiPopular, setApiPopular] = useState<PopularItinerary[]>(popularProp ?? []);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -231,8 +261,31 @@ export default function AnalyticsView({
       const popularItineraries =
         data.popular_itineraries ?? data.popularItineraries ?? [];
         
-      setApiCountryStats(countryStats);
-      setApiPopular(popularItineraries);  
+      const normalizedCountries: CountryStat[] = (countryStats ?? []).map((c: any) => ({
+        country: normalizeCountryLabel(c.country),
+        percent: Number(c.percent ?? 0),
+      }));
+
+      setApiCountryStats(
+        mergePercentsByKey(
+          normalizedCountries,
+          (x) => x.country,
+          (country, percent) => ({ country, percent })
+        ).slice(0, 5)
+      );
+
+      const normalizedPopular: PopularItinerary[] = (popularItineraries ?? []).map((p: any) => ({
+        name: normalizeCountryLabel(p.name ?? p.place ?? "Others"),
+        percent: Number(p.percent ?? 0),
+      }));
+
+      setApiPopular(
+        mergePercentsByKey(
+          normalizedPopular,
+          (x) => x.name,
+          (name, percent) => ({ name, percent })
+        ).slice(0, 5)
+      );
 
       setApiStats({
         activeUsers: activeUsersPeriod,
@@ -256,28 +309,13 @@ export default function AnalyticsView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Use API data first; fallback to props/demo
   const computedCountryStats = useMemo<CountryStat[]>(
-    () =>
-      (apiCountryStats?.length ? apiCountryStats : countryStatsProp) ?? [
-        { country: "China", percent: 40 },
-        { country: "Japan", percent: 30 },
-        { country: "United States", percent: 15 },
-        { country: "United Kingdom", percent: 10 },
-        { country: "Paris, France", percent: 13 },
-      ],
+    () => (apiCountryStats?.length ? apiCountryStats : countryStatsProp) ?? [],
     [apiCountryStats, countryStatsProp]
   );
 
   const computedPopular = useMemo<PopularItinerary[]>(
-    () =>
-      (apiPopular?.length ? apiPopular : popularProp) ?? [
-        { name: "China", percent: 40 },
-        { name: "Japan", percent: 30 },
-        { name: "United States", percent: 15 },
-        { name: "United Kingdom", percent: 10 },
-        { name: "Paris, France", percent: 13 },
-      ],
+    () => (apiPopular?.length ? apiPopular : popularProp) ?? [],
     [apiPopular, popularProp]
   );
 
@@ -311,6 +349,16 @@ export default function AnalyticsView({
       })
       .filter(Boolean) as Array<CountryStat & { coords: [number, number] }>;
   }, [computedCountryStats]);
+
+  const popularMarkers = useMemo(() => {
+    return computedPopular
+      .map((p) => {
+        const meta = getMeta(p.name);
+        if (!meta.coords) return null;
+        return { name: p.name, percent: p.percent, coords: meta.coords };
+      })
+      .filter(Boolean) as Array<{ name: string; percent: number; coords: [number, number] }>;
+  }, [computedPopular]);
 
   const handleApply = async () => {
     // keep your old hook (if parent wants to know)
@@ -606,13 +654,13 @@ export default function AnalyticsView({
             >
               <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
 
-              {mapMarkers.map((m) => (
-                <CircleMarker key={m.country} center={m.coords} radius={8} pathOptions={{ color: "#2563eb" }}>
-                  <Tooltip direction="top" offset={[0, -10]} opacity={1}>
-                    {m.country} — {m.percent}%
-                  </Tooltip>
-                </CircleMarker>
-              ))}
+            {mapMarkers.map((m) => (
+              <CircleMarker key={`mini-${m.country}`} center={m.coords} radius={6} pathOptions={{ color: "#2563eb" }}>
+                <Tooltip direction="top" offset={[0, -8]} opacity={1}>
+                  {m.country} — {m.percent}%
+                </Tooltip>
+              </CircleMarker>
+            ))}
             </MapContainer>
           </div>
 
@@ -685,24 +733,24 @@ export default function AnalyticsView({
               <MapContainer
                 center={[20, 0]}
                 zoom={1}
-                scrollWheelZoom={false}
+                scrollWheelZoom={true}
                 dragging={false}
-                doubleClickZoom={false}
+                doubleClickZoom={true}
                 zoomControl={false}
-                touchZoom={false}
+                touchZoom={true}
                 boxZoom={false}
                 keyboard={false}
                 style={{ height: "100%", width: "100%" }}
                 attributionControl={false}
               >
                 <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
-                {mapMarkers.map((m) => (
-                  <CircleMarker key={`mini-${m.country}`} center={m.coords} radius={6} pathOptions={{ color: "#2563eb" }}>
-                    <Tooltip direction="top" offset={[0, -8]} opacity={1}>
-                      {m.country} — {m.percent}%
-                    </Tooltip>
-                  </CircleMarker>
-                ))}
+              {popularMarkers.map((m) => (
+                <CircleMarker key={`mini-${m.name}`} center={m.coords} radius={6} pathOptions={{ color: "#2563eb" }}>
+                  <Tooltip direction="top" offset={[0, -8]} opacity={1}>
+                    {m.name} — {m.percent}%
+                  </Tooltip>
+                </CircleMarker>
+              ))}
               </MapContainer>
             </div>
           </div>
