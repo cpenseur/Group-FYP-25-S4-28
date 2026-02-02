@@ -1,3 +1,4 @@
+# TripMateFunctions/serializers/f5_2_serializers.py
 from rest_framework import serializers
 from ..models import TripMediaHighlight, TripHistoryEntry, AppUser
 

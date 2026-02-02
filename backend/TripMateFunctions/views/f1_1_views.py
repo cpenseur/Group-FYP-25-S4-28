@@ -118,6 +118,9 @@ class TripViewSet(BaseViewSet):
 
         invitee = AppUser.objects.filter(email=email).first()
 
+        # Determine invitation type
+        is_ai = getattr(trip, 'travel_type', None) == 'group_ai_pending'
+
         if invitee:
             collab, created = TripCollaborator.objects.get_or_create(
                 trip=trip,
@@ -125,6 +128,7 @@ class TripViewSet(BaseViewSet):
                 defaults={
                     "role": role,
                     "status": TripCollaborator.Status.INVITED,
+                    "invitation_type": TripCollaborator.InvitationType.AI if is_ai else TripCollaborator.InvitationType.DIRECT,
                 },
             )
         else:
@@ -134,12 +138,19 @@ class TripViewSet(BaseViewSet):
                 defaults={
                     "role": role,
                     "status": TripCollaborator.Status.INVITED,
+                    "invitation_type": TripCollaborator.InvitationType.AI if is_ai else TripCollaborator.InvitationType.DIRECT,
                 },
             )
-            
+        # If collab already exists, update invitation_type if needed
+        if not created and collab.invitation_type != (TripCollaborator.InvitationType.AI if is_ai else TripCollaborator.InvitationType.DIRECT):
+            collab.invitation_type = TripCollaborator.InvitationType.AI if is_ai else TripCollaborator.InvitationType.DIRECT
+            collab.save(update_fields=["invitation_type"])
         collab.ensure_token()
         collab.save(update_fields=["invite_token"])
-        invite_url = f"http://localhost:5173/accept-invite?token={collab.invite_token}"
+        if collab.invitation_type == TripCollaborator.InvitationType.AI:
+            invite_url = f"http://localhost:5173/ai-invitation/{collab.invite_token}"
+        else:
+            invite_url = f"http://localhost:5173/trip-invitation/{collab.invite_token}"
         
         try:
             send_mail(
@@ -162,8 +173,44 @@ class TripViewSet(BaseViewSet):
                 "kind": "linked" if invitee else "invited",
                 "email": email,
                 "invite_token": collab.invite_token,
+                "invitation_type": collab.invitation_type,
             },
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["delete"], url_path=r"collaborators/(?P<collaborator_id>[^/.]+)", permission_classes=[IsAuthenticated])
+    def remove_collaborator(self, request, pk=None, collaborator_id=None):
+        """Remove a collaborator from a trip. Only the trip owner can remove collaborators."""
+        trip = self.get_object()
+
+        user = getattr(request, "user", None)
+        if not isinstance(user, AppUser) or trip.owner_id != user.id:
+            return Response(
+                {"detail": "Only the trip owner can remove collaborators."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Find the collaborator
+        try:
+            collaborator = TripCollaborator.objects.get(user_id=collaborator_id, trip=trip)
+        except TripCollaborator.DoesNotExist:
+            return Response(
+                {"detail": "Collaborator not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Prevent owner from removing themselves
+        if collaborator.user_id == trip.owner_id:
+            return Response(
+                {"detail": "Cannot remove the trip owner."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        collaborator.delete()
+
+        return Response(
+            {"detail": "Collaborator removed successfully."},
+            status=status.HTTP_200_OK,
         )
 
     @transaction.atomic

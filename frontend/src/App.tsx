@@ -15,6 +15,7 @@ import ItineraryEditor from "./pages/itineraryEditor";
 import PlanbotPage from "./pages/chatbot";
 import Trips from "./pages/trips";
 import AITripGeneratorWait from "./pages/aiTripGeneratorWait";
+import TripInvitationPage from "./pages/TripInvitationPage";
 
 // PohYee
 import LandingPage from "./pages/landingPage";
@@ -69,33 +70,27 @@ export default function App() {
   console.log("Sealion Key Loaded:", import.meta.env.VITE_SEALION_API_KEY);
 
   /**
-   * CSRF initialization + refresh on auth change
+   * Auth state change listener + optional CSRF
    */
   useEffect(() => {
-    const initializeCsrf = async () => {
-      try {
-        await ensureCsrfToken();
-        console.log("CSRF token initialized");
-      } catch (error) {
-        console.error("Failed to initialize CSRF token:", error);
-      }
-    };
-
-    initializeCsrf();
-
+    // Try to get CSRF token (optional - JWT auth works without it)
+    ensureCsrfToken();
+    
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event) => {
-        if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
-          try {
-            await ensureCsrfToken();
-            console.log("CSRF token refreshed after", event);
-          } catch (error) {
-            console.error("Failed to refresh CSRF token:", error);
+        if (event === "SIGNED_IN") {
+          // Refresh CSRF on sign in (optional)
+          ensureCsrfToken();
+          
+          // Check for pending AI preference token and redirect
+          const pendingAiToken = localStorage.getItem("pendingAiPreferenceToken");
+          if (pendingAiToken) {
+            localStorage.removeItem("pendingAiPreferenceToken");
+            window.location.href = `/ai-invitation/${pendingAiToken}`;
           }
         }
       }
     );
-
     return () => {
       authListener?.subscription.unsubscribe();
     };
@@ -164,6 +159,7 @@ export default function App() {
         <Route path="/trip/:tripId/chatbot" element={<PlanbotPage />} />
         <Route path="/trips" element={<Trips />} />
         <Route path="/ai-trip-generator/wait" element={<AITripGeneratorWait />} />
+        <Route path="/trip-invitation/:token" element={<TripInvitationPage />} />
 
         {/* KK */}
         <Route path="/discovery-local" element={<DiscoveryLocal />} />
@@ -180,7 +176,7 @@ export default function App() {
         <Route path="/trip/:tripId/recommendations" element={<ItineraryRecommendation />} />
         <Route path="/trip/:tripId/media" element={<MediaHighlights />} />
         <Route path="/trip/:tripId/highlight/:highlightId" element={<VideoPlayer />} />
-        <Route path="/trip-invitation/:token" element={<TripInvitationAccept />} />
+        <Route path="/ai-invitation/:token" element={<TripInvitationAccept />} />
         <Route path="/group-ai-wait/:tripId" element={<GroupAITripGeneratorWait />} />
 
         {/* Su */}

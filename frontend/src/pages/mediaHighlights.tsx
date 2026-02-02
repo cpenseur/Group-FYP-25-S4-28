@@ -1,9 +1,6 @@
 // frontend/src/pages/mediaHighlights.tsx
-// ✅ HYBRID SYNC: Immediate local updates + Realtime for others
-// ✅ Self upload: Shows immediately (optimistic update)
-// ✅ Others upload: Realtime sync
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
 import { supabase } from "../lib/supabaseClient";
@@ -25,7 +22,12 @@ import {
   Download,
 } from "lucide-react";
 
-// Types (same as before)
+// Video timing constants (must match videoGenerator.ts)
+const TRAVEL_DURATION = 7;   
+const PHOTO_DURATION = 5;   
+const TITLE_DURATION = 4;    
+
+// Types
 interface TripPhoto {
   id: number;
   trip: number;
@@ -93,6 +95,8 @@ interface PhotosByDay {
 }
 
 export default function MediaHighlights() {
+  console.log("🔄 MediaHighlights component rendered");
+
   const { tripId } = useParams();
   const navigate = useNavigate();
 
@@ -103,7 +107,6 @@ export default function MediaHighlights() {
   const [photos, setPhotos] = useState<TripPhoto[]>([]);
   const [highlights, setHighlights] = useState<MediaHighlight[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // Modals
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -154,96 +157,37 @@ export default function MediaHighlights() {
     return date.toISOString().slice(0, 16);
   };
 
-  useEffect(() => {
-    async function getCurrentUser() {
-      try {
-        const { data: { user }, error } = await supabase.auth.getUser();
-        
-        if (error) {
-          console.error("❌ Supabase auth error:", error);
-          return;
-        }
-        
-        if (user) {
-          console.log("✅ Supabase user:", user.id, user.email);
-          setCurrentUserId(user.id);
-        }
-      } catch (error) {
-        console.error("❌ Failed to get current user:", error);
-      }
+  // ✅ OPTIMIZED: Use useCallback to prevent function recreation
+  const refreshPhotos = useCallback(async () => {
+    if (!tripId || Number.isNaN(Number(tripId))) return;
+    try {
+      console.log("📸 Fetching photos for trip", tripId);
+      const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
+      const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
+      const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
+      setPhotos(tripPhotos);
+      console.log(`✅ Loaded ${tripPhotos.length} photos`);
+    } catch (error) {
+      console.error("❌ Failed to refresh photos:", error);
     }
-    
-    getCurrentUser();
-  }, []);
+  }, [tripId]);
 
-  // ✅ REALTIME: Only for events from OTHER users
-  useEffect(() => {
-    if (!tripId || !currentUserId) return;
+  const refreshHighlights = useCallback(async () => {
+    if (!tripId || Number.isNaN(Number(tripId))) return;
+    try {
+      console.log("🎬 Fetching highlights for trip", tripId);
+      const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
+      const highlightsList = Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || [];
+      // TRIP FILTERING: Only show highlights for THIS specific trip
+      const tripHighlights = highlightsList.filter((h: MediaHighlight) => h.trip === parseInt(tripId));
+      setHighlights(tripHighlights);
+      console.log(`✅ Loaded ${tripHighlights.length} highlights (filtered from ${highlightsList.length} total)`);
+    } catch (error) {
+      console.error("❌ Failed to refresh highlights:", error);
+    }
+  }, [tripId]);
 
-    console.log("🔌 Setting up Realtime subscription for trip", tripId);
-
-    const channel = supabase
-      .channel(`trip-photos-${tripId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'trip_photo', // ✅ Your table name
-          filter: `trip=eq.${tripId}`,
-        },
-        (payload) => {
-          console.log('📡 Realtime event received:', payload);
-
-          // ✅ Check if event is from another user
-          const photoUserId = payload.new?.user || payload.old?.user;
-          const isOwnEvent = photoUserId === parseInt(currentUserId);
-          
-          if (isOwnEvent) {
-            console.log('⏭️  Skipping own event (already updated locally)');
-            return;
-          }
-
-          // Handle events from OTHER users
-          if (payload.eventType === 'INSERT') {
-            const newPhoto = payload.new as TripPhoto;
-            console.log('➕ Adding photo from another user:', newPhoto.id);
-            
-            setPhotos(prev => {
-              if (prev.some(p => p.id === newPhoto.id)) {
-                console.log('⚠️  Photo already exists, skipping');
-                return prev;
-              }
-              return [...prev, newPhoto];
-            });
-          } 
-          else if (payload.eventType === 'UPDATE') {
-            const updatedPhoto = payload.new as TripPhoto;
-            console.log('✏️ Updating photo from another user:', updatedPhoto.id);
-            
-            setPhotos(prev =>
-              prev.map(p => p.id === updatedPhoto.id ? updatedPhoto : p)
-            );
-          } 
-          else if (payload.eventType === 'DELETE') {
-            const deletedPhoto = payload.old as TripPhoto;
-            console.log('🗑️ Removing photo deleted by another user:', deletedPhoto.id);
-            
-            setPhotos(prev => prev.filter(p => p.id !== deletedPhoto.id));
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log('📡 Subscription status:', status);
-      });
-
-    return () => {
-      console.log("🔌 Cleaning up Realtime subscription...");
-      supabase.removeChannel(channel);
-    };
-  }, [tripId, currentUserId]);
-
-  // Load initial data
+  // ✅ FIXED: Load initial data with proper async handling
   useEffect(() => {
     if (!tripId) return;
 
@@ -254,6 +198,7 @@ export default function MediaHighlights() {
         console.log("=== 📦 Loading Media Highlights Data ===");
         console.log(`Trip ID: ${tripId}`);
 
+        // 1. Load trip data
         const tripData = await apiFetch(`/f1/trips/${tripId}/`, { method: "GET" });
         console.log("Trip loaded:", {
           id: tripData.id,
@@ -272,23 +217,20 @@ export default function MediaHighlights() {
         
         console.log(`✅ Set ${safeItems.length} items and ${safeDays.length} days to state`);
 
+        // 2. Map items for display
         const dayIndexMap = new Map<number, number>();
         safeDays.forEach((d: TripDay) => dayIndexMap.set(d.id, d.day_index));
 
-        const itemsInTripOrder = [...safeItems].sort((a: ItineraryItem, b: ItineraryItem) => {
-          const da = dayIndexMap.get(a.day ?? 0) ?? 0;
-          const db = dayIndexMap.get(b.day ?? 0) ?? 0;
-          if (da !== db) return da - db;
-          return (a.sort_order ?? 0) - (b.sort_order ?? 0);
-        });
-
-        const mapped: MapItineraryItem[] = itemsInTripOrder.map((it: ItineraryItem, idx: number) => ({
+        const mapped: MapItineraryItem[] = safeItems
+          .filter((it: ItineraryItem) => it.lat != null && it.lon != null)
+          .sort((a: ItineraryItem, b: ItineraryItem) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+          .map((it: ItineraryItem) => ({
             id: it.id,
             title: it.title,
             address: it.address ?? null,
-            lat: it.lat ?? null,
-            lon: it.lon ?? null,
-            sort_order: idx + 1,
+            lat: it.lat!,
+            lon: it.lon!,
+            sort_order: it.sort_order ?? null,
             day_index: it.day ? dayIndexMap.get(it.day) ?? null : null,
             stop_index: null,
           }));
@@ -296,31 +238,51 @@ export default function MediaHighlights() {
         setMapItems(mapped);
         console.log(`🗺️ Set ${mapped.length} map items`);
 
-        const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
-        const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
-        
-        const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId));
-        console.log(`📸 Photos loaded: ${tripPhotos.length} (filtered from ${photosList.length})`);
-        
-        setPhotos(tripPhotos);
-
-        const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
-        setHighlights(Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || []);
+        // ✅ 3. CRITICAL FIX: Wait for initial photos and highlights to load
+        console.log("📦 Loading initial photos and highlights...");
+        await Promise.all([refreshPhotos(), refreshHighlights()]);
+        console.log("✅ Initial photos and highlights loaded");
         
         console.log("=== ✅ Data Loading Complete ===\n");
       } catch (error) {
-        console.error("Failed to load data:", error);
+        console.error("❌ Failed to load data:", error);
         setTrip(null);
         setDays([]);
         setItems([]);
         setMapItems([]);
+        setPhotos([]);
+        setHighlights([]);
       } finally {
-        setLoading(false);
+        setLoading(false); // ✅ Now called AFTER everything is loaded
       }
     };
 
     loadData();
-  }, [tripId]);
+  }, [tripId, refreshPhotos, refreshHighlights]);
+
+  // ✅ OPTIMIZED: Polling after initial load
+  useEffect(() => {
+    if (!tripId || Number.isNaN(Number(tripId))) return;
+
+    let isActive = true;
+    
+    const poll = async () => {
+      if (!isActive) return;
+      console.log("📡 Polling photos and highlights...");
+      await Promise.all([refreshPhotos(), refreshHighlights()]);
+    };
+
+    console.log("🔌 Starting polling for trip", tripId);
+    
+    // Start polling (initial load already happened in previous useEffect)
+    const intervalId = window.setInterval(poll, 5000);
+
+    return () => {
+      console.log("🔌 Stopping polling for trip", tripId);
+      isActive = false;
+      window.clearInterval(intervalId);
+    };
+  }, [tripId, refreshPhotos, refreshHighlights]);
 
   const deleteHighlight = async (highlightId: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -328,12 +290,22 @@ export default function MediaHighlights() {
     if (!confirm("Delete this video highlight?")) return;
 
     try {
-      await apiFetch(`/f5/highlights/${highlightId}/`, { method: "DELETE" });
+      console.log("🗑 Deleting highlight:", highlightId);
+      
+      // Optimistic update
       setHighlights(prev => prev.filter(h => h.id !== highlightId));
-      alert("✅ Video deleted successfully!");
+      
+      await apiFetch(`/f5/highlights/${highlightId}/`, { method: "DELETE" });
+      console.log("✅ Highlight deleted:", highlightId);
+      
+      // Refresh to sync with server
+      await refreshHighlights();
     } catch (error) {
-      console.error("Failed to delete highlight:", error);
+      console.error("❌ Failed to delete highlight:", error);
       alert("❌ Failed to delete video.");
+      
+      // Revert on error
+      await refreshHighlights();
     }
   };
 
@@ -341,6 +313,7 @@ export default function MediaHighlights() {
     e.stopPropagation();
     
     try {
+      console.log("⬇️ Downloading highlight:", highlight.id);
       setDownloading(highlight.id);
 
       const response = await fetch(highlight.video_url);
@@ -356,9 +329,10 @@ export default function MediaHighlights() {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
+      console.log("✅ Video downloaded successfully");
       alert("✅ Video downloaded successfully!");
     } catch (error) {
-      console.error("Download failed:", error);
+      console.error("❌ Download failed:", error);
       alert("❌ Failed to download video. Please try again.");
     } finally {
       setDownloading(null);
@@ -396,6 +370,8 @@ export default function MediaHighlights() {
   };
 
   const addFiles = (files: File[]) => {
+    console.log("📁 Adding files:", files.length);
+    
     const newForms = new Map(photoForms);
     const currentLength = selectedFiles.length;
     
@@ -416,6 +392,7 @@ export default function MediaHighlights() {
   };
 
   const removeFile = (index: number) => {
+    console.log("🗑 Removing file at index:", index);
     setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
     const newForms = new Map(photoForms);
     newForms.delete(index);
@@ -443,6 +420,7 @@ export default function MediaHighlights() {
 
     try {
       setUploading(true);
+      console.log("📤 Starting upload of", selectedFiles.length, "files");
 
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
@@ -450,7 +428,7 @@ export default function MediaHighlights() {
         if (!formData) continue;
 
         if (file.size > 10 * 1024 * 1024) {
-          console.error(`File ${file.name} is too large`);
+          console.error(`❌ File ${file.name} is too large`);
           continue;
         }
 
@@ -459,6 +437,8 @@ export default function MediaHighlights() {
         const filePath = `${fileName}`;
 
         try {
+          console.log(`📤 Uploading file ${i + 1}/${selectedFiles.length}:`, file.name);
+          
           const { error: uploadError } = await supabase.storage
             .from("trip-media")
             .upload(filePath, file, { cacheControl: '3600', upsert: false });
@@ -483,40 +463,36 @@ export default function MediaHighlights() {
             lon: photoLon,
           };
 
-          // ✅ POST to API
-          const createdPhoto = await apiFetch("/f5/photos/", {
+          await apiFetch("/f5/photos/", {
             method: "POST",
             body: JSON.stringify(photoData),
           });
           
-          console.log("✅ Photo created:", createdPhoto);
-
-          // ✅ IMMEDIATELY add to local state (optimistic update)
-          setPhotos(prev => {
-            // Check if already exists (prevent duplicates)
-            if (prev.some(p => p.id === createdPhoto.id)) {
-              return prev;
-            }
-            return [...prev, createdPhoto];
-          });
+          console.log(`✅ Photo ${i + 1} uploaded successfully`);
           
         } catch (storageError: any) {
-          console.error("Storage error:", storageError);
+          console.error("❌ Storage error:", storageError);
           alert(`Upload failed: ${storageError.message || 'Storage bucket may not exist.'}`);
           break;
         }
       }
 
-      // Reload trip data (items and days)
+      console.log("🔄 Refreshing trip data...");
+      // Refresh trip data
       const tripData = await apiFetch(`/f1/trips/${tripId}/`, { method: "GET" });
       setItems(tripData.items || []);
       setDays(tripData.days || []);
 
+      // Refresh photos immediately after upload
+      await refreshPhotos();
+
       setSelectedFiles([]);
       setPhotoForms(new Map());
       setShowUploadModal(false);
+      
+      console.log("✅ Upload complete!");
     } catch (error: any) {
-      console.error("Upload failed:", error);
+      console.error("❌ Upload failed:", error);
       alert(`Failed to upload files: ${error?.message || error}`);
     } finally {
       setUploading(false);
@@ -527,26 +503,27 @@ export default function MediaHighlights() {
     if (!confirm("Delete this photo?")) return;
 
     try {
-      // ✅ IMMEDIATELY remove from local state (optimistic update)
+      console.log("🗑 Deleting photo:", photoId);
+      
+      // Optimistic update
       setPhotos(prev => prev.filter(p => p.id !== photoId));
       
-      // Then delete from backend
       await apiFetch(`/f5/photos/${photoId}/`, { method: "DELETE" });
       console.log("✅ Photo deleted:", photoId);
       
+      // Refresh to sync with server
+      await refreshPhotos();
     } catch (error) {
-      console.error("Failed to delete photo:", error);
+      console.error("❌ Failed to delete photo:", error);
       alert("Failed to delete photo.");
       
-      // ✅ On error, reload photos to restore deleted photo
-      const photosData = await apiFetch(`/f5/photos/?trip=${tripId}`, { method: "GET" });
-      const photosList = Array.isArray(photosData) ? photosData : photosData?.results || [];
-      const tripPhotos = photosList.filter((p: TripPhoto) => p.trip === parseInt(tripId!));
-      setPhotos(tripPhotos);
+      // Revert on error
+      await refreshPhotos();
     }
   };
 
   const openEditModal = (photo: TripPhoto) => {
+    console.log("✏️ Opening edit modal for photo:", photo.id);
     setEditingPhoto(photo);
     setEditCaption(photo.caption || "");
     setEditTakenAt(photo.taken_at || "");
@@ -558,6 +535,8 @@ export default function MediaHighlights() {
     if (!editingPhoto || !tripId) return;
 
     try {
+      console.log("💾 Updating photo:", editingPhoto.id);
+      
       const selectedItem = items.find(item => item.id === editItemId);
       const photoLat = selectedItem?.lat || null;
       const photoLon = selectedItem?.lon || null;
@@ -570,22 +549,20 @@ export default function MediaHighlights() {
         lon: photoLon,
       };
 
-      const updatedPhoto = await apiFetch(`/f5/photos/${editingPhoto.id}/`, {
+      await apiFetch(`/f5/photos/${editingPhoto.id}/`, {
         method: "PATCH",
         body: JSON.stringify(updateData),
       });
 
-      console.log("✅ Photo updated:", updatedPhoto);
+      console.log("✅ Photo updated");
 
-      // ✅ IMMEDIATELY update local state (optimistic update)
-      setPhotos(prev =>
-        prev.map(p => p.id === updatedPhoto.id ? updatedPhoto : p)
-      );
+      // Refresh photos after edit
+      await refreshPhotos();
 
       setShowEditModal(false);
       setEditingPhoto(null);
     } catch (error: any) {
-      console.error("Failed to update photo:", error);
+      console.error("❌ Failed to update photo:", error);
       alert(`Failed to update photo: ${error?.message || error}`);
     }
   };
@@ -600,12 +577,19 @@ export default function MediaHighlights() {
       setGenerateProgress(0);
       setGenerateStatus("Starting...");
 
+      console.log("🎬 Starting video generation:", {
+        title: videoTitle,
+        segments: segments.length,
+        generateReal,
+      });
+
       const allPhotoIds = new Set<number>();
       segments.forEach(seg => {
         seg.photo_ids.forEach((id: number) => allPhotoIds.add(id));
       });
 
       const selectedPhotos = photos.filter(p => allPhotoIds.has(p.id));
+      console.log(`📸 Using ${selectedPhotos.length} photos`);
 
       let videoUrl = "https://placeholder.com/advanced-video.mp4";
       let videoDuration = 0;
@@ -657,6 +641,8 @@ export default function MediaHighlights() {
         const fileName = `trip_${tripId}_${Date.now()}.webm`;
         const filePath = `videos/${fileName}`;
 
+        console.log("☁️ Uploading to:", filePath);
+
         const { error: uploadError } = await supabase.storage
           .from("trip-media")
           .upload(filePath, videoBlob, {
@@ -665,7 +651,7 @@ export default function MediaHighlights() {
           });
 
         if (uploadError) {
-          console.error("Upload error:", uploadError);
+          console.error("❌ Upload error:", uploadError);
           throw new Error(`Upload failed: ${uploadError.message}`);
         }
 
@@ -676,10 +662,10 @@ export default function MediaHighlights() {
         videoUrl = urlData.publicUrl;
         
         videoDuration = 
-          3 + 
-          (segments.length - 1) * 5 + 
-          selectedPhotos.length * 3 + 
-          3;
+          TITLE_DURATION +
+          (segments.length - 1) * TRAVEL_DURATION +
+          selectedPhotos.length * PHOTO_DURATION +
+          2;
         
         console.log("☁️ Video uploaded to:", videoUrl);
         setGenerateStatus("Saving to database...");
@@ -710,8 +696,10 @@ export default function MediaHighlights() {
         body: JSON.stringify(highlightData),
       });
 
-      const highlightsData = await apiFetch(`/f5/highlights/?trip=${tripId}`, { method: "GET" });
-      setHighlights(Array.isArray(highlightsData) ? highlightsData : highlightsData?.results || []);
+      console.log("✅ Highlight created");
+
+      // Refresh highlights after creation
+      await refreshHighlights();
 
       setShowGenerateModal(false);
       
@@ -857,13 +845,12 @@ export default function MediaHighlights() {
           alignItems: "start",
         }}>
           <div style={{
-            position: "sticky",
-            top: 90,
-            height: "calc(90vh - 90px)",
-            background: "#e5e7eb",
-            borderRadius: 0,
+            background: "#fff",
+            borderRadius: 18,
+            border: "1px solid #e8edff",
+            boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)",
             overflow: "hidden",
-            boxShadow: "none",
+            minHeight: 700,
           }}>
             <ItineraryMap items={mapItems} photos={photoMarkers} />
           </div>
@@ -1046,7 +1033,7 @@ export default function MediaHighlights() {
         </div>
       </div>
 
-      {/* Rest of modals - same as before */}
+      {/* Photo viewer modal */}
       {selectedPhoto && (
         <div
           style={{
@@ -1163,6 +1150,7 @@ export default function MediaHighlights() {
         </div>
       )}
 
+      {/* Upload modal */}
       {showUploadModal && (
         <div style={modalOverlay} onClick={() => setShowUploadModal(false)}>
           <div style={modalContent} onClick={(e) => e.stopPropagation()}>
@@ -1283,6 +1271,7 @@ export default function MediaHighlights() {
         </div>
       )}
 
+      {/* Edit photo modal */}
       {showEditModal && editingPhoto && (
         <div style={modalOverlay} onClick={() => setShowEditModal(false)}>
           <div style={modalContent} onClick={(e) => e.stopPropagation()}>
@@ -1343,6 +1332,7 @@ export default function MediaHighlights() {
         </div>
       )}
 
+      {/* Generate video modal */}
       {showGenerateModal && (
         <AutoGenerateVideoModal
           show={showGenerateModal}
@@ -1371,7 +1361,7 @@ export default function MediaHighlights() {
   );
 }
 
-// Styles (same as before)
+// Styles
 const loadingContainer: React.CSSProperties = { minHeight: "calc(100vh - 90px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#f9fafb" };
 const pageContainer: React.CSSProperties = { background: "#f5f7fb", minHeight: "100vh", padding: 0, fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' };
 const actionButtons: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 10, background: "#fff", borderRadius: 16, padding: "16px 18px", boxShadow: "0 8px 24px rgba(24, 49, 90, 0.08)", border: "1px solid #e8edff" };

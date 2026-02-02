@@ -1,3 +1,4 @@
+# TripMateFunctions/serializers/f5_1_serializers.py
 from rest_framework import serializers
 from ..models import TripPhoto
 

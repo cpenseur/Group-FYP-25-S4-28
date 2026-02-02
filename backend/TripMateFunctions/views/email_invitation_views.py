@@ -86,18 +86,26 @@ class SendTripInvitationView(APIView):
         # Generate unique invitation token
         invite_token = secrets.token_urlsafe(32)
 
+        # Determine invitation type based on trip's travel_type
+        is_ai = getattr(trip, 'travel_type', None) == 'group_ai_pending'
+        invitation_type = TripCollaborator.InvitationType.AI if is_ai else TripCollaborator.InvitationType.DIRECT
+
         # Create TripCollaborator with invited status
         collaborator = TripCollaborator.objects.create(
             trip=trip,
             invited_email=invited_email,
-            role=TripCollaborator.Role.VIEWER,
+            role=role,
             status=TripCollaborator.Status.INVITED,
             invite_token=invite_token,
+            invitation_type=invitation_type,
         )
 
-        # Build invitation link
+        # Build invitation link based on invitation type
         frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
-        invitation_link = f"{frontend_url}/trip-invitation/{invite_token}"
+        if invitation_type == TripCollaborator.InvitationType.AI:
+            invitation_link = f"{frontend_url}/ai-invitation/{invite_token}"
+        else:
+            invitation_link = f"{frontend_url}/trip-invitation/{invite_token}"
 
         # Send email using direct SMTP (bypassing Django's email system)
         try:
@@ -142,6 +150,8 @@ TripMate Team
                     "message": "Invitation sent successfully",
                     "invited_email": invited_email,
                     "invitation_link": invitation_link,
+                    "invite_token": invite_token,
+                    "invitation_type": invitation_type,
                 },
                 status=status.HTTP_200_OK
             )

@@ -16,6 +16,7 @@ interface Recommendation {
   highlight: boolean;
   nearby_to?: string;
   action?: string;
+  matched_preferences?: string[];  // NEW: User preferences this recommendation matches
 }
 
 interface CategoryRecommendations {
@@ -49,6 +50,15 @@ type TripResponse = {
   items: ItineraryItem[];
 };
 
+// NEW: User profile preferences interface
+interface UserProfile {
+  interests?: string[];
+  travel_pace?: string;
+  budget_level?: string;
+  diet_preference?: string;
+  mobility_needs?: string;
+}
+
 export default function RecommendationsPage() {
   const { tripId } = useParams();
   
@@ -56,6 +66,10 @@ export default function RecommendationsPage() {
   const [trip, setTrip] = useState<TripResponse | null>(null);
   const [items, setItems] = useState<ItineraryItem[]>([]);
   const [days, setDays] = useState<TripDayResponse[]>([]);
+  
+  // NEW: User profile preferences
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   
   // Recommendations
   const [destination, setDestination] = useState("Tokyo");
@@ -75,9 +89,41 @@ export default function RecommendationsPage() {
   const [activeCategory, setActiveCategory] = useState<keyof CategoryRecommendations>("nearby");
   const [currentDayLocation, setCurrentDayLocation] = useState<string | null>(null);
   
-  // NEW: Track loading state to prevent duplicate calls
+  // Track loading state to prevent duplicate calls
   const loadingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // NEW: Load user profile preferences
+  useEffect(() => {
+    const loadUserProfile = async () => {
+      try {
+        console.log("📋 Loading user profile preferences...");
+        setIsLoadingProfile(true);
+        
+        // Fetch current user's profile
+        const profileData = await apiFetch("/f1/profile/");
+        
+        const profile: UserProfile = {
+          interests: profileData.interests || [],
+          travel_pace: profileData.travel_pace || null,
+          budget_level: profileData.budget_level || null,
+          diet_preference: profileData.diet_preference || null,
+          mobility_needs: profileData.mobility_needs || null,
+        };
+        
+        setUserProfile(profile);
+        console.log("✅ User profile loaded:", profile);
+      } catch (err) {
+        console.error("❌ Failed to load user profile:", err);
+        // Set empty profile if loading fails
+        setUserProfile({});
+      } finally {
+        setIsLoadingProfile(false);
+      }
+    };
+    
+    loadUserProfile();
+  }, []);
   
   // Load trip data
   useEffect(() => {
@@ -223,10 +269,11 @@ export default function RecommendationsPage() {
     console.log("=== Location Detection Complete ===\n");
   }, [selectedDay, items, days, destination]);
   
-  // FIXED: Load recommendations with debounce and duplicate prevention
+  // UPDATED: Load recommendations with user preferences
   useEffect(() => {
-    if (!currentDayLocation || !tripId) {
-      console.log("⏳ Waiting for location or tripId...");
+    // Wait for both location and profile to be ready
+    if (!currentDayLocation || !tripId || isLoadingProfile) {
+      console.log("⏳ Waiting for location, tripId, or user profile...");
       return;
     }
     
@@ -250,7 +297,7 @@ export default function RecommendationsPage() {
     return () => {
       clearTimeout(timer);
     };
-  }, [currentDayLocation, selectedDay, tripId]);
+  }, [currentDayLocation, selectedDay, tripId, isLoadingProfile, userProfile]);
   
   const loadRecommendations = async () => {
     if (!tripId || loadingRef.current) {
@@ -264,6 +311,7 @@ export default function RecommendationsPage() {
     console.log(`Trip ID: ${tripId}`);
     console.log(`Selected Day: ${selectedDay} (0-indexed)`);
     console.log(`Location: ${location}`);
+    console.log(`User Preferences:`, userProfile);
     
     // Set loading flag
     loadingRef.current = true;
@@ -274,10 +322,36 @@ export default function RecommendationsPage() {
     abortControllerRef.current = new AbortController();
     
     try {
-      const url = `/f1/recommendations/ai/?trip_id=${tripId}&day_index=${selectedDay}&location=${encodeURIComponent(location)}`;
+      // Build URL with location parameters
+      let url = `/f1/recommendations/ai/?trip_id=${tripId}&day_index=${selectedDay}&location=${encodeURIComponent(location)}`;
+      
+      // NEW: Add user preferences to the request body
+      const requestBody: any = {
+        trip_id: tripId,
+        day_index: selectedDay,
+        location: location,
+      };
+      
+      // Add user preferences if available
+      if (userProfile) {
+        requestBody.user_preferences = {
+          interests: userProfile.interests || [],
+          travel_pace: userProfile.travel_pace,
+          budget_level: userProfile.budget_level,
+          diet_preference: userProfile.diet_preference,
+          mobility_needs: userProfile.mobility_needs,
+        };
+        
+        console.log(`📋 Including user preferences in request:`, requestBody.user_preferences);
+      }
+      
       console.log(`📡 API Call: ${url}`);
       
-      const response = await apiFetch(url);
+      const response = await apiFetch(url, {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+      });
+      
       console.log("📥 Response received:", response);
       
       if (response.success) {
@@ -399,6 +473,92 @@ export default function RecommendationsPage() {
   const currentRecommendations = categories[activeCategory] || [];
   const totalRecommendations = Object.values(categories).flat().length;
   
+  // NEW: Display user preferences summary
+  const renderPreferencesSummary = () => {
+    if (!userProfile || isLoadingProfile) return null;
+    
+    const hasPreferences = 
+      (userProfile.interests && userProfile.interests.length > 0) ||
+      userProfile.travel_pace ||
+      userProfile.budget_level ||
+      userProfile.diet_preference ||
+      userProfile.mobility_needs;
+    
+    if (!hasPreferences) {
+      return (
+        <div style={{
+          padding: "12px",
+          backgroundColor: "#fef3c7",
+          border: "1px solid #fbbf24",
+          borderRadius: "8px",
+          marginBottom: "16px",
+          fontSize: "13px",
+          color: "#92400e",
+        }}>
+          <strong>💡 Tip:</strong> Set your preferences in your profile to get personalized recommendations!
+        </div>
+      );
+    }
+    
+    return (
+      <div style={{
+        padding: "12px",
+        backgroundColor: "#f0fdf4",
+        border: "1px solid #86efac",
+        borderRadius: "8px",
+        marginBottom: "16px",
+        fontSize: "12px",
+        color: "#166534",
+      }}>
+        <div style={{ fontWeight: 600, marginBottom: "6px" }}>
+          ✨ Personalized for you
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+          {userProfile.interests && userProfile.interests.length > 0 && (
+            <span style={{
+              padding: "4px 8px",
+              backgroundColor: "white",
+              borderRadius: "12px",
+              fontSize: "11px",
+            }}>
+              🎯 {userProfile.interests.join(", ")}
+            </span>
+          )}
+          {userProfile.budget_level && (
+            <span style={{
+              padding: "4px 8px",
+              backgroundColor: "white",
+              borderRadius: "12px",
+              fontSize: "11px",
+            }}>
+              💰 {userProfile.budget_level}
+            </span>
+          )}
+          {userProfile.travel_pace && (
+            <span style={{
+              padding: "4px 8px",
+              backgroundColor: "white",
+              borderRadius: "12px",
+              fontSize: "11px",
+            }}>
+              ⚡ {userProfile.travel_pace}
+            </span>
+          )}
+          {userProfile.diet_preference && (
+            <span style={{
+              padding: "4px 8px",
+              backgroundColor: "white",
+              borderRadius: "12px",
+              fontSize: "11px",
+            }}>
+              🍽️ {userProfile.diet_preference}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+  
   return (
     <>
       <TripSubHeader />
@@ -475,6 +635,9 @@ export default function RecommendationsPage() {
                 {destinationInfo.description}
               </p>
               
+              {/* NEW: User preferences summary */}
+              {renderPreferencesSummary()}
+              
               <div style={{
                 display: "flex",
                 justifyContent: "space-between",
@@ -502,7 +665,7 @@ export default function RecommendationsPage() {
                 
                 <button
                   onClick={loadRecommendations}
-                  disabled={isLoading}
+                  disabled={isLoading || isLoadingProfile}
                   style={{
                     padding: "8px 16px",
                     backgroundColor: "white",
@@ -511,8 +674,8 @@ export default function RecommendationsPage() {
                     borderRadius: "8px",
                     fontSize: "13px",
                     fontWeight: 600,
-                    cursor: isLoading ? "not-allowed" : "pointer",
-                    opacity: isLoading ? 0.6 : 1,
+                    cursor: (isLoading || isLoadingProfile) ? "not-allowed" : "pointer",
+                    opacity: (isLoading || isLoadingProfile) ? 0.6 : 1,
                   }}
                 >
                   {isLoading ? "Loading..." : "🔄 Refresh"}
@@ -622,7 +785,7 @@ export default function RecommendationsPage() {
                 <div style={{ textAlign: "center", padding: "60px 20px" }}>
                   <div style={{ fontSize: "48px", marginBottom: "16px" }}>🤖</div>
                   <p style={{ fontSize: "15px", color: "#6b7280" }}>
-                    Generating recommendations for {currentDayLocation || destination}...
+                    Generating personalized recommendations for {currentDayLocation || destination}...
                   </p>
                 </div>
               )}
@@ -716,6 +879,45 @@ export default function RecommendationsPage() {
                         <div>⏱️ {rec.duration}</div>
                         <div>💰 {rec.cost}</div>
                         <div>🕐 {rec.best_time}</div>
+                        
+                        {/* NEW: Show matched preferences */}
+                        {rec.matched_preferences && rec.matched_preferences.length > 0 && (
+                          <div style={{
+                            marginTop: "8px",
+                            paddingTop: "8px",
+                            borderTop: "1px solid #e5e7eb",
+                          }}>
+                            <div style={{
+                              fontSize: "11px",
+                              fontWeight: 600,
+                              color: "#10b981",
+                              marginBottom: "4px",
+                            }}>
+                              ✨ Matches your preferences:
+                            </div>
+                            <div style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: "4px",
+                            }}>
+                              {rec.matched_preferences.map((pref: string, idx: number) => (
+                                <span
+                                  key={idx}
+                                  style={{
+                                    padding: "2px 8px",
+                                    backgroundColor: "#d1fae5",
+                                    color: "#065f46",
+                                    borderRadius: "10px",
+                                    fontSize: "10px",
+                                    fontWeight: 500,
+                                  }}
+                                >
+                                  {pref}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       
                       <button

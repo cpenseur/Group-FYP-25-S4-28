@@ -70,192 +70,90 @@ function getTypeEmoji(itemType: string): string {
   return emojis[itemType?.toLowerCase()] || "📍";
 }
 
-function getDestinationImage(destination: string): string {
-  console.log("getDestinationImage called with:", destination);
-  
-  // Comprehensive image map for popular worldwide destinations
-  const imageMap: Record<string, string> = {
-    // Asia - East Asia
-    "Japan": "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1600&h=900&fit=crop",
-    "Tokyo": "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1600&h=900&fit=crop",
-    "Kyoto": "https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=1600&h=900&fit=crop",
-    "Osaka": "https://images.unsplash.com/photo-1590559899731-a382839e5549?w=1600&h=900&fit=crop",
-    "China": "https://images.unsplash.com/photo-1508804185872-d7badad00f7d?w=1600&h=900&fit=crop",
-    "Beijing": "https://images.unsplash.com/photo-1508804185872-d7badad00f7d?w=1600&h=900&fit=crop",
-    "Shanghai": "https://images.unsplash.com/photo-1548919973-5cef591cdbc9?w=1600&h=900&fit=crop",
-    "Hong Kong": "https://images.unsplash.com/photo-1536599018102-9f803c140fc1?w=1600&h=900&fit=crop",
-    "South Korea": "https://images.unsplash.com/photo-1517154421773-0529f29ea451?w=1600&h=900&fit=crop",
-    "Seoul": "https://images.unsplash.com/photo-1517154421773-0529f29ea451?w=1600&h=900&fit=crop",
-    "Taiwan": "https://images.unsplash.com/photo-1544473244-f6895e69ad8b?w=1600&h=900&fit=crop",
-    "Taipei": "https://images.unsplash.com/photo-1544473244-f6895e69ad8b?w=1600&h=900&fit=crop",
+/**
+ * 🌍 Fetch country/city image from Wikimedia API
+ * Uses Wikipedia's REST API to get high-quality images
+ */
+async function fetchImageFromWikimedia(locationName: string): Promise<string | null> {
+  try {
+    // Clean and encode location name
+    const cleanName = locationName.trim().replace(/ /g, '_');
+    const encodedName = encodeURIComponent(cleanName);
     
-    // Asia - Southeast Asia
-    "Thailand": "https://images.unsplash.com/photo-1528181304800-259b08848526?w=1600&h=900&fit=crop",
-    "Bangkok": "https://images.unsplash.com/photo-1563492065599-3520f775eeed?w=1600&h=900&fit=crop",
-    "Phuket": "https://images.unsplash.com/photo-1589394815804-964ed0be2eb5?w=1600&h=900&fit=crop",
-    "Singapore": "https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=1600&h=900&fit=crop",
-    "Indonesia": "https://images.unsplash.com/photo-1555400082-c7c96e4bd30b?w=1600&h=900&fit=crop",
-    "Bali": "https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=1600&h=900&fit=crop",
-    "Vietnam": "https://images.unsplash.com/photo-1583417319070-4a69db38a482?w=1600&h=900&fit=crop",
-    "Hanoi": "https://images.unsplash.com/photo-1559592413-7cec4d0cae2b?w=1600&h=900&fit=crop",
-    "Ho Chi Minh": "https://images.unsplash.com/photo-1583417319070-4a69db38a482?w=1600&h=900&fit=crop",
-    "Malaysia": "https://images.unsplash.com/photo-1596422846543-75c6fc197f07?w=1600&h=900&fit=crop",
-    "Kuala Lumpur": "https://images.unsplash.com/photo-1596422846543-75c6fc197f07?w=1600&h=900&fit=crop",
-    "KL": "https://images.unsplash.com/photo-1596422846543-75c6fc197f07?w=1600&h=900&fit=crop",
-    "Penang": "https://images.unsplash.com/photo-1559564484-e48bf7aa3d39?w=1600&h=900&fit=crop",
-    "Malacca": "https://images.unsplash.com/photo-1542401886-65d6c61db217?w=1600&h=900&fit=crop",
-    "Langkawi": "https://images.unsplash.com/photo-1559628376-f3fe5f782a2e?w=1600&h=900&fit=crop",
-    "Philippines": "https://images.unsplash.com/photo-1542259009477-d625272157b7?w=1600&h=900&fit=crop",
-    "Manila": "https://images.unsplash.com/photo-1542259009477-d625272157b7?w=1600&h=900&fit=crop",
-    "Cambodia": "https://images.unsplash.com/photo-1557128398-9583d2a72334?w=1600&h=900&fit=crop",
-    "Myanmar": "https://images.unsplash.com/photo-1589394815804-964ed0be2eb5?w=1600&h=900&fit=crop",
+    const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodedName}`;
     
-    // Asia - South Asia
-    "India": "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=1600&h=900&fit=crop",
-    "Delhi": "https://images.unsplash.com/photo-1587474260584-136574528ed5?w=1600&h=900&fit=crop",
-    "Mumbai": "https://images.unsplash.com/photo-1570168007204-dfb528c6958f?w=1600&h=900&fit=crop",
-    "Jaipur": "https://images.unsplash.com/photo-1548013146-72479768bada?w=1600&h=900&fit=crop",
-    "Nepal": "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1600&h=900&fit=crop",
-    "Sri Lanka": "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1600&h=900&fit=crop",
-    "Maldives": "https://images.unsplash.com/photo-1514282401047-d79a71a590e8?w=1600&h=900&fit=crop",
+    console.log(`🔍 Fetching Wikimedia image for: ${locationName}`);
     
-    // Asia - Middle East
-    "UAE": "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1600&h=900&fit=crop",
-    "Dubai": "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1600&h=900&fit=crop",
-    "Abu Dhabi": "https://images.unsplash.com/photo-1582672060674-bc2bd808a8b5?w=1600&h=900&fit=crop",
-    "Turkey": "https://images.unsplash.com/photo-1524231757912-21f4fe3a7200?w=1600&h=900&fit=crop",
-    "Istanbul": "https://images.unsplash.com/photo-1527838832700-5059252407fa?w=1600&h=900&fit=crop",
-    "Israel": "https://images.unsplash.com/photo-1544783950-c61c77b6c3a4?w=1600&h=900&fit=crop",
-    "Jordan": "https://images.unsplash.com/photo-1570939274717-7eda259b50ed?w=1600&h=900&fit=crop",
-    "Qatar": "https://images.unsplash.com/photo-1548041347-390a7b1c858d?w=1600&h=900&fit=crop",
-    "Saudi Arabia": "https://images.unsplash.com/photo-1591604129939-f1efa4d9f7fa?w=1600&h=900&fit=crop",
+    const response = await fetch(url);
     
-    // Europe - Western Europe
-    "France": "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=1600&h=900&fit=crop",
-    "Paris": "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=1600&h=900&fit=crop",
-    "Lyon": "https://images.unsplash.com/photo-1524168272322-bf73616d9cb5?w=1600&h=900&fit=crop",
-    "Nice": "https://images.unsplash.com/photo-1516483638261-f4dbaf036963?w=1600&h=900&fit=crop",
-    "UK": "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1600&h=900&fit=crop",
-    "London": "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1600&h=900&fit=crop",
-    "Scotland": "https://images.unsplash.com/photo-1551652361-5a6c2c2f9b9e?w=1600&h=900&fit=crop",
-    "Edinburgh": "https://images.unsplash.com/photo-1549918864-48ac978761a4?w=1600&h=900&fit=crop",
-    "Ireland": "https://images.unsplash.com/photo-1519832064555-7e7dc80a5c38?w=1600&h=900&fit=crop",
-    "Dublin": "https://images.unsplash.com/photo-1549918864-48ac978761a4?w=1600&h=900&fit=crop",
-    "Germany": "https://images.unsplash.com/photo-1467269204594-9661b134dd2b?w=1600&h=900&fit=crop",
-    "Berlin": "https://images.unsplash.com/photo-1560969184-10fe8719e047?w=1600&h=900&fit=crop",
-    "Munich": "https://images.unsplash.com/photo-1595867818082-083862f3d630?w=1600&h=900&fit=crop",
-    "Netherlands": "https://images.unsplash.com/photo-1512470876302-972faa2aa9a4?w=1600&h=900&fit=crop",
-    "Amsterdam": "https://images.unsplash.com/photo-1534351590666-13e3e96b5017?w=1600&h=900&fit=crop",
-    "Belgium": "https://images.unsplash.com/photo-1559564484-e48bf7aa3d39?w=1600&h=900&fit=crop",
-    "Brussels": "https://images.unsplash.com/photo-1559564484-e48bf7aa3d39?w=1600&h=900&fit=crop",
-    "Switzerland": "https://images.unsplash.com/photo-1527668752968-14dc70a27c95?w=1600&h=900&fit=crop",
-    "Zurich": "https://images.unsplash.com/photo-1516397281156-ca07cf9746fc?w=1600&h=900&fit=crop",
-    "Austria": "https://images.unsplash.com/photo-1508962914676-134849a727f0?w=1600&h=900&fit=crop",
-    "Vienna": "https://images.unsplash.com/photo-1516550893923-42d28e5677af?w=1600&h=900&fit=crop",
+    if (!response.ok) {
+      console.log(`⚠️ Wikimedia API returned ${response.status} for ${locationName}`);
+      return null;
+    }
     
-    // Europe - Southern Europe
-    "Italy": "https://images.unsplash.com/photo-1523906834658-6e24ef2386f9?w=1600&h=900&fit=crop",
-    "Rome": "https://images.unsplash.com/photo-1552832230-c0197dd311b5?w=1600&h=900&fit=crop",
-    "Venice": "https://images.unsplash.com/photo-1514890547357-a9ee288728e0?w=1600&h=900&fit=crop",
-    "Florence": "https://images.unsplash.com/photo-1552832230-c0197dd311b5?w=1600&h=900&fit=crop",
-    "Milan": "https://images.unsplash.com/photo-1513581166391-887a96ddeafd?w=1600&h=900&fit=crop",
-    "Spain": "https://images.unsplash.com/photo-1543783207-ec64e4d95325?w=1600&h=900&fit=crop",
-    "Barcelona": "https://images.unsplash.com/photo-1539037116277-4db20889f2d4?w=1600&h=900&fit=crop",
-    "Madrid": "https://images.unsplash.com/photo-1543783207-ec64e4d95325?w=1600&h=900&fit=crop",
-    "Seville": "https://images.unsplash.com/photo-1612783082656-8ad8d3dbf7bc?w=1600&h=900&fit=crop",
-    "Portugal": "https://images.unsplash.com/photo-1555881400-74d7acaacd8b?w=1600&h=900&fit=crop",
-    "Lisbon": "https://images.unsplash.com/photo-1555881400-74d7acaacd8b?w=1600&h=900&fit=crop",
-    "Porto": "https://images.unsplash.com/photo-1555881400-69d86e828f37?w=1600&h=900&fit=crop",
-    "Greece": "https://images.unsplash.com/photo-1533104816931-20fa691ff6ca?w=1600&h=900&fit=crop",
-    "Athens": "https://images.unsplash.com/photo-1555993539-1732b0258235?w=1600&h=900&fit=crop",
-    "Santorini": "https://images.unsplash.com/photo-1533104816931-20fa691ff6ca?w=1600&h=900&fit=crop",
-    "Croatia": "https://images.unsplash.com/photo-1555990793-da11153b2473?w=1600&h=900&fit=crop",
-    "Dubrovnik": "https://images.unsplash.com/photo-1584464491033-06628f3a6b7b?w=1600&h=900&fit=crop",
+    const data = await response.json();
     
-    // Europe - Northern Europe
-    "Norway": "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=1600&h=900&fit=crop",
-    "Sweden": "https://images.unsplash.com/photo-1509356843151-3e7d96241e11?w=1600&h=900&fit=crop",
-    "Stockholm": "https://images.unsplash.com/photo-1509356843151-3e7d96241e11?w=1600&h=900&fit=crop",
-    "Denmark": "https://images.unsplash.com/photo-1513622470522-26c3c8a854bc?w=1600&h=900&fit=crop",
-    "Copenhagen": "https://images.unsplash.com/photo-1513622470522-26c3c8a854bc?w=1600&h=900&fit=crop",
-    "Finland": "https://images.unsplash.com/photo-1543832923-44667a44c804?w=1600&h=900&fit=crop",
-    "Iceland": "https://images.unsplash.com/photo-1504893524553-b855bce32c67?w=1600&h=900&fit=crop",
+    // Prefer original image for quality, fallback to thumbnail
+    const imageUrl = data.originalimage?.source || data.thumbnail?.source;
     
-    // Europe - Eastern Europe
-    "Czech": "https://images.unsplash.com/photo-1541849546-216549ae216d?w=1600&h=900&fit=crop",
-    "Prague": "https://images.unsplash.com/photo-1541849546-216549ae216d?w=1600&h=900&fit=crop",
-    "Poland": "https://images.unsplash.com/photo-1623698002299-41a66e99aaa6?w=1600&h=900&fit=crop",
-    "Warsaw": "https://images.unsplash.com/photo-1623698002299-41a66e99aaa6?w=1600&h=900&fit=crop",
-    "Hungary": "https://images.unsplash.com/photo-1541356665065-22676f35dd40?w=1600&h=900&fit=crop",
-    "Budapest": "https://images.unsplash.com/photo-1541356665065-22676f35dd40?w=1600&h=900&fit=crop",
-    "Romania": "https://images.unsplash.com/photo-1601491319658-1bd888189093?w=1600&h=900&fit=crop",
-    "Russia": "https://images.unsplash.com/photo-1547448526-9f5b56c96359?w=1600&h=900&fit=crop",
-    "Moscow": "https://images.unsplash.com/photo-1513326738677-b964603b136d?w=1600&h=900&fit=crop",
+    if (imageUrl) {
+      console.log(`✅ Found Wikimedia image for ${locationName}:`, imageUrl);
+      return imageUrl;
+    }
     
-    // Americas - North America
-    "USA": "https://images.unsplash.com/photo-1485738422979-f5c462d49f74?w=1600&h=900&fit=crop",
-    "New York": "https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=1600&h=900&fit=crop",
-    "Los Angeles": "https://images.unsplash.com/photo-1534190239940-9ba8944ea261?w=1600&h=900&fit=crop",
-    "San Francisco": "https://images.unsplash.com/photo-1449034446853-66c86144b0ad?w=1600&h=900&fit=crop",
-    "Chicago": "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=1600&h=900&fit=crop",
-    "Las Vegas": "https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=1600&h=900&fit=crop",
-    "Miami": "https://images.unsplash.com/photo-1506966953602-c20cc11f75e3?w=1600&h=900&fit=crop",
-    "Seattle": "https://images.unsplash.com/photo-1531581147762-8f0b1becbee7?w=1600&h=900&fit=crop",
-    "Boston": "https://images.unsplash.com/photo-1554315895-baae76d81c76?w=1600&h=900&fit=crop",
-    "Canada": "https://images.unsplash.com/photo-1503614472-8c93d56e92ce?w=1600&h=900&fit=crop",
-    "Toronto": "https://images.unsplash.com/photo-1517935706615-2717063c2225?w=1600&h=900&fit=crop",
-    "Vancouver": "https://images.unsplash.com/photo-1542223189-67a03fa0f0bd?w=1600&h=900&fit=crop",
-    "Montreal": "https://images.unsplash.com/photo-1519931800633-d6ca1b8d0ffd?w=1600&h=900&fit=crop",
-    "Mexico": "https://images.unsplash.com/photo-1518638150340-f706e86654de?w=1600&h=900&fit=crop",
-    "Cancun": "https://images.unsplash.com/photo-1601024445121-e5b82f020549?w=1600&h=900&fit=crop",
-    
-    // Americas - South America
-    "Brazil": "https://images.unsplash.com/photo-1483729558449-99ef09a8c325?w=1600&h=900&fit=crop",
-    "Rio": "https://images.unsplash.com/photo-1483729558449-99ef09a8c325?w=1600&h=900&fit=crop",
-    "Argentina": "https://images.unsplash.com/photo-1589909202802-8f4aadce1849?w=1600&h=900&fit=crop",
-    "Buenos Aires": "https://images.unsplash.com/photo-1589909202802-8f4aadce1849?w=1600&h=900&fit=crop",
-    "Peru": "https://images.unsplash.com/photo-1526392060635-9d6019884377?w=1600&h=900&fit=crop",
-    "Chile": "https://images.unsplash.com/photo-1489171084589-9b5031ebcf9b?w=1600&h=900&fit=crop",
-    "Colombia": "https://images.unsplash.com/photo-1568632234157-ce7aecd03d0d?w=1600&h=900&fit=crop",
-    
-    // Africa
-    "Egypt": "https://images.unsplash.com/photo-1572252009286-268acec5ca0a?w=1600&h=900&fit=crop",
-    "Cairo": "https://images.unsplash.com/photo-1539768942893-daf53e448371?w=1600&h=900&fit=crop",
-    "Morocco": "https://images.unsplash.com/photo-1489749798305-4fea3ae63d43?w=1600&h=900&fit=crop",
-    "Marrakech": "https://images.unsplash.com/photo-1597212618440-806262de4f6b?w=1600&h=900&fit=crop",
-    "South Africa": "https://images.unsplash.com/photo-1484318571209-661cf29a69c3?w=1600&h=900&fit=crop",
-    "Cape Town": "https://images.unsplash.com/photo-1580060839134-75a5edca2e99?w=1600&h=900&fit=crop",
-    "Kenya": "https://images.unsplash.com/photo-1547471080-7cc2caa01a7e?w=1600&h=900&fit=crop",
-    "Tanzania": "https://images.unsplash.com/photo-1516426122078-c23e76319801?w=1600&h=900&fit=crop",
-    
-    // Oceania
-    "Australia": "https://images.unsplash.com/photo-1523482580672-f109ba8cb9be?w=1600&h=900&fit=crop",
-    "Sydney": "https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=1600&h=900&fit=crop",
-    "Melbourne": "https://images.unsplash.com/photo-1514395462725-fb4566210144?w=1600&h=900&fit=crop",
-    "New Zealand": "https://images.unsplash.com/photo-1507699622108-4be3abd695ad?w=1600&h=900&fit=crop",
-    "Auckland": "https://images.unsplash.com/photo-1507699622108-4be3abd695ad?w=1600&h=900&fit=crop",
-  };
+    console.log(`⚠️ No image in Wikimedia response for ${locationName}`);
+    return null;
+  } catch (error) {
+    console.error(`❌ Error fetching Wikimedia image for ${locationName}:`, error);
+    return null;
+  }
+}
 
-  // Check if destination matches any key (case-insensitive partial match)
-  for (const [key, url] of Object.entries(imageMap)) {
-    if (destination.toLowerCase().includes(key.toLowerCase())) {
-      console.log(`✅ Matched "${destination}" to "${key}":`, url);
-      return url;
+/**
+ * 🌍 Get destination image with fallback strategy
+ * 1. Try Wikimedia API for country
+ * 2. If city provided, try Wikimedia for city
+ * 3. Use generic fallback image
+ */
+async function getDestinationImage(destination: string): Promise<string> {
+  console.log("🖼️ Getting image for destination:", destination);
+
+  // Handle empty/default destination
+  if (!destination || destination.trim() === "" || destination === "Your Dream Destination") {
+    console.log("⚠️ Using default travel image");
+    return "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=1600&h=900&fit=crop";
+  }
+
+  // Extract country and city from "City, Country" format
+  let countryName = destination.trim();
+  let cityName = "";
+  
+  if (destination.includes(',')) {
+    const parts = destination.split(',').map(s => s.trim());
+    cityName = parts[0];
+    countryName = parts[parts.length - 1];
+    console.log(`📍 Parsed: City="${cityName}", Country="${countryName}"`);
+  }
+
+  // Try to get country image first (more reliable)
+  if (countryName) {
+    const countryImage = await fetchImageFromWikimedia(countryName);
+    if (countryImage) {
+      return countryImage;
     }
   }
 
-  // If destination is still default/empty, return a beautiful generic travel image
-  if (destination === "Your Dream Destination" || !destination || destination.trim() === "") {
-    console.log(`⚠️ No specific destination set, using beautiful generic travel image`);
-    return "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=1600&h=900&fit=crop"; // Beautiful world travel montage
+  // If country failed and we have a city, try city image
+  if (cityName) {
+    const cityImage = await fetchImageFromWikimedia(cityName);
+    if (cityImage) {
+      return cityImage;
+    }
   }
 
-  // Fallback: Use Unsplash dynamic image based on destination
-  // This ensures ANY destination worldwide will get a relevant image
-  const encodedDestination = encodeURIComponent(destination);
-  const fallbackUrl = `https://source.unsplash.com/1600x900/?${encodedDestination},travel,landmark`;
-  console.log(`🔄 No match for "${destination}", using fallback:`, fallbackUrl);
-  return fallbackUrl;
+  // Final fallback: generic travel image
+  console.log(`🔄 No image found for "${destination}", using fallback`);
+  return "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=1600&h=900&fit=crop";
 }
 
 function clamp(n: number, a: number, b: number) {
@@ -290,6 +188,9 @@ export default function GroupItinerarySummary() {
   const [startDate, setStartDate] = useState<Date>(new Date());
   const [groupPreferences, setGroupPreferences] = useState<GroupPreference[]>([]);
   const [destination, setDestination] = useState("Your Dream Destination");
+  const [destinationImage, setDestinationImage] = useState<string>(
+    "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=1600&h=900&fit=crop"
+  );
 
   const ownerUsername = useMemo(
     () => groupPreferences.find((u) => u.isOwner)?.username ?? groupPreferences[0]?.username ?? "owner",
@@ -303,9 +204,7 @@ export default function GroupItinerarySummary() {
 
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
 
-  //Background animations
   const seeded = useRef<number>(Math.floor(Math.random() * 1e9));
-
   const userExpandedDayRef = useRef<number | null>(null);
 
   // Stars animation
@@ -381,8 +280,7 @@ export default function GroupItinerarySummary() {
     });
   }, [groupPreferences]);
 
-
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pollingIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const removeUser = (username: string) => {
     if (username === ownerUsername) return;
@@ -407,12 +305,9 @@ export default function GroupItinerarySummary() {
         method: "GET" 
       });
 
-      // Debug: Log trip data to see what we're getting
-      console.log("Trip data received:", {
+      console.log("📦 Trip data received:", {
         main_city: tripData.main_city,
         main_country: tripData.main_country,
-        destination: tripData.destination,
-        country: tripData.country
       });
 
       if (tripData.start_date) {
@@ -423,12 +318,17 @@ export default function GroupItinerarySummary() {
         setTripDays(tripData.days.length);
       }
 
+      // Set destination and fetch image from Wikimedia
       if (tripData.main_city || tripData.main_country) {
         const dest = tripData.main_city || tripData.main_country || "Your Dream Destination";
-        console.log("Setting destination to:", dest);
+        console.log("🎯 Setting destination to:", dest);
         setDestination(dest);
-      } else {
-        console.log("No main_city or main_country found, keeping default destination");
+        
+        // Fetch image asynchronously from Wikimedia
+        getDestinationImage(dest).then(imageUrl => {
+          console.log("🖼️ Setting destination image:", imageUrl);
+          setDestinationImage(imageUrl);
+        });
       }
 
       if (tripData.days && tripData.items) {
@@ -469,7 +369,7 @@ export default function GroupItinerarySummary() {
 
       setErrorMsg("");
     } catch (err: any) {
-      console.error("Failed to load trip data:", err);
+      console.error("❌ Failed to load trip data:", err);
       if (!preserveExpandedDay) {
         setErrorMsg("Failed to load trip data.");
       }
@@ -542,7 +442,7 @@ export default function GroupItinerarySummary() {
         pollingIntervalRef.current = null;
       }
     };
-  }, [tripId, isLoading, navigate]);
+  }, [tripId, isLoading, navigate, itinerary]);
 
   /* ================= LOAD GROUP PREFERENCES ================= */
 
@@ -860,7 +760,7 @@ export default function GroupItinerarySummary() {
     statValue: {
       fontSize: "24px",
       fontWeight: 700,
-      color: "#1e1e2f",
+      color: "#ffffff",
     },
 
     statLabel: {
@@ -1050,7 +950,6 @@ export default function GroupItinerarySummary() {
       animation: "pulse 2s ease-in-out infinite",
     },
 
-
     magicBg: {
       position: "absolute",
       inset: 0,
@@ -1158,7 +1057,7 @@ export default function GroupItinerarySummary() {
       textAlign: "center",
       padding: "80px",
       fontSize: "18px",
-      color: "#7c3aed",
+      color: "#ffffff",
       animation: "pulse 2s ease-in-out infinite",
     },
   };
@@ -1292,9 +1191,13 @@ export default function GroupItinerarySummary() {
         {/* HERO SECTION */}
         <div style={styles.heroSection}>
           <img 
-            src={getDestinationImage(destination)} 
+            src={destinationImage} 
             alt={destination}
             style={styles.heroImage}
+            onError={(e) => {
+              // Fallback if image fails to load
+              e.currentTarget.src = "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=1600&h=900&fit=crop";
+            }}
           />
           <div style={styles.heroOverlay}>
             <div style={styles.heroTitle}>{destination}</div>
@@ -1478,7 +1381,6 @@ export default function GroupItinerarySummary() {
                       DAY {day.day} · {day.date}
                     </span>
                     
-                    {/* NEW: + / - ICON */}
                     <div 
                       style={{
                         ...styles.expandButton,

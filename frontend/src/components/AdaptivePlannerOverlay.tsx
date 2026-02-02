@@ -108,6 +108,7 @@ export default function AdaptivePlannerOverlay({
   const [error, setError] = useState<string | null>(null);
   const [latestSig, setLatestSig] = useState<string | null>(null);
   const lastAutoOpened = useRef<string | null>(null);
+  const hasFetchedOnce = useRef(false); // Track if we've fetched at least once
   const [ignoredSigs, setIgnoredSigs] = useState<Set<string>>(() => {
     try {
       const raw = localStorage.getItem("tm_suggestions_ignore_sigs");
@@ -116,6 +117,19 @@ export default function AdaptivePlannerOverlay({
       return new Set<string>();
     }
   });
+
+  // Lightweight client-side check for business hours issues (no API calls)
+  // This runs on mount/data changes to show the animation indicator
+  const hasClientSideIssues = useMemo(() => {
+    for (const dayId of Object.keys(itemsByDay)) {
+      const items = itemsByDay[Number(dayId)] || [];
+      for (const item of items) {
+        const conflict = checkHoursConflict(item.opening_hours, item.start_time, item.end_time);
+        if (conflict) return true;
+      }
+    }
+    return false;
+  }, [itemsByDay]);
 
   const actionableDays = useMemo(
     () => daySummaries.filter((d) => d.hasSuggestions),
@@ -141,7 +155,8 @@ export default function AdaptivePlannerOverlay({
     return hasOrderChange || hasNonHoursChange || hasHoursIssues;
   });
   const isIgnoredSig = latestSig ? ignoredSigs.has(latestSig) : false;
-  const shouldAnimate = hasActionableMotion && !isIgnoredSig;
+  // Show animation if either: client-side issues detected OR full fetch found actionable items
+  const shouldAnimate = (hasClientSideIssues || hasActionableMotion) && !isIgnoredSig;
 
   const ignoreKey = "tm_suggestions_ignore_sigs";
   const saveIgnored = (val: Set<string>) => {
@@ -282,10 +297,7 @@ export default function AdaptivePlannerOverlay({
           })),
       });
       setLatestSig(sig);
-      if (!open && results.some((s) => s.hasSuggestions) && !ignoredSigs.has(sig) && lastAutoOpened.current !== sig) {
-        lastAutoOpened.current = sig;
-        setOpen(true);
-      }
+      // Removed auto-open logic - panel only opens when user clicks the icon
     } catch (e: any) {
       setError(e?.message || "Failed to load suggestions");
     } finally {
@@ -368,7 +380,11 @@ export default function AdaptivePlannerOverlay({
   };
 
   useEffect(() => {
-    fetchAll();
+    // Only fetch when panel is explicitly opened by user
+    if (open) {
+      fetchAll();
+      hasFetchedOnce.current = true;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tripId, JSON.stringify(dayISOMap), JSON.stringify(itemsByDay)]);
 
@@ -403,7 +419,7 @@ export default function AdaptivePlannerOverlay({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          title="Suggestions"
+          title="Adaptive Planner Suggestions"
           style={{
             pointerEvents: "auto",
             width: 50,

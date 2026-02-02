@@ -247,7 +247,7 @@ class TripOverviewSerializer(serializers.ModelSerializer):
             day_count = obj.days.count()  # TripDay related_name="days"
             if day_count > 0:
                 nights = max(day_count - 1, 0)
-                return f"{day_count} days - {nights} nights"
+                return f"{day_count} days · {nights} nights"
             return ""
 
         # For manual trips: keep original behavior (date range is the actual trip)
@@ -259,7 +259,7 @@ class TripOverviewSerializer(serializers.ModelSerializer):
             return ""
 
         nights = max(days - 1, 0)
-        return f"{days} days - {nights} nights"
+        return f"{days} days · {nights} nights"
 
 
     def get_currency_code(self, obj: Trip) -> str | None:

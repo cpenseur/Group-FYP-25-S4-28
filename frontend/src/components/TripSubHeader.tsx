@@ -2,9 +2,10 @@
 import { NavLink, useParams, useLocation } from "react-router-dom";
 import { useEffect, useState, useRef } from "react";
 import styled from "styled-components";
-import { MapPin, CalendarDays, Settings, Globe, Lock, BedDouble } from "lucide-react";
-import { apiFetch } from "../lib/apiClient";
+import { MapPin, CalendarDays, Settings, Globe, Lock, BedDouble, Trash2, Users } from "lucide-react";
+import { apiFetch, ensureCsrfToken } from "../lib/apiClient";
 import ShareTripModal from "./ShareTripModal";
+import InviteCollaboratorModal from "./InviteCollaboratorModal";
 
 type CollaboratorSummary = {
   id: string;
@@ -50,6 +51,43 @@ async function patchTripDates(tripId: number, start: string | null, end: string 
   const updated = await apiFetch(`/f1/trips/${tripId}/`, {
     method: "PATCH",
     body: JSON.stringify({ start_date: start, end_date: end }),
+  });
+
+  // let other pages/components know
+  window.dispatchEvent(new CustomEvent("trip-updated", { detail: { tripId } }));
+  return updated;
+}
+
+/**
+ * Sanitize trip title to prevent XSS and code injection:
+ * - Strips HTML tags
+ * - Removes potentially dangerous characters
+ * - Limits length
+ * - Trims whitespace
+ */
+function sanitizeTripTitle(input: string): string {
+  // Remove HTML tags
+  let sanitized = input.replace(/<[^>]*>/g, "");
+  // Remove script-like patterns
+  sanitized = sanitized.replace(/javascript:/gi, "");
+  sanitized = sanitized.replace(/on\w+=/gi, "");
+  // Remove dangerous characters that could be used for injection
+  sanitized = sanitized.replace(/[<>"'`;(){}[\]\\]/g, "");
+  // Limit length to 100 characters
+  sanitized = sanitized.substring(0, 100);
+  // Trim whitespace
+  sanitized = sanitized.trim();
+  return sanitized;
+}
+
+async function patchTripTitle(tripId: number, title: string) {
+  const sanitizedTitle = sanitizeTripTitle(title);
+  if (!sanitizedTitle) {
+    throw new Error("Title cannot be empty");
+  }
+  const updated = await apiFetch(`/f1/trips/${tripId}/`, {
+    method: "PATCH",
+    body: JSON.stringify({ title: sanitizedTitle }),
   });
 
   // let other pages/components know
@@ -118,6 +156,33 @@ const TripTitle = styled.h1`
   font-size: 1.8rem;
   font-weight: 700;
   color: #111827;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+
+  &:hover {
+    background-color: rgba(99, 102, 241, 0.08);
+  }
+`;
+
+const TripTitleInput = styled.input`
+  margin: 0;
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #111827;
+  border: 2px solid #6366f1;
+  border-radius: 6px;
+  padding: 0.1rem 0.3rem;
+  background: white;
+  outline: none;
+  min-width: 200px;
+  max-width: 400px;
+  font-family: inherit;
+
+  &:focus {
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  }
 `;
 
 const CollaboratorRow = styled.div`
@@ -298,6 +363,147 @@ const VisibilityToggle = styled.button<{ $isPublic: boolean }>`
   }
 `;
 
+/* Edit Members Modal Styles */
+const EditMembersOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background-color: rgba(0, 0, 0, 0.45);
+  z-index: 2000;
+  backdrop-filter: blur(4px);
+`;
+
+const EditMembersModal = styled.div`
+  width: 100%;
+  max-width: 420px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 1.5rem;
+  background: #ffffff;
+  border-radius: 1rem;
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+`;
+
+const EditMembersTitle = styled.h3`
+  margin: 0 0 1rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #111827;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+`;
+
+const MemberList = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+`;
+
+const MemberItem = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+`;
+
+const MemberInfo = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+`;
+
+const MemberAvatar = styled.div<{ $color: string }>`
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: ${(p) => p.$color};
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+`;
+
+const MemberDetails = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+`;
+
+const MemberName = styled.span`
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #111827;
+`;
+
+const MemberEmail = styled.span`
+  font-size: 0.75rem;
+  color: #6b7280;
+`;
+
+const MemberBadge = styled.span`
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-radius: 999px;
+  font-weight: 500;
+`;
+
+const RemoveMemberButton = styled.button`
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 8px;
+  color: #9ca3af;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    background: #fee2e2;
+    color: #dc2626;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    &:hover {
+      background: none;
+      color: #9ca3af;
+    }
+  }
+`;
+
+const CloseModalButton = styled.button`
+  width: 100%;
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    background: #e2e8f0;
+  }
+`;
+
 type StayProvider = {
   name: string;
   url: string;
@@ -338,6 +544,7 @@ const StatValueRow = styled.div`
   font-size: 0.9rem;
   font-weight: 500;
   color: #111827;
+  white-space: nowrap;
 `;
 
 const StatDivider = styled.div`
@@ -510,17 +717,31 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
   const [loading, setLoading] = useState<boolean>(true);
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>([]);
   const [hotelsModalOpen, setHotelsModalOpen] = useState(false);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
 
   const [editingDates, setEditingDates] = useState(false);
   const [startDraft, setStartDraft] = useState<string>("");
   const [endDraft, setEndDraft] = useState<string>("");
 
+  // Title editing state
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState<string>("");
+  const [titleSaving, setTitleSaving] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
   // Settings dropdown state
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
   
+  // Edit members modal state
+  const [editMembersOpen, setEditMembersOpen] = useState(false);
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
+  
   // Track the original non-public visibility (private or shared) to restore when toggling back from public
   const originalPrivateVisibilityRef = useRef<"private" | "shared">("private");
+
+  // Determine if current user is the owner
+  const isCurrentUserOwner = trip?.collaborators?.some(c => c.is_owner && c.is_current_user) ?? false;
 
   // Close settings dropdown when clicking outside
   useEffect(() => {
@@ -539,6 +760,99 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
       originalPrivateVisibilityRef.current = trip.visibility as "private" | "shared";
     }
   }, [trip?.visibility]);
+
+  // Focus title input when editing starts
+  useEffect(() => {
+    if (editingTitle && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
+    }
+  }, [editingTitle]);
+
+  const handleTitleClick = () => {
+    if (trip) {
+      setTitleDraft(trip.title);
+      setEditingTitle(true);
+    }
+  };
+
+  const handleTitleSave = async () => {
+    if (!trip || !tripId) return;
+    
+    const sanitized = sanitizeTripTitle(titleDraft);
+    if (!sanitized) {
+      // Revert to original if empty after sanitization
+      setTitleDraft(trip.title);
+      setEditingTitle(false);
+      return;
+    }
+    
+    if (sanitized === trip.title) {
+      setEditingTitle(false);
+      return;
+    }
+
+    setTitleSaving(true);
+    try {
+      const updated = await patchTripTitle(Number(tripId), sanitized);
+      setTrip((prev) => prev ? { ...prev, title: updated.title } : prev);
+      setEditingTitle(false);
+    } catch (err) {
+      console.error("Failed to update title:", err);
+      // Revert on error
+      setTitleDraft(trip.title);
+    } finally {
+      setTitleSaving(false);
+    }
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleTitleSave();
+    } else if (e.key === "Escape") {
+      setTitleDraft(trip?.title || "");
+      setEditingTitle(false);
+    }
+  };
+
+  const handleTitleBlur = () => {
+    // Small delay to allow click events to fire first
+    setTimeout(() => {
+      if (editingTitle) {
+        handleTitleSave();
+      }
+    }, 100);
+  };
+
+  const handleRemoveCollaborator = async (collaboratorId: string) => {
+    if (!tripId || !isCurrentUserOwner) return;
+    
+    setRemovingMemberId(collaboratorId);
+    try {
+      // Ensure CSRF token is available before DELETE request
+      await ensureCsrfToken();
+      
+      await apiFetch(`/f1/trips/${tripId}/collaborators/${collaboratorId}/`, {
+        method: "DELETE",
+        body: JSON.stringify({}),
+      });
+      // Update local state
+      setTrip((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          collaborators: prev.collaborators.filter(c => c.id !== collaboratorId),
+        };
+      });
+      // Dispatch event to refresh other components
+      window.dispatchEvent(new CustomEvent("trip-updated", { detail: { tripId } }));
+    } catch (err) {
+      console.error("Failed to remove collaborator:", err);
+    } finally {
+      setRemovingMemberId(null);
+    }
+  };
 
   const handleToggleVisibility = async () => {
     if (!trip || !tripId) return;
@@ -706,7 +1020,23 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
             {/* LEFT: title + collaborators + buttons */}
             <LeftBlock>
               <TitleAndCollabs>
-                <TripTitle>{trip.title}</TripTitle>
+                {editingTitle ? (
+                  <TripTitleInput
+                    ref={titleInputRef}
+                    type="text"
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onKeyDown={handleTitleKeyDown}
+                    onBlur={handleTitleBlur}
+                    disabled={titleSaving}
+                    maxLength={100}
+                    placeholder="Trip title"
+                  />
+                ) : (
+                  <TripTitle onClick={handleTitleClick} title="Click to edit title">
+                    {trip.title}
+                  </TripTitle>
+                )}
 
                 <CollaboratorRow>
                   {collaboratorsSorted.map((c, index) => {
@@ -731,7 +1061,7 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
                     );
                   })}
 
-                  <InviteButton>+ invite collaborators</InviteButton>
+                  <InviteButton onClick={() => setInviteModalOpen(true)}>+ invite collaborators</InviteButton>
                   <ShareButton onClick={() => setShareModalOpen(true)}>Share</ShareButton>
                   <ExportButton onClick={onExport}>Export</ExportButton>
                   
@@ -764,6 +1094,14 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
                           }}
                         />
                       </DropdownItem>
+                      {isCurrentUserOwner && (
+                        <DropdownItem onClick={() => { setEditMembersOpen(true); setSettingsOpen(false); }}>
+                          <DropdownLabel>
+                            <Users size={16} strokeWidth={2} color="#6b7280" />
+                            <span>Edit members</span>
+                          </DropdownLabel>
+                        </DropdownItem>
+                      )}
                     </SettingsDropdown>
                   </SettingsDropdownWrapper>
                 </CollaboratorRow>
@@ -959,13 +1297,56 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
         stayLabel={stayLabel}
       />
 
-      <ShareTripModal
-        isOpen={shareModalOpen}
-        onClose={() => setShareModalOpen(false)}
-        tripId={tripId || ""}
+      <InviteCollaboratorModal
+        isOpen={inviteModalOpen}
+        onClose={() => setInviteModalOpen(false)}
+        tripId={Number(tripId)}
         tripTitle={trip.title}
-      />      
+        isOwner={isCurrentUserOwner}
+      />
+
+      {/* Edit Members Modal */}
+      {editMembersOpen && (
+        <EditMembersOverlay onClick={() => setEditMembersOpen(false)}>
+          <EditMembersModal onClick={(e) => e.stopPropagation()}>
+            <EditMembersTitle>
+              <Users size={20} />
+              Edit Members
+            </EditMembersTitle>
+            <MemberList>
+              {trip.collaborators.map((c, index) => (
+                <MemberItem key={c.id}>
+                  <MemberInfo>
+                    <MemberAvatar $color={["#f97316", "#22c55e", "#6366f1", "#ec4899"][index % 4]}>
+                      {fallbackInitials(c)}
+                    </MemberAvatar>
+                    <MemberDetails>
+                      <MemberName>
+                        {c.full_name || c.email}
+                        {c.is_current_user && " (You)"}
+                      </MemberName>
+                      <MemberEmail>{c.email}</MemberEmail>
+                    </MemberDetails>
+                    {c.is_owner && <MemberBadge>Owner</MemberBadge>}
+                  </MemberInfo>
+                  {!c.is_owner && isCurrentUserOwner && (
+                    <RemoveMemberButton
+                      onClick={() => handleRemoveCollaborator(c.id)}
+                      disabled={removingMemberId === c.id}
+                      title="Remove member"
+                    >
+                      <Trash2 size={18} />
+                    </RemoveMemberButton>
+                  )}
+                </MemberItem>
+              ))}
+            </MemberList>
+            <CloseModalButton onClick={() => setEditMembersOpen(false)}>
+              Close
+            </CloseModalButton>
+          </EditMembersModal>
+        </EditMembersOverlay>
+      )}
     </>
   );
 }
-

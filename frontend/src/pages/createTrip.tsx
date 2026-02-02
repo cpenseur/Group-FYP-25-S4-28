@@ -43,7 +43,8 @@ export default function CreateTrip() {
         });
 
       if (res?.invite_token) {
-        const inviteUrl = `${window.location.origin}/accept-invite?token=${res.invite_token}`;
+        const path = res.invitation_type === 'ai' ? '/ai-invitation' : '/trip-invitation';
+        const inviteUrl = `${window.location.origin}${path}/${res.invite_token}`;
         return { email: res.email ?? raw, inviteUrl };
       }
       return null;

@@ -28,3 +28,4 @@ pytest-django
 # ===== Optional but recommended =====
 Jinja2
 gunicorn
+whitenoise

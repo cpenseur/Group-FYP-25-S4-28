@@ -299,6 +299,17 @@ class TripCollaborator(models.Model):
     invited_at = models.DateTimeField(default=django_timezone.now)
     accepted_at = models.DateTimeField(blank=True, null=True)
 
+    class InvitationType(models.TextChoices):
+        AI = "ai", "AI Generator"
+        DIRECT = "direct", "Direct Invite"
+
+    invitation_type = models.CharField(
+        max_length=16,
+        choices=InvitationType.choices,
+        default=InvitationType.DIRECT,
+        help_text="How this invitation was created (AI or direct/manual)"
+    )
+
     class Meta:
         db_table = "trip_collaborator"
         constraints = [
@@ -324,6 +335,11 @@ class TripCollaborator(models.Model):
     def ensure_token(self):
         if not self.invite_token:
             self.invite_token = secrets.token_urlsafe(32)
+
+    def set_invitation_type(self, is_ai: bool = False):
+        self.invitation_type = (
+            self.InvitationType.AI if is_ai else self.InvitationType.DIRECT
+        )
 
     def __str__(self):
         return f"{self.user_id} in Trip {self.trip_id}"

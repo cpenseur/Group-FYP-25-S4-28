@@ -60,6 +60,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Serve static files in production
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -112,7 +113,9 @@ DATABASES["default"]["OPTIONS"].update({
     "keepalives_count": 5,      
 })
 
-DATABASES["default"]["CONN_MAX_AGE"] = 60        
+# Use CONN_MAX_AGE=0 for Supabase transaction mode pooler (port 6543)
+# Transaction mode doesn't support persistent connections
+DATABASES["default"]["CONN_MAX_AGE"] = 0        
 DATABASES["default"]["CONN_HEALTH_CHECKS"] = True  
 
 # Cache: in-memory (swap to Redis in prod if needed)
@@ -160,6 +163,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# WhiteNoise for serving static files in production
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -209,11 +216,13 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        # JWT-based auth (no CSRF needed - token in Authorization header)
         "TripMateFunctions.authentication.SupabaseJWTAuthentication",
-        "rest_framework.authentication.SessionAuthentication",
+        # Token auth for API keys (no CSRF needed)
         "rest_framework.authentication.TokenAuthentication",
         "rest_framework.authentication.BasicAuthentication",
         # later you can add your custom Supabase authentication class here
+        # Note: SessionAuthentication removed - it requires CSRF and we use JWT
     ],
 }
 

@@ -25,6 +25,7 @@ export function exportPDF({ open, onClose, onExport }: exportPDFProps) {
         alignItems: "center",
         justifyContent: "center",
         zIndex: 9999,
+        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
       }}
       onClick={onClose}
     >
@@ -37,6 +38,7 @@ export function exportPDF({ open, onClose, onExport }: exportPDFProps) {
           minWidth: "280px",
           textAlign: "center",
           boxShadow: "0 10px 30px rgba(0,0,0,0.15)",
+          fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
         }}
       >
         <p style={{ margin: "0 0 1.5rem", fontSize: "1.1rem", fontWeight: 600 }}>
@@ -54,6 +56,7 @@ export function exportPDF({ open, onClose, onExport }: exportPDFProps) {
             fontWeight: 600,
             cursor: "pointer",
             width: "100%",
+            fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
           }}
         >
           Export to PDF
