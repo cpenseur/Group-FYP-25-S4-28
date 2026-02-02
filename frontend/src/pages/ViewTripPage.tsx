@@ -368,7 +368,7 @@ export default function ViewTripPage() {
         </div>
       </div>
 
-      <div style={tabsContainer} onClick={handleSignupClick}>
+      <div style={tabsContainer}>
         <button 
           style={{ ...tab, ...(activeTab === 'itinerary' ? activeTabStyle : {}) }}
           onClick={() => setActiveTab('itinerary')}
@@ -377,25 +377,25 @@ export default function ViewTripPage() {
         </button>
         <button 
           style={{ ...tab, ...(activeTab === 'notes' ? activeTabStyle : {}) }}
-          onClick={() => setActiveTab('notes')}
+          onClick={() => { handleSignupClick(); setActiveTab('notes'); }}
         >
           Notes & Checklists
         </button>
         <button 
           style={{ ...tab, ...(activeTab === 'budget' ? activeTabStyle : {}) }}
-          onClick={() => setActiveTab('budget')}
+          onClick={() => { handleSignupClick(); setActiveTab('budget'); }}
         >
           Budget
         </button>
         <button 
           style={{ ...tab, ...(activeTab === 'media' ? activeTabStyle : {}) }}
-          onClick={() => setActiveTab('media')}
+          onClick={() => { handleSignupClick(); setActiveTab('media'); }}
         >
           Media Highlights
         </button>
         <button 
           style={{ ...tab, ...(activeTab === 'recommendations' ? activeTabStyle : {}) }}
-          onClick={() => setActiveTab('recommendations')}
+          onClick={() => { handleSignupClick(); setActiveTab('recommendations'); }}
         >
           Recommendations
         </button>

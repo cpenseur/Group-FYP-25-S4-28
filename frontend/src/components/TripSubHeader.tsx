@@ -1305,6 +1305,13 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
         isOwner={isCurrentUserOwner}
       />
 
+      <ShareTripModal
+        isOpen={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        tripId={tripId}
+        tripTitle={trip.title}
+      />
+
       {/* Edit Members Modal */}
       {editMembersOpen && (
         <EditMembersOverlay onClick={() => setEditMembersOpen(false)}>
