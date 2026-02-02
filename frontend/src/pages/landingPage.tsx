@@ -305,7 +305,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
       {/* Demo Trips Carousel */}
       <ShowcaseSection>
         <ShowcaseText>
-          <ShowcaseTitle>Our Highest-Rated Trips</ShowcaseTitle>
+          <ShowcaseTitle>View Trips shared by our fellow users</ShowcaseTitle>
 
           <ShowcaseParagraph>
             Immerse yourself in a world of wanderlust as you embark on a journey to the 
@@ -326,70 +326,17 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
         <ShowcaseCards>
           <TripCardTilt rotate={-6} top="20px" left="0">
             <img src={hallstatt} alt="Hallstatt" />
-            <TripCardLabel>
-              Hallstatt Lake <br /> 400 ❤️
-            </TripCardLabel>
           </TripCardTilt>
 
           <TripCardTilt rotate={2} top="0" left="90px">
             <img src={Cappadocia} alt="Cappadocia" />
-            <TripCardLabel>
-              Cappadocia <br /> 2000 ❤️
-            </TripCardLabel>
           </TripCardTilt>
 
           <TripCardTilt rotate={8} top="40px" left="180px">
             <img src={Yosemite} alt="Yosemite" />
-            <TripCardLabel>
-              Yosemite Park <br /> 100K ❤️
-            </TripCardLabel>
-
-            <TripBadge>⭐ 4.9</TripBadge>
-            <TripButton>Learn More</TripButton>
           </TripCardTilt>
         </ShowcaseCards>
       </ShowcaseSection>
-
-      {/* Testimonials */}
-      <Section>
-        <SectionHeader>
-          <SectionSubtitle>HEAR FROM TRAVELERS</SectionSubtitle>
-          <SectionTitle>Happy Travelers Love TripMate</SectionTitle>
-          <SectionDescription>
-            Join thousands of travelers who have transformed their trips with TripMate
-          </SectionDescription>
-        </SectionHeader>
-        
-        <TestimonialsGrid>
-          {testimonials.map((testimonial, index) => (
-            <TestimonialCard key={index}>
-              <Rating>
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Star 
-                    key={i} 
-                    size={16} 
-                    fill={i < testimonial.rating ? "#f59e0b" : "#e5e7eb"} 
-                    color={i < testimonial.rating ? "#f59e0b" : "#e5e7eb"} 
-                  />
-                ))}
-              </Rating>
-              
-              <TestimonialText>"{testimonial.text}"</TestimonialText>
-              
-              <UserInfo>
-                <Avatar>{testimonial.avatar}</Avatar>
-                <UserDetails>
-                  <UserName>{testimonial.name}</UserName>
-                  <UserLocation>
-                    <MapPin size={12} />
-                    {testimonial.location}
-                  </UserLocation>
-                </UserDetails>
-              </UserInfo>
-            </TestimonialCard>
-          ))}
-        </TestimonialsGrid>
-      </Section>
 
       {/* Travel Insights */}
       <Section light>
@@ -867,13 +814,14 @@ const TripCardTilt = styled.div<{ rotate: number; top: string; left: string }>`
   border-radius: 20px;
   box-shadow: 0 20px 30px rgba(0,0,0,0.12);
   transform: rotate(${(p) => p.rotate}deg);
-  overflow: visible;
-  padding-bottom: 1rem;
+  overflow: hidden;
 
   img {
     width: 100%;
-    height: 220px;
+    height: 100%;
     object-fit: cover;
+    object-position: center;
+    border-radius: 20px;    
   }
 `;
 

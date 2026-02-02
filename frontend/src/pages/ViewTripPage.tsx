@@ -1,8 +1,9 @@
 // frontend/src/pages/ViewTripPage.tsx
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams , useNavigate} from "react-router-dom";
 import { MapPin, Eye, Bed, CalendarDays, FileText, DollarSign, Camera, Lightbulb } from "lucide-react";
 import ItineraryMap, { MapItineraryItem } from "../components/ItineraryMap";
+import Login from "../components/login"; 
 
 type TripDay = {
   id: number;
@@ -48,6 +49,13 @@ export default function ViewTripPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeDay, setActiveDay] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('itinerary');
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "signup">("signup");
+
+  const handleSignupClick = () => {
+    setAuthMode("signup");
+    setShowAuthModal(true);
+  };
 
   useEffect(() => {
     if (!tripId) return;
@@ -189,7 +197,7 @@ export default function ViewTripPage() {
         </div>
       );
     }
-
+    
     const currentDayData = tripData?.days.find(d => d.day_index === activeDay);
     const currentItems = currentDayData?.items || [];
 
@@ -310,6 +318,7 @@ export default function ViewTripPage() {
       <div style={viewOnlyBanner}>
         <Eye size={16} strokeWidth={2.5} style={{ color: "#92400e" }} />
         <span>View-Only Mode — You're viewing a shared trip itinerary</span>
+        <button onClick={handleSignupClick} style={signupBannerButton} > Sign up to create your own </button>
       </div>
 
       <div style={header}>
@@ -352,14 +361,14 @@ export default function ViewTripPage() {
             </div>
           </div>
 
-          <button style={bookButton}>
+          <button style={bookButton} onClick={handleSignupClick}>
             <Bed size={16} strokeWidth={2} />
             Book hotels
           </button>
         </div>
       </div>
 
-      <div style={tabsContainer}>
+      <div style={tabsContainer} onClick={handleSignupClick}>
         <button 
           style={{ ...tab, ...(activeTab === 'itinerary' ? activeTabStyle : {}) }}
           onClick={() => setActiveTab('itinerary')}
@@ -457,6 +466,11 @@ export default function ViewTripPage() {
           })}
         </div>
       </div>
+      <Login 
+        isOpen={showAuthModal} 
+        onClose={() => setShowAuthModal(false)}
+        defaultMode={authMode}
+      />
     </div>
   );
 }
@@ -466,6 +480,21 @@ const pageContainer: React.CSSProperties = {
   minHeight: "100vh",
   background: "#f8fafb",
   fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+};
+
+const signupBannerButton: React.CSSProperties = {
+  marginLeft: "auto",
+  marginRight: "1rem",
+  padding: "0.5rem 1.2rem",
+  borderRadius: 999,
+  border: "2px solid #f59e0b",
+  background: "#f59e0b",
+  color: "white",
+  fontWeight: 600,
+  fontSize: "0.85rem",
+  cursor: "pointer",
+  transition: "all 0.2s ease",
+  boxShadow: "0 2px 8px rgba(245, 158, 11, 0.3)",
 };
 
 const viewOnlyBanner: React.CSSProperties = {
