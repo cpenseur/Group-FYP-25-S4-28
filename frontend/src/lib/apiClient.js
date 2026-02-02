@@ -50,15 +50,12 @@ export async function apiFetch(path, options = {}) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  // ƒo. Add CSRF token for non-GET requests
+  // Add CSRF token for non-GET requests (optional with JWT auth)
   const method = options.method?.toUpperCase() || 'GET';
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
     const csrfToken = getCSRFToken();
     if (csrfToken) {
       headers['X-CSRFToken'] = csrfToken;
-      console.log('dY"? Added CSRF token to request:', csrfToken.substring(0, 10) + '...');
-    } else {
-      console.warn('ƒsÿ‹,? No CSRF token found for', method, 'request to', path);
     }
   }
 
@@ -108,42 +105,37 @@ export async function apiFetch(path, options = {}) {
 }
 
 /**
- * ƒo. Fetch CSRF token from backend
+ * ƒo. Fetch CSRF token from backend (optional - JWT auth doesn't require it)
  */
 export async function fetchCsrfToken() {
   try {
     const response = await fetch(`${API_BASE_URL}/f1/csrf/`, {
       method: 'GET',
-      credentials: 'include',  // Important: saves the cookie
+      credentials: 'include',
     });
     
     if (!response.ok) {
-      throw new Error(`Failed to fetch CSRF token: ${response.status}`);
+      // Not critical - JWT auth works without CSRF
+      return null;
     }
     
     const data = await response.json();
-    // ƒo. Store token in memory for cross-origin access
     cachedCsrfToken = data.csrfToken;
-    console.log('ƒo. CSRF token fetched and cached successfully');
     return data.csrfToken;
     
   } catch (error) {
-    console.error('ƒ?O Error fetching CSRF token:', error);
-    throw error;
+    // Silent fail - CSRF is optional with JWT auth
+    return null;
   }
 }
 
 /**
- * ƒo. Ensure CSRF token exists (fetch if not present)
+ * ƒo. Ensure CSRF token exists (optional with JWT auth)
  */
 export async function ensureCsrfToken() {
   const existingToken = getCSRFToken();
-  
   if (!existingToken) {
-    console.log('dY", No CSRF token found, fetching from backend...');
     await fetchCsrfToken();
-  } else {
-    console.log('ƒo. CSRF token already exists');
   }
 }
 

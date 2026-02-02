@@ -69,27 +69,23 @@ export default function App() {
   console.log("Sealion Key Loaded:", import.meta.env.VITE_SEALION_API_KEY);
 
   /**
-   * CSRF initialization + refresh on auth change
+   * Auth state change listener + optional CSRF
    */
   useEffect(() => {
-    const initializeCsrf = async () => {
-      try {
-        await ensureCsrfToken();
-        console.log("CSRF token initialized");
-      } catch (error) {
-        console.error("Failed to initialize CSRF token:", error);
-      }
-    };
-    initializeCsrf();
-    // Only refresh CSRF after SIGNED_IN, not SIGNED_OUT
+    // Try to get CSRF token (optional - JWT auth works without it)
+    ensureCsrfToken();
+    
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event) => {
         if (event === "SIGNED_IN") {
-          try {
-            await ensureCsrfToken();
-            console.log("CSRF token refreshed after SIGNED_IN");
-          } catch (error) {
-            console.error("Failed to refresh CSRF token after SIGNED_IN:", error);
+          // Refresh CSRF on sign in (optional)
+          ensureCsrfToken();
+          
+          // Check for pending AI preference token and redirect
+          const pendingAiToken = localStorage.getItem("pendingAiPreferenceToken");
+          if (pendingAiToken) {
+            localStorage.removeItem("pendingAiPreferenceToken");
+            window.location.href = `/ai-invitation/${pendingAiToken}`;
           }
         }
       }
@@ -178,7 +174,7 @@ export default function App() {
         <Route path="/trip/:tripId/recommendations" element={<ItineraryRecommendation />} />
         <Route path="/trip/:tripId/media" element={<MediaHighlights />} />
         <Route path="/trip/:tripId/highlight/:highlightId" element={<VideoPlayer />} />
-        <Route path="/trip-invitation/:token" element={<TripInvitationAccept />} />
+        <Route path="/ai-invitation/:token" element={<TripInvitationAccept />} />
         <Route path="/group-ai-wait/:tripId" element={<GroupAITripGeneratorWait />} />
 
         {/* Su */}

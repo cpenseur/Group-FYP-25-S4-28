@@ -9,6 +9,7 @@ type InviteCollaboratorModalProps = {
   onClose: () => void;
   tripId: number;
   tripTitle: string;
+  isOwner?: boolean;
 };
 
 /* ========= Styled Components ========= */
@@ -270,6 +271,25 @@ const Spinner = styled(Loader2)`
   }
 `;
 
+const NonOwnerMessage = styled.div`
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #f59e0b;
+  border-radius: 12px;
+  padding: 1.25rem;
+  text-align: center;
+  color: #92400e;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-bottom: 1rem;
+
+  strong {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 1rem;
+    color: #78350f;
+  }
+`;
+
 /* ========= Component ========= */
 
 export default function InviteCollaboratorModal({
@@ -277,6 +297,7 @@ export default function InviteCollaboratorModal({
   onClose,
   tripId,
   tripTitle,
+  isOwner = true,
 }: InviteCollaboratorModalProps) {
   const [pendingEmails, setPendingEmails] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -413,81 +434,91 @@ export default function InviteCollaboratorModal({
           Invite people to collaborate on "{tripTitle}"
         </Subtitle>
 
-        {error && (
-          <MessageBox $type="error">
-            <AlertCircle size={18} />
-            {error}
-          </MessageBox>
+        {!isOwner ? (
+          <NonOwnerMessage>
+            <strong>Owner Access Required</strong>
+            Only the owner of this trip can invite collaborators.
+            Please contact the trip owner if you'd like to add more people.
+          </NonOwnerMessage>
+        ) : (
+          <>
+            {error && (
+              <MessageBox $type="error">
+                <AlertCircle size={18} />
+                {error}
+              </MessageBox>
+            )}
+
+            {successMessage && (
+              <MessageBox $type="success">
+                <Check size={18} />
+                {successMessage}
+              </MessageBox>
+            )}
+
+            <InviteBox>
+              <InviteTitle>
+                <Mail size={18} />
+                Invite via email
+              </InviteTitle>
+
+              <InputArea>
+                <Input
+                  type="email"
+                  placeholder="Enter email address"
+                  value={inputValue}
+                  onChange={(e) => {
+                    setInputValue(e.target.value);
+                    setError("");
+                  }}
+                  onKeyDown={handleKeyDown}
+                  disabled={sending}
+                />
+                <AddButton onClick={addEmail} disabled={sending}>
+                  <UserPlus size={18} />
+                  Add
+                </AddButton>
+              </InputArea>
+
+              {pendingEmails.length > 0 && (
+                <TagList>
+                  {pendingEmails.map((email) => (
+                    <Tag key={email}>
+                      {email}
+                      <RemoveTagButton
+                        onClick={() => removeEmail(email)}
+                        disabled={sending}
+                        aria-label={`Remove ${email}`}
+                      >
+                        <X size={14} />
+                      </RemoveTagButton>
+                    </Tag>
+                  ))}
+                </TagList>
+              )}
+            </InviteBox>
+
+            <SendButton
+              onClick={sendInvitations}
+              disabled={sending || pendingEmails.length === 0}
+            >
+              {sending ? (
+                <>
+                  <Spinner size={20} />
+                  Sending invitations...
+                </>
+              ) : (
+                <>
+                  <Mail size={20} />
+                  Send {pendingEmails.length > 0 ? pendingEmails.length : ""} Invitation
+                  {pendingEmails.length !== 1 ? "s" : ""}
+                </>
+              )}
+            </SendButton>
+          </>
         )}
 
-        {successMessage && (
-          <MessageBox $type="success">
-            <Check size={18} />
-            {successMessage}
-          </MessageBox>
-        )}
-
-        <InviteBox>
-          <InviteTitle>
-            <Mail size={18} />
-            Invite via email
-          </InviteTitle>
-
-          <InputArea>
-            <Input
-              type="email"
-              placeholder="Enter email address"
-              value={inputValue}
-              onChange={(e) => {
-                setInputValue(e.target.value);
-                setError("");
-              }}
-              onKeyDown={handleKeyDown}
-              disabled={sending}
-            />
-            <AddButton onClick={addEmail} disabled={sending}>
-              <UserPlus size={18} />
-              Add
-            </AddButton>
-          </InputArea>
-
-          {pendingEmails.length > 0 && (
-            <TagList>
-              {pendingEmails.map((email) => (
-                <Tag key={email}>
-                  {email}
-                  <RemoveTagButton
-                    onClick={() => removeEmail(email)}
-                    disabled={sending}
-                    aria-label={`Remove ${email}`}
-                  >
-                    <X size={14} />
-                  </RemoveTagButton>
-                </Tag>
-              ))}
-            </TagList>
-          )}
-        </InviteBox>
-
-        <SendButton
-          onClick={sendInvitations}
-          disabled={sending || pendingEmails.length === 0}
-        >
-          {sending ? (
-            <>
-              <Spinner size={20} />
-              Sending invitations...
-            </>
-          ) : (
-            <>
-              <Mail size={20} />
-              Send {pendingEmails.length > 0 ? pendingEmails.length : ""} Invitation
-              {pendingEmails.length !== 1 ? "s" : ""}
-            </>
-          )}
-        </SendButton>
-
-        {sentEmails.length > 0 && (
+        {isOwner && sentEmails.length > 0 && (
           <SentList>
             <div
               style={{

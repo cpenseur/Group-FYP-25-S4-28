@@ -122,6 +122,7 @@ class AcceptTripInvitationView(APIView):
                 "invited_email": collaborator.invited_email,
                 "role": collaborator.role,
                 "invited_at": collaborator.invited_at.isoformat() if collaborator.invited_at else None,
+                "invitation_type": collaborator.invitation_type,
             },
             status=status.HTTP_200_OK
         )
