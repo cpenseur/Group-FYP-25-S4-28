@@ -148,6 +148,15 @@ export default function Login({
         // 6) Role-based redirect
         const normalizedRole = userData.role?.toString().trim().toLowerCase();
 
+        // Check if there's a pending invitation - if so, don't redirect
+        // The invitation page will handle the accept flow
+        const pendingInvitation = sessionStorage.getItem('pendingInvitation');
+        if (pendingInvitation) {
+          console.log("Pending invitation found, staying on current page for auto-accept");
+          onClose();
+          return;
+        }
+
         if (normalizedRole === "admin") {
           console.log("Redirecting to ADMIN Dashboard");
           navigate("/admin-dashboard", { replace: true });

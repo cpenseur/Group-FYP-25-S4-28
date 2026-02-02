@@ -141,10 +141,15 @@ class TripViewSet(BaseViewSet):
                     "invitation_type": TripCollaborator.InvitationType.AI if is_ai else TripCollaborator.InvitationType.DIRECT,
                 },
             )
-        # If collab already exists, update invitation_type if needed
-        if not created and collab.invitation_type != (TripCollaborator.InvitationType.AI if is_ai else TripCollaborator.InvitationType.DIRECT):
-            collab.invitation_type = TripCollaborator.InvitationType.AI if is_ai else TripCollaborator.InvitationType.DIRECT
-            collab.save(update_fields=["invitation_type"])
+        
+        # If collab already exists, reset status to INVITED and update invitation_type
+        if not created:
+            collab.status = TripCollaborator.Status.INVITED
+            collab.accepted_at = None
+            new_invitation_type = TripCollaborator.InvitationType.AI if is_ai else TripCollaborator.InvitationType.DIRECT
+            collab.invitation_type = new_invitation_type
+            collab.save(update_fields=["status", "accepted_at", "invitation_type"])
+        
         collab.ensure_token()
         collab.save(update_fields=["invite_token"])
         if collab.invitation_type == TripCollaborator.InvitationType.AI:
@@ -159,6 +164,7 @@ class TripViewSet(BaseViewSet):
                     f"You've been invited to join a trip.\n\n"
                     f"Click the link below to accept the invite:\n"
                     f"{invite_url}\n\n"
+                    f"Please note: this invitation will expire 24 hours after it is issued.\n"                    
                     f"If you didn't expect this, you can ignore this email."
                 ),
                 from_email=settings.DEFAULT_FROM_EMAIL,
