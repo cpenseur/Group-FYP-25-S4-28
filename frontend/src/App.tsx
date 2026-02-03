@@ -19,7 +19,7 @@ import TripInvitationPage from "./pages/TripInvitationPage";
 
 // PohYee
 import LandingPage from "./pages/landingPage";
-import Demo from "./pages/Demo";
+import Demo from "./pages/demo";
 import TravelGuidesTutorial from "./pages/travelGuidesTutorial";
 import GuestFAQPage from "./pages/guestFAQpage";
 import AdminDashboard from "./pages/adminDashboard";
