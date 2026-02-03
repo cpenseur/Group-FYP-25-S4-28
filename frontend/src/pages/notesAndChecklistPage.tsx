@@ -237,6 +237,46 @@ export default function NotesAndChecklistPage() {
       .map((t) => t.trim())
       .filter(Boolean);
 
+  const getTagsForItem = (itemId: number) => tagsByItem[itemId] || [];
+
+  const deleteTagsForItem = async (itemId: number) => {
+    const existing = getTagsForItem(itemId);
+    if (existing.length === 0) return;
+    await Promise.all(
+      existing.map((t) =>
+        apiFetch(`/f3/tags/${t.id}/`, { method: "DELETE" }).catch(() => null)
+      )
+    );
+    await refreshTagsByTrip();
+  };
+
+  const syncTagsForItem = async (itemId: number, rawInput: string) => {
+    const desired = parseTags(rawInput);
+    const desiredSet = new Set(desired.map((t) => t.toLowerCase()));
+    const existing = getTagsForItem(itemId);
+    const existingByLower = new Map(existing.map((t) => [t.tag.toLowerCase(), t]));
+
+    const toDelete = existing.filter((t) => !desiredSet.has(t.tag.toLowerCase()));
+    const toAdd = desired.filter((t) => !existingByLower.has(t.toLowerCase()));
+
+    await Promise.all(
+      toDelete.map((t) =>
+        apiFetch(`/f3/tags/${t.id}/`, { method: "DELETE" }).catch(() => null)
+      )
+    );
+
+    await Promise.all(
+      toAdd.map((tag) =>
+        apiFetch(`/f3/tags/`, {
+          method: "POST",
+          body: JSON.stringify({ item: itemId, tag }),
+        }).catch(() => null)
+      )
+    );
+
+    await refreshTagsByTrip();
+  };
+
   const refreshTagsByTrip = async () => {
     if (!tripIdNum || Number.isNaN(tripIdNum)) return;
     try {
@@ -320,19 +360,25 @@ export default function NotesAndChecklistPage() {
         });
         setNotes((prev) => [created, ...prev]);
       }
-      const parsedTags = parseTags(newTagsInput);
-      if (parsedTags.length > 0) {
-        await Promise.all(
-          parsedTags.map((tag) =>
-            apiFetch(`/f3/tags/`, {
-              method: "POST",
-              body: JSON.stringify({ item: itemId, tag }),
-            }).catch(() => null)
-          )
-        );
-        await refreshTagsByTrip();
+      if (editingNote) {
+        await syncTagsForItem(itemId, newTagsInput);
         setNewTagsInput("");
         setTagError(null);
+      } else {
+        const parsedTags = parseTags(newTagsInput);
+        if (parsedTags.length > 0) {
+          await Promise.all(
+            parsedTags.map((tag) =>
+              apiFetch(`/f3/tags/`, {
+                method: "POST",
+                body: JSON.stringify({ item: itemId, tag }),
+              }).catch(() => null)
+            )
+          );
+          await refreshTagsByTrip();
+          setNewTagsInput("");
+          setTagError(null);
+        }
       }
       setNewNote("");
       return true;
@@ -344,9 +390,18 @@ export default function NotesAndChecklistPage() {
   };
 
   const deleteNote = async (id: number) => {
+    const noteToDelete = notes.find((n) => n.id === id);
+    const itemId = noteToDelete?.item ?? null;
     try {
       await apiFetch(`/f3/notes/${id}/`, { method: "DELETE" });
       setNotes((prev) => prev.filter((n) => n.id !== id));
+      if (itemId) {
+        const remainingForItem = notes.filter((n) => n.item === itemId && n.id !== id)
+          .length;
+        if (remainingForItem === 0) {
+          await deleteTagsForItem(itemId);
+        }
+      }
     } catch (e) {
       console.error(e);
       alert("Failed to delete note.");
@@ -447,6 +502,12 @@ export default function NotesAndChecklistPage() {
     setNewNote(note?.content || "");
 
     if (note?.item) setSelectedItemId(note.item);
+    if (note?.item) {
+      const existingTags = getTagsForItem(note.item).map((t) => t.tag).join(", ");
+      setNewTagsInput(existingTags);
+    } else {
+      setNewTagsInput("");
+    }
 
     setActiveModal("noteForm");
     setOpenMenu(null);
@@ -1001,7 +1062,7 @@ export default function NotesAndChecklistPage() {
               <input
                 value={newTagsInput}
                 onChange={(e) => setNewTagsInput(e.target.value)}
-                placeholder="Cafe, Zoo, Landmark"
+                placeholder="Cafe, Zoo, Landmark..."
                 style={inputStyle}
               />
               {tagError && <div style={{ color: "#b91c1c", fontSize: 12, marginTop: 6 }}>{tagError}</div>}
