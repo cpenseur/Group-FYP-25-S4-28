@@ -1,5 +1,6 @@
 // src/pages/adminFAQManageView.tsx
 import React, { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabaseClient";
 
 type FAQ = {
   id: number;
@@ -20,12 +21,42 @@ type FAQForm = {
   is_published: boolean;
 };
 
-const API_BASE = "http://127.0.0.1:8000/api/f8/destination-faqs/";
+const API_ROOT = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+const API_BASE = `${API_ROOT}/api/f8/destination-faqs/`;
+
+async function getAccessToken() {
+  const { data: s1 } = await supabase.auth.getSession();
+  if (s1.session?.access_token) return s1.session.access_token;
+
+  const { data: s2 } = await supabase.auth.refreshSession();
+  return s2.session?.access_token || null;
+}
+
+async function authHeaders(extra?: HeadersInit): Promise<HeadersInit> {
+  const token = await getAccessToken();
+  if (!token) throw new Error("Not authenticated");
+  return {
+    Accept: "application/json",
+    Authorization: `Bearer ${token}`,
+    ...(extra || {}),
+  };
+}
+
+async function fetchWithAuth(input: RequestInfo, init: RequestInit = {}) {
+  const headers = await authHeaders(init.headers);
+  const res = await fetch(input, { ...init, headers });
+
+  if (res.status === 401 || res.status === 403) {
+    throw new Error("Not authenticated");
+  }
+  return res;
+}
 
 function normalizeApiError(e: unknown) {
   if (e instanceof Error) return e.message;
   return "Unknown error";
 }
+
 
 function FAQModal(props: {
   open: boolean;

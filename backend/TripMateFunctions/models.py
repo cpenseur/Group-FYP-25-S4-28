@@ -793,28 +793,6 @@ class TripHistoryEntry(models.Model):
 # --------------------------------------------------
 
 class CommunityFAQ(models.Model):
-    country = models.CharField(max_length=100)
-    category = models.CharField(max_length=50)
-    question = models.TextField()
-    answer = models.TextField()
-
-    is_published = models.BooleanField(default=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "community_faq"
-        unique_together = ("country", "category", "question")
-        indexes = [
-            models.Index(fields=["country"]),
-            models.Index(fields=["country", "category"]),
-        ]
-
-    def __str__(self):
-        return f"{self.country} [{self.category}] {self.question[:40]}"
-
-class CommunityFAQ(models.Model):
     """Community-contributed FAQs"""
     country = models.CharField(max_length=100, blank=True, null=True)
     category = models.CharField(max_length=100, blank=True, null=True)
@@ -827,7 +805,6 @@ class CommunityFAQ(models.Model):
 
     class Meta:
         db_table = "community_faq"
-        managed = False
 
     def __str__(self):
         return self.question[:50]
