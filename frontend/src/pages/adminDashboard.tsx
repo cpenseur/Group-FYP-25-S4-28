@@ -8,6 +8,8 @@ import { exportPDF as ExportPDF } from "../components/exportPDF";
 import AnalyticsView from "./adminAnalyticsView";
 import ContentModerationView from "./adminContentModerationView";
 import AdminReportsView from "./adminReportsView";
+import AdminFAQView from "../components/adminFAQView";
+import AdminItinerariesView from "../components/AdminItinerariesView";
 
 
 // --- mock data --------------------------------------------------------------
@@ -41,11 +43,7 @@ const reportItems = [
   { name: "Destination Performance", date: "2025-01-28" },
 ];
 
-const securityEvents = [
-  { time: "09:42", text: "5 failed login attempts (user: mike@demo.com)" },
-  { time: "08:15", text: "New admin role assigned to sarah@demo.com" },
-  { time: "Yesterday", text: "Password reset requested by john@demo.com" },
-];
+
 
 type StatDelta = {
   direction: "up" | "down" | "flat";
@@ -1106,6 +1104,14 @@ export default function AdminDashboard() {
                   </div>
                 </>
               )}
+
+              {/* ITINERARIES MANAGEMENT VIEW */}
+              {activeSidebarItem === "itineraries" && (
+                <div className="card" style={{ gridColumn: "1 / -1" }}>
+                  <AdminItinerariesView />
+                </div>
+              )}
+
               {/* REPORTS VIEW */}
               {activeSidebarItem === "reports" && (
                 <div className="card" style={{ gridColumn: "1 / -1", padding: 0, background: "transparent", boxShadow: "none" }}>
@@ -1114,31 +1120,11 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* SECURITY VIEW */}
-              {activeSidebarItem === "security" && (
-                <>
-                  <div className="card">
-                    <div className="card-header">
-                      <h2>Security Log</h2>
-                    </div>
-                    <ul className="security-log-list">
-                      {securityEvents.map((e, i) => (
-                        <li key={i} className="security-log-item">
-                          <span className="security-log-time">{e.time}</span>
-                          <span className="security-log-text">{e.text}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <aside className="card card-side">
-                    <h2>Security Status</h2>
-                    <ul className="simple-list">
-                      <li>2FA required for admins</li>
-                      <li>Last password policy update: 5 days ago</li>
-                    </ul>
-                  </aside>
-                </>
+              {/* FAQ MANAGEMENT VIEW */}
+              {activeSidebarItem === "faq" && (
+                <div className="card" style={{ gridColumn: "1 / -1" }}>
+                  <AdminFAQView />
+                </div>
               )}
             </section>
           </div>
@@ -2386,33 +2372,6 @@ export default function AdminDashboard() {
           margin: 0.2rem 0 0;
           font-size: 0.78rem;
           color: var(--text-muted);
-        }
-
-        .security-log-list {
-          list-style: none;
-          padding-left: 0;
-          margin: 0.7rem 0 0;
-        }
-
-        .security-log-item {
-          display: flex;
-          gap: 0.55rem;
-          padding: 0.45rem 0;
-          font-size: 0.8rem;
-          border-bottom: 1px solid var(--border-subtle);
-        }
-
-        .security-log-item:last-child {
-          border-bottom: none;
-        }
-
-        .security-log-time {
-          width: 70px;
-          color: var(--text-muted);
-        }
-
-        .security-log-text {
-          flex: 1;
         }
 
         @media (max-width: 1024px) {

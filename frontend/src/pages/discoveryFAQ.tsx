@@ -1,16 +1,20 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 
-type FAQCategory = "General" | "Transport" | "Costs" | "Safety" | "Photos";
+const API_BASE = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+
+type FAQCategory = "General" | "Transport" | "Costs" | "Safety" | "Photos" | string;
 
 type FAQItem = {
   id: number;
   country: string;
-  category: FAQCategory;
+  category: string;
   question: string;
   answer: string;
+  is_published?: boolean;
 };
 
-const FAQ_ITEMS: FAQItem[] = [
+// Fallback data in case API fails
+const FALLBACK_FAQ_ITEMS: FAQItem[] = [
   // ---------- Japan ----------
   {
     id: 1,
@@ -257,19 +261,6 @@ const FAQ_ITEMS: FAQItem[] = [
   },
 ];
 
-// Build country metadata from FAQ items, sorted by count DESC then name ASC
-const COUNTRY_LIST = Array.from(
-  FAQ_ITEMS.reduce<Map<string, number>>((map, faq) => {
-    map.set(faq.country, (map.get(faq.country) || 0) + 1);
-    return map;
-  }, new Map())
-)
-  .map(([country, count]) => ({ country, count }))
-  .sort((a, b) => {
-    if (b.count !== a.count) return b.count - a.count;
-    return a.country.localeCompare(b.country);
-  });
-
 const CATEGORY_TABS: (FAQCategory | "All")[] = [
   "All",
   "General",
@@ -282,6 +273,8 @@ const CATEGORY_TABS: (FAQCategory | "All")[] = [
 const FAQ_PAGE_SIZE = 8;
 
 export default function DiscoveryFAQ() {
+  const [faqItems, setFaqItems] = useState<FAQItem[]>(FALLBACK_FAQ_ITEMS);
+  const [loading, setLoading] = useState(true);
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
   const [countrySearch, setCountrySearch] = useState<string>("");
   const [activeCategory, setActiveCategory] = useState<FAQCategory | "All">(
@@ -289,28 +282,72 @@ export default function DiscoveryFAQ() {
   );
   const [openQuestionId, setOpenQuestionId] = useState<number | null>(null);
 
+  // Fetch FAQs from API
+  useEffect(() => {
+    const fetchFaqs = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/f8/community-faqs/`);
+        if (!res.ok) throw new Error("Failed to fetch FAQs");
+        const data = await res.json();
+        const faqs = (Array.isArray(data) ? data : data.results || [])
+          .filter((faq: any) => faq.is_published !== false)
+          .map((faq: any) => ({
+            id: faq.id,
+            country: faq.country || "General",
+            category: faq.category || "General",
+            question: faq.question,
+            answer: faq.answer,
+          }));
+        if (faqs.length > 0) {
+          setFaqItems(faqs);
+        }
+      } catch (e) {
+        console.error("Error fetching FAQs:", e);
+        // Keep fallback data
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchFaqs();
+  }, []);
+
+  // Build country metadata from FAQ items, sorted by count DESC then name ASC
+  const countryList = useMemo(() => {
+    return Array.from(
+      faqItems.reduce<Map<string, number>>((map, faq) => {
+        map.set(faq.country, (map.get(faq.country) || 0) + 1);
+        return map;
+      }, new Map())
+    )
+      .map(([country, count]) => ({ country, count }))
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.country.localeCompare(b.country);
+      });
+  }, [faqItems]);
+
   // ---------------- Country grid view ----------------
   const countrySearchLower = countrySearch.trim().toLowerCase();
 
   const filteredCountries = useMemo(() => {
-    if (!countrySearchLower) return COUNTRY_LIST;
-    return COUNTRY_LIST.filter((c) =>
+    if (!countrySearchLower) return countryList;
+    return countryList.filter((c) =>
       c.country.toLowerCase().startsWith(countrySearchLower)
     );
-  }, [countrySearchLower]);
+  }, [countrySearchLower, countryList]);
 
   // ---------------- Country FAQ view ----------------
   const faqsForCountry = useMemo(() => {
     if (!selectedCountry) return [];
-    const base = FAQ_ITEMS.filter((f) => f.country === selectedCountry);
+    const base = faqItems.filter((f) => f.country === selectedCountry);
     if (activeCategory === "All") return base;
     return base.filter((f) => f.category === activeCategory);
-  }, [selectedCountry, activeCategory]);
+  }, [selectedCountry, activeCategory, faqItems]);
 
   const handleOpenCountry = (country: string) => {
     setSelectedCountry(country);
     setActiveCategory("All");
-    const first = FAQ_ITEMS.find((f) => f.country === country);
+    const first = faqItems.find((f) => f.country === country);
     setOpenQuestionId(first ? first.id : null);
   };
 

@@ -792,6 +792,43 @@ class TripHistoryEntry(models.Model):
 # --------------------------------------------------
 
 
+class CommunityFAQ(models.Model):
+    """Community-contributed FAQs"""
+    country = models.CharField(max_length=100, blank=True, null=True)
+    category = models.CharField(max_length=100, blank=True, null=True)
+    question = models.TextField()
+    answer = models.TextField()
+    is_published = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "community_faq"
+        managed = False
+
+    def __str__(self):
+        return self.question[:50]
+
+
+class GeneralFAQ(models.Model):
+    """General app FAQs shown on guest FAQ page"""
+    question = models.TextField()
+    answer = models.TextField()
+    category = models.CharField(max_length=100, default="General")
+    display_order = models.IntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(default=django_timezone.now, blank=True, null=True)
+
+    class Meta:
+        db_table = "faqs"
+        managed = False
+
+    def __str__(self):
+        return self.question[:50]
+
+
 class DestinationFAQ(models.Model):
     class SourceType(models.TextChoices):
         AI = "ai", "AI"

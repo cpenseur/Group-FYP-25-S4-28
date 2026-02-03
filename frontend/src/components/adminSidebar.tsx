@@ -4,9 +4,10 @@ type SidebarItem =
   | "dashboard"
   | "analytics"
   | "users"
+  | "itineraries"
   | "content"
   | "reports"
-  | "security";
+  | "faq";
 
 type TabKey = "users" | "moderation";
 
@@ -77,6 +78,22 @@ export default function AdminSidebar({
           <span className="nav-label">Content Moderation</span>
         </button>
 
+        <button
+          className={"nav-item " + (activeSidebarItem === "itineraries" ? "nav-item--active" : "")}
+          onClick={() => onSelect("itineraries")}
+        >
+          <span className="nav-icon">🗺️</span>
+          <span className="nav-label">Itineraries</span>
+        </button>
+
+        <button
+          className={"nav-item " + (activeSidebarItem === "faq" ? "nav-item--active" : "")}
+          onClick={() => onSelect("faq")}
+        >
+          <span className="nav-icon">❓</span>
+          <span className="nav-label">FAQ Management</span>
+        </button>
+
         <div className="sidebar-divider" />
 
         <p className="sidebar-section">SYSTEM</p>
@@ -87,14 +104,6 @@ export default function AdminSidebar({
         >
           <span className="nav-icon">📄</span>
           <span className="nav-label">Reports</span>
-        </button>
-
-        <button
-          className={"nav-item " + (activeSidebarItem === "security" ? "nav-item--active" : "")}
-          onClick={() => onSelect("security")}
-        >
-          <span className="nav-icon">🛡️</span>
-          <span className="nav-label">Security</span>
         </button>
       </nav>
     </aside>

@@ -7,6 +7,8 @@ from ..views.f8_views import (
     F8AdminDestinationFAQViewSet,
     F8AdminDestinationQAViewSet,
     F8SupportTicketViewSet,
+    F8CommunityFAQViewSet,
+    F8GeneralFAQViewSet,
     admin_analytics,
     admin_report_preview,
 )
@@ -17,6 +19,8 @@ router.register(r"trips", F8AdminTripViewSet, basename="f8-trip")
 router.register(r"destination-faqs", F8AdminDestinationFAQViewSet, basename="f8-destination-faq")
 router.register(r"destination-qas", F8AdminDestinationQAViewSet, basename="f8-destination-qa")
 router.register(r"support-tickets", F8SupportTicketViewSet, basename="f8-support-ticket")
+router.register(r"community-faqs", F8CommunityFAQViewSet, basename="f8-community-faq")
+router.register(r"general-faqs", F8GeneralFAQViewSet, basename="f8-general-faq")
 
 urlpatterns = [
     *router.urls,

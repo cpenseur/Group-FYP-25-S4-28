@@ -1,11 +1,13 @@
 from .base_views import BaseViewSet
-from ..models import AppUser, Trip, DestinationFAQ, DestinationQA, SupportTicket, Profile
+from ..models import AppUser, Trip, DestinationFAQ, DestinationQA, SupportTicket, CommunityFAQ, GeneralFAQ
 from ..serializers.f8_serializers import (
     F8AdminUserSerializer,
     F8AdminTripSerializer,
     F8AdminDestinationFAQSerializer,
     F8AdminDestinationQASerializer,
     F8SupportTicketSerializer,
+    F8CommunityFAQSerializer,
+    F8GeneralFAQSerializer,
 )
 
 from datetime import datetime, timedelta, time
@@ -63,6 +65,47 @@ class F8AdminTripViewSet(BaseViewSet):
 
         return Response(self.get_serializer(trip).data, status=200)
 
+    @action(detail=True, methods=["patch"], permission_classes=[IsAppAdmin])
+    def toggle_display(self, request, pk=None):
+        """
+        PATCH /api/f8/trips/{id}/toggle_display/
+        Body: { "is_demo": true } or { "is_demo": false }
+        Toggle whether this itinerary is displayed on the landing page.
+        """
+        trip = self.get_object()
+
+        is_demo_val = request.data.get("is_demo")
+        if is_demo_val is None:
+            return Response({"detail": "is_demo field is required"}, status=400)
+
+        trip.is_demo = bool(is_demo_val)
+        trip.save(update_fields=["is_demo"])
+
+        return Response(self.get_serializer(trip).data, status=200)
+
+    @action(detail=True, methods=["patch"], permission_classes=[IsAppAdmin])
+    def update_visibility(self, request, pk=None):
+        """
+        PATCH /api/f8/trips/{id}/update_visibility/
+        Body: { "visibility": "private" | "shared" | "public" }
+        Update the visibility of an itinerary.
+        """
+        trip = self.get_object()
+
+        visibility_val = request.data.get("visibility")
+        valid_visibilities = ["private", "shared", "public"]
+        
+        if visibility_val not in valid_visibilities:
+            return Response(
+                {"detail": f"visibility must be one of: {', '.join(valid_visibilities)}"},
+                status=400
+            )
+
+        trip.visibility = visibility_val
+        trip.save(update_fields=["visibility"])
+
+        return Response(self.get_serializer(trip).data, status=200)
+
 
 class F8AdminDestinationFAQViewSet(BaseViewSet):
     queryset = DestinationFAQ.objects.all()
@@ -77,6 +120,16 @@ class F8AdminDestinationQAViewSet(BaseViewSet):
 class F8SupportTicketViewSet(BaseViewSet):
     queryset = SupportTicket.objects.all()
     serializer_class = F8SupportTicketSerializer
+
+
+class F8CommunityFAQViewSet(BaseViewSet):
+    queryset = CommunityFAQ.objects.all()
+    serializer_class = F8CommunityFAQSerializer
+
+
+class F8GeneralFAQViewSet(BaseViewSet):
+    queryset = GeneralFAQ.objects.all()
+    serializer_class = F8GeneralFAQSerializer
 
 
 def _parse_yyyy_mm_dd(s: str):
