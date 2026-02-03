@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
+import LandingNavbar from "../components/landingNavbar";
+import { supabase } from "../lib/supabaseClient";
 
 import {
   MapContainer,
@@ -124,10 +126,50 @@ function renderTimeOnly(item: TripDayItem): string {
 
 export default function DiscoveryItineraryDetail() {
   const { tripId } = useParams<{ tripId: string }>();
+  const navigate = useNavigate();
   const [trip, setTrip] = useState<TripDetail | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedDayId, setExpandedDayId] = useState<number | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+
+  // Navigation links for LandingNavbar
+  const navLinks = [
+    { name: 'Home', path: '/landing-page#hero' },
+    { name: 'About Us', path: '/landing-page#about' },
+    { name: 'Travel Guides', path: '/Demo' },
+    { name: 'FAQ', path: '/guest-faq' },
+  ];
+
+  // Check authentication status
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data } = await supabase.auth.getSession();
+      setIsLoggedIn(!!data.session);
+    };
+    checkAuth();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsLoggedIn(!!session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Scroll to top on mount
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [tripId]);
+
+  // Placeholder handlers for navbar (can be connected to actual modals)
+  const handleLoginClick = () => {
+    navigate('/signin');
+  };
+
+  const handleSignupClick = () => {
+    navigate('/signin');
+  };
 
   // ---------------- Fetch detail ----------------
   useEffect(() => {
@@ -231,10 +273,11 @@ export default function DiscoveryItineraryDetail() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f7", padding: "2rem" }}>
-        <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
-          <Link to="/discovery-local" style={{ fontSize: "0.85rem", color: "#555", textDecoration: "none" }}>
-            ← Back to Discovery
+      <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f7" }}>
+        {!isLoggedIn && <LandingNavbar navLinks={navLinks} onLoginClick={handleLoginClick} onSignupClick={handleSignupClick} />}
+        <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "2rem" }}>
+          <Link to={isLoggedIn ? "/dashboard" : "/landing-page"} style={{ fontSize: "0.85rem", color: "#555", textDecoration: "none" }}>
+            ← {isLoggedIn ? "Back to Dashboard" : "Back to Home"}
           </Link>
           <p style={{ marginTop: "1.5rem", color: "#555" }}>Loading…</p>
         </div>
@@ -244,10 +287,11 @@ export default function DiscoveryItineraryDetail() {
 
   if (error || !trip) {
     return (
-      <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f7", padding: "2rem" }}>
-        <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
-          <Link to="/discovery-local" style={{ fontSize: "0.85rem", color: "#555", textDecoration: "none" }}>
-            ← Back to Discovery
+      <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f7" }}>
+        {!isLoggedIn && <LandingNavbar navLinks={navLinks} onLoginClick={handleLoginClick} onSignupClick={handleSignupClick} />}
+        <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "2rem" }}>
+          <Link to={isLoggedIn ? "/dashboard" : "/landing-page"} style={{ fontSize: "0.85rem", color: "#555", textDecoration: "none" }}>
+            ← {isLoggedIn ? "Back to Dashboard" : "Back to Home"}
           </Link>
           <p style={{ marginTop: "1.5rem", color: "crimson" }}>
             {error || "Trip not found."}
@@ -266,18 +310,20 @@ export default function DiscoveryItineraryDetail() {
   const activeDay = days.find((d) => d.id === expandedDayId) || days[0] || null;
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        backgroundColor: "#ffffff",
-        padding: "1.6rem 2rem",
-      }}
-    >
+    <>
+      {!isLoggedIn && <LandingNavbar navLinks={navLinks} onLoginClick={handleLoginClick} onSignupClick={handleSignupClick} />}
       <div
         style={{
-          maxWidth: "1320px",
-          margin: "0 auto",
-          display: "grid",
+          minHeight: "100vh",
+          backgroundColor: "#ffffff",
+          padding: "1.6rem 2rem",
+        }}
+      >
+        <div
+          style={{
+            maxWidth: "1320px",
+            margin: "0 auto",
+            display: "grid",
           gridTemplateColumns: "540px minmax(0,1fr) 140px",
           gap: "1.4rem",
           alignItems: "start",
@@ -337,14 +383,14 @@ export default function DiscoveryItineraryDetail() {
           <div style={{ display: "flex", alignItems: "flex-start", gap: "1rem" }}>
             <div>
               <Link
-                to="/discovery-local"
+                to={isLoggedIn ? "/dashboard" : "/landing-page"}
                 style={{
                   fontSize: "0.85rem",
                   color: "#6b7280",
                   textDecoration: "none",
                 }}
               >
-                ← Back to Discovery
+                ← {isLoggedIn ? "Back to Dashboard" : "Back to Home"}
               </Link>
 
               <div style={{ marginTop: "0.45rem", fontSize: "1rem", fontWeight: 600 }}>
@@ -626,5 +672,6 @@ export default function DiscoveryItineraryDetail() {
         </aside>
       </div>
     </div>
+    </>
   );
 }

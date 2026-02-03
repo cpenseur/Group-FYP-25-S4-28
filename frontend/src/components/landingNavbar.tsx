@@ -155,6 +155,7 @@ const Navbar = styled.nav`
   border-bottom: 1px solid #e5e7eb;
   z-index: 1000;
   padding: 1rem 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 `;
 
 const NavContainer = styled.div`
