@@ -167,8 +167,12 @@ export default function AdminProfile() {
           activeSidebarItem="dashboard"
           collapsed={sidebarCollapsed}
           onToggle={() => setSidebarCollapsed((v) => !v)}
-          onSelect={(item) => {
-            if (item === "dashboard") navigate("/admin-dashboard");
+          onSelect={(item, tab) => {
+            // Navigate to admin dashboard with the selected view
+            const params = new URLSearchParams();
+            params.set("view", item);
+            if (tab) params.set("tab", tab);
+            navigate(`/admin-dashboard?${params.toString()}`);
           }}
         />
 

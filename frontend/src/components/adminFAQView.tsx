@@ -5,18 +5,6 @@ import { supabase } from "../lib/supabaseClient";
 const API_BASE = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
 
 // Types for different FAQ tables
-type DestinationFAQ = {
-  id: number;
-  destination: number;
-  question: string;
-  answer: string;
-  source_type: "ai" | "community" | "admin";
-  upvotes: number;
-  is_published: boolean;
-  created_at: string;
-  updated_at: string;
-};
-
 type CommunityFAQ = {
   id: number;
   country?: string;
@@ -38,20 +26,10 @@ type GeneralFAQ = {
   created_at?: string;
 };
 
-type Destination = {
-  id: number;
-  name: string;
-  country?: string;
-};
-
-type FAQCategory = "destination_faq" | "community_faq" | "faqs";
+type FAQCategory = "community_faq" | "faqs";
 
 export default function AdminFAQView() {
-  const [activeCategory, setActiveCategory] = useState<FAQCategory>("destination_faq");
-  
-  // Destination FAQs
-  const [destinationFaqs, setDestinationFaqs] = useState<DestinationFAQ[]>([]);
-  const [destinations, setDestinations] = useState<Destination[]>([]);
+  const [activeCategory, setActiveCategory] = useState<FAQCategory>("community_faq");
   
   // Community FAQs
   const [communityFaqs, setCommunityFaqs] = useState<CommunityFAQ[]>([]);
@@ -62,7 +40,6 @@ export default function AdminFAQView() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [filterDestination, setFilterDestination] = useState<number | "all">("all");
   const [filterPublished, setFilterPublished] = useState<"all" | "published" | "unpublished">("all");
   const [filterFaqCategory, setFilterFaqCategory] = useState<string>("all");
 
@@ -81,49 +58,13 @@ export default function AdminFAQView() {
     return data.session?.access_token;
   };
 
-  const fetchDestinations = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("destination")
-        .select("id, name, country")
-        .order("name");
-
-      if (error) throw error;
-      setDestinations(data || []);
-    } catch (e) {
-      console.error("Failed to fetch destinations:", e);
-    }
-  };
-
-  // Fetch Destination FAQs via API
-  const fetchDestinationFaqs = async () => {
-    try {
-      const token = await getAuthToken();
-      if (!token) throw new Error("Not authenticated");
-
-      const res = await fetch(`${API_BASE}/api/f8/destination-faqs/`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
-
-      const data = await res.json();
-      setDestinationFaqs(Array.isArray(data) ? data : data.results || []);
-    } catch (e: any) {
-      console.error("fetchDestinationFaqs error:", e);
-      throw e;
-    }
-  };
-
   // Fetch Community FAQs via API
   const fetchCommunityFaqs = async () => {
     try {
       const token = await getAuthToken();
-      if (!token) throw new Error("Not authenticated");
+      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
-      const res = await fetch(`${API_BASE}/api/f8/community-faqs/`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(`${API_BASE}/api/f8/community-faqs/`, { headers });
 
       if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
 
@@ -139,11 +80,9 @@ export default function AdminFAQView() {
   const fetchGeneralFaqs = async () => {
     try {
       const token = await getAuthToken();
-      if (!token) throw new Error("Not authenticated");
+      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
-      const res = await fetch(`${API_BASE}/api/f8/general-faqs/`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(`${API_BASE}/api/f8/general-faqs/`, { headers });
 
       if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
 
@@ -159,9 +98,7 @@ export default function AdminFAQView() {
     setLoading(true);
     setError(null);
     try {
-      await fetchDestinations();
       await Promise.all([
-        fetchDestinationFaqs(),
         fetchCommunityFaqs(),
         fetchGeneralFaqs(),
       ]);
@@ -176,30 +113,12 @@ export default function AdminFAQView() {
     fetchAllData();
   }, []);
 
-  const getDestinationName = (destId: number) => {
-    const dest = destinations.find((d) => d.id === destId);
-    return dest ? dest.name : `ID: ${destId}`;
-  };
-
   // Get unique categories from general FAQs
   const faqCategories = [...new Set(generalFaqs.map(f => f.category))].filter(Boolean);
 
   // Filtered items based on active category
   const getFilteredItems = () => {
     const searchLower = search.toLowerCase().trim();
-
-    if (activeCategory === "destination_faq") {
-      return destinationFaqs.filter((faq) => {
-        const matchesSearch = !searchLower ||
-          faq.question.toLowerCase().includes(searchLower) ||
-          faq.answer.toLowerCase().includes(searchLower);
-        const matchesDestination = filterDestination === "all" || faq.destination === filterDestination;
-        const matchesPublished = filterPublished === "all" ||
-          (filterPublished === "published" && faq.is_published) ||
-          (filterPublished === "unpublished" && !faq.is_published);
-        return matchesSearch && matchesDestination && matchesPublished;
-      });
-    }
 
     if (activeCategory === "community_faq") {
       return communityFaqs.filter((faq) => {
@@ -235,15 +154,7 @@ export default function AdminFAQView() {
   const handleEdit = (item: any) => {
     setEditingItem({ ...item, _category: activeCategory });
     
-    if (activeCategory === "destination_faq") {
-      setEditForm({
-        question: item.question,
-        answer: item.answer,
-        source_type: item.source_type || "admin",
-        is_published: item.is_published,
-        destination: item.destination,
-      });
-    } else if (activeCategory === "community_faq") {
+    if (activeCategory === "community_faq") {
       setEditForm({
         question: item.question,
         answer: item.answer,
@@ -269,22 +180,7 @@ export default function AdminFAQView() {
     try {
       const category = editingItem._category as FAQCategory;
 
-      if (category === "destination_faq") {
-        const token = await getAuthToken();
-        if (!token) throw new Error("Not authenticated");
-
-        const res = await fetch(`${API_BASE}/api/f8/destination-faqs/${editingItem.id}/`, {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(editForm),
-        });
-
-        if (!res.ok) throw new Error(`Failed to update: ${res.status}`);
-        await fetchDestinationFaqs();
-      } else if (category === "community_faq") {
+      if (category === "community_faq") {
         const token = await getAuthToken();
         if (!token) throw new Error("Not authenticated");
 
@@ -329,18 +225,7 @@ export default function AdminFAQView() {
     if (!window.confirm(`Delete FAQ: "${item.question.slice(0, 50)}..."?`)) return;
 
     try {
-      if (activeCategory === "destination_faq") {
-        const token = await getAuthToken();
-        if (!token) throw new Error("Not authenticated");
-
-        const res = await fetch(`${API_BASE}/api/f8/destination-faqs/${item.id}/`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!res.ok) throw new Error(`Failed to delete: ${res.status}`);
-        await fetchDestinationFaqs();
-      } else if (activeCategory === "community_faq") {
+      if (activeCategory === "community_faq") {
         const token = await getAuthToken();
         if (!token) throw new Error("Not authenticated");
 
@@ -370,22 +255,7 @@ export default function AdminFAQView() {
 
   const handleTogglePublished = async (item: any) => {
     try {
-      if (activeCategory === "destination_faq") {
-        const token = await getAuthToken();
-        if (!token) throw new Error("Not authenticated");
-
-        const res = await fetch(`${API_BASE}/api/f8/destination-faqs/${item.id}/`, {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ is_published: !item.is_published }),
-        });
-
-        if (!res.ok) throw new Error(`Failed to update: ${res.status}`);
-        await fetchDestinationFaqs();
-      } else if (activeCategory === "community_faq") {
+      if (activeCategory === "community_faq") {
         const token = await getAuthToken();
         if (!token) throw new Error("Not authenticated");
 
@@ -422,15 +292,7 @@ export default function AdminFAQView() {
   };
 
   const handleAddNew = () => {
-    if (activeCategory === "destination_faq") {
-      setAddForm({
-        question: "",
-        answer: "",
-        source_type: "admin",
-        is_published: true,
-        destination: destinations[0]?.id || 0,
-      });
-    } else if (activeCategory === "community_faq") {
+    if (activeCategory === "community_faq") {
       setAddForm({
         question: "",
         answer: "",
@@ -458,27 +320,7 @@ export default function AdminFAQView() {
 
     setSaving(true);
     try {
-      if (activeCategory === "destination_faq") {
-        if (!addForm.destination) {
-          alert("Please select a destination");
-          setSaving(false);
-          return;
-        }
-        const token = await getAuthToken();
-        if (!token) throw new Error("Not authenticated");
-
-        const res = await fetch(`${API_BASE}/api/f8/destination-faqs/`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(addForm),
-        });
-
-        if (!res.ok) throw new Error(`Failed to create: ${res.status}`);
-        await fetchDestinationFaqs();
-      } else if (activeCategory === "community_faq") {
+      if (activeCategory === "community_faq") {
         const token = await getAuthToken();
         if (!token) throw new Error("Not authenticated");
 
@@ -520,7 +362,6 @@ export default function AdminFAQView() {
 
   // Get counts for tabs
   const getCounts = () => ({
-    destination_faq: destinationFaqs.length,
     community_faq: communityFaqs.length,
     faqs: generalFaqs.length,
   });
@@ -529,7 +370,6 @@ export default function AdminFAQView() {
 
   // Check if item is published/active
   const isItemActive = (item: any) => {
-    if (activeCategory === "destination_faq") return item.is_published;
     if (activeCategory === "community_faq") return item.is_published;
     return item.is_active;
   };
@@ -554,14 +394,6 @@ export default function AdminFAQView() {
 
       {/* Category Tabs */}
       <div className="faq-tabs">
-        <button
-          className={`faq-tab ${activeCategory === "destination_faq" ? "faq-tab--active" : ""}`}
-          onClick={() => setActiveCategory("destination_faq")}
-        >
-          <span className="faq-tab-icon">🗺️</span>
-          <span>Destination FAQs</span>
-          <span className="faq-tab-count">{counts.destination_faq}</span>
-        </button>
         <button
           className={`faq-tab ${activeCategory === "community_faq" ? "faq-tab--active" : ""}`}
           onClick={() => setActiveCategory("community_faq")}
@@ -589,23 +421,6 @@ export default function AdminFAQView() {
           onChange={(e) => setSearch(e.target.value)}
           className="faq-search"
         />
-
-        {activeCategory === "destination_faq" && (
-          <select
-            value={filterDestination}
-            onChange={(e) =>
-              setFilterDestination(e.target.value === "all" ? "all" : Number(e.target.value))
-            }
-            className="faq-filter-select"
-          >
-            <option value="all">All Destinations</option>
-            {destinations.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-        )}
 
         {activeCategory === "faqs" && (
           <select
@@ -649,14 +464,6 @@ export default function AdminFAQView() {
               <div key={item.id} className={`faq-item ${!isItemActive(item) ? "faq-item--unpublished" : ""}`}>
                 <div className="faq-item-main">
                   <div className="faq-item-header">
-                    {activeCategory === "destination_faq" && (
-                      <>
-                        <span className="faq-destination-tag">{getDestinationName(item.destination)}</span>
-                        <span className={`faq-source-tag faq-source-tag--${item.source_type}`}>
-                          {(item.source_type || "community").toUpperCase()}
-                        </span>
-                      </>
-                    )}
                     {activeCategory === "community_faq" && item.category && (
                       <span className="faq-category-tag">{item.category}</span>
                     )}
@@ -711,12 +518,8 @@ export default function AdminFAQView() {
       {/* Stats */}
       <div className="faq-stats">
         <div className="faq-stat-card">
-          <span className="faq-stat-value">{counts.destination_faq + counts.community_faq + counts.faqs}</span>
+          <span className="faq-stat-value">{counts.community_faq + counts.faqs}</span>
           <span className="faq-stat-label">Total FAQs</span>
-        </div>
-        <div className="faq-stat-card">
-          <span className="faq-stat-value">{counts.destination_faq}</span>
-          <span className="faq-stat-label">Destination</span>
         </div>
         <div className="faq-stat-card">
           <span className="faq-stat-value">{counts.community_faq}</span>
@@ -741,35 +544,6 @@ export default function AdminFAQView() {
             </div>
             <div className="modal-body">
               <div className="faq-form">
-                {editingItem._category === "destination_faq" && (
-                  <>
-                    <label className="faq-form-label">
-                      Destination
-                      <select
-                        value={editForm.destination}
-                        onChange={(e) => setEditForm({ ...editForm, destination: Number(e.target.value) })}
-                        className="faq-form-select"
-                      >
-                        {destinations.map((d) => (
-                          <option key={d.id} value={d.id}>{d.name}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="faq-form-label">
-                      Source Type
-                      <select
-                        value={editForm.source_type}
-                        onChange={(e) => setEditForm({ ...editForm, source_type: e.target.value })}
-                        className="faq-form-select"
-                      >
-                        <option value="admin">Admin</option>
-                        <option value="ai">AI</option>
-                        <option value="community">Community</option>
-                      </select>
-                    </label>
-                  </>
-                )}
-
                 {(editingItem._category === "community_faq" || editingItem._category === "faqs") && (
                   <label className="faq-form-label">
                     Category
@@ -845,7 +619,6 @@ export default function AdminFAQView() {
               <div>
                 <h2 className="modal-title">Add New FAQ</h2>
                 <p className="modal-sub">
-                  {activeCategory === "destination_faq" && "Add a destination-specific FAQ"}
                   {activeCategory === "community_faq" && "Add a community FAQ"}
                   {activeCategory === "faqs" && "Add a general FAQ"}
                 </p>
@@ -854,36 +627,6 @@ export default function AdminFAQView() {
             </div>
             <div className="modal-body">
               <div className="faq-form">
-                {activeCategory === "destination_faq" && (
-                  <>
-                    <label className="faq-form-label">
-                      Destination
-                      <select
-                        value={addForm.destination}
-                        onChange={(e) => setAddForm({ ...addForm, destination: Number(e.target.value) })}
-                        className="faq-form-select"
-                      >
-                        <option value={0}>Select destination...</option>
-                        {destinations.map((d) => (
-                          <option key={d.id} value={d.id}>{d.name}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="faq-form-label">
-                      Source Type
-                      <select
-                        value={addForm.source_type}
-                        onChange={(e) => setAddForm({ ...addForm, source_type: e.target.value })}
-                        className="faq-form-select"
-                      >
-                        <option value="admin">Admin</option>
-                        <option value="ai">AI</option>
-                        <option value="community">Community</option>
-                      </select>
-                    </label>
-                  </>
-                )}
-
                 {(activeCategory === "community_faq" || activeCategory === "faqs") && (
                   <label className="faq-form-label">
                     Category
@@ -1123,15 +866,6 @@ export default function AdminFAQView() {
           flex-wrap: wrap;
         }
 
-        .faq-destination-tag {
-          padding: 0.15rem 0.5rem;
-          background: #e0ecff;
-          color: #2563eb;
-          border-radius: 6px;
-          font-size: 0.75rem;
-          font-weight: 600;
-        }
-
         .faq-category-tag {
           padding: 0.15rem 0.5rem;
           background: #fef3c7;
@@ -1148,28 +882,6 @@ export default function AdminFAQView() {
           border-radius: 6px;
           font-size: 0.7rem;
           font-weight: 600;
-        }
-
-        .faq-source-tag {
-          padding: 0.15rem 0.5rem;
-          border-radius: 6px;
-          font-size: 0.7rem;
-          font-weight: 600;
-        }
-
-        .faq-source-tag--admin {
-          background: #fef3c7;
-          color: #92400e;
-        }
-
-        .faq-source-tag--ai {
-          background: #dbeafe;
-          color: #1e40af;
-        }
-
-        .faq-source-tag--community {
-          background: #d1fae5;
-          color: #065f46;
         }
 
         .faq-published-tag {

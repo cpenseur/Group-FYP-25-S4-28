@@ -1,5 +1,5 @@
 from .base_views import BaseViewSet
-from ..models import AppUser, Trip, DestinationFAQ, DestinationQA, SupportTicket, CommunityFAQ, GeneralFAQ
+from ..models import AppUser, Trip, DestinationFAQ, DestinationQA, SupportTicket, CommunityFAQ, GeneralFAQ, Profile
 from ..serializers.f8_serializers import (
     F8AdminUserSerializer,
     F8AdminTripSerializer,

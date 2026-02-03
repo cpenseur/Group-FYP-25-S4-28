@@ -88,7 +88,6 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<"users" | "moderation">("moderation");
   const [moderationItems, setModerationItems] = useState(initialModerationItems);
   const [showPendingOnly, setShowPendingOnly] = useState(false);
-  const [reviewClicked, setReviewClicked] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const [pdfOpen, setPdfOpen] = useState(false);
@@ -938,11 +937,10 @@ export default function AdminDashboard() {
                             awaiting approval
                           </p>
                         </div>
-                        <button className="btn btn-primary btn-small" onClick={() => setReviewClicked(true)}>
+                        <button className="btn btn-primary btn-small" onClick={() => setActiveSidebarItem("users")}>
                           Review
                         </button>
                       </div>
-                      {reviewClicked && <p className="side-note">Opened verification queue (demo behavior).</p>}
                     </div>
                   </aside>
                 </>
