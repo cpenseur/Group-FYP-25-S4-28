@@ -5,6 +5,7 @@ type SidebarItem =
   | "analytics"
   | "users"
   | "content"
+  | "faqs"
   | "reports"
   | "security";
 
@@ -76,6 +77,15 @@ export default function AdminSidebar({
           <span className="nav-icon">✏️</span>
           <span className="nav-label">Content Moderation</span>
         </button>
+
+        <button
+          className={"nav-item " + (activeSidebarItem === "faqs" ? "nav-item--active" : "")}
+          onClick={() => onSelect("faqs")}
+        >
+          <span className="nav-icon">❓</span>
+          <span className="nav-label">FAQ Management</span>
+        </button>
+
 
         <div className="sidebar-divider" />
 
