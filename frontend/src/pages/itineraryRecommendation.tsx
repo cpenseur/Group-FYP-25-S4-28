@@ -94,30 +94,60 @@ export default function RecommendationsPage() {
   const loadingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   
-  // NEW: Load user profile preferences
+  // ✅ Profile loading with 404 fallback
   useEffect(() => {
     const loadUserProfile = async () => {
       try {
         console.log("📋 Loading user profile preferences...");
         setIsLoadingProfile(true);
         
-        // Fetch current user's profile
-        const profileData = await apiFetch("/f1/profile/");
-        
-        const profile: UserProfile = {
-          interests: profileData.interests || [],
-          travel_pace: profileData.travel_pace || null,
-          budget_level: profileData.budget_level || null,
-          diet_preference: profileData.diet_preference || null,
-          mobility_needs: profileData.mobility_needs || null,
-        };
-        
-        setUserProfile(profile);
-        console.log("✅ User profile loaded:", profile);
+        try {
+          const profileData = await apiFetch("/f1/profile/");
+          
+          const profile: UserProfile = {
+            interests: profileData.interests || [],
+            travel_pace: profileData.travel_pace || null,
+            budget_level: profileData.budget_level || null,
+            diet_preference: profileData.diet_preference || null,
+            mobility_needs: profileData.mobility_needs || null,
+          };
+          
+          setUserProfile(profile);
+          console.log("✅ User profile loaded:", profile);
+        } catch (profileErr: any) {
+          const errorMessage = profileErr.message || String(profileErr);
+          
+          if (errorMessage.includes('404') || 
+              errorMessage.includes('Not Found') ||
+              errorMessage.includes('not found')) {
+            console.warn("⚠️ Profile endpoint not available (404), using default preferences");
+            setUserProfile({
+              interests: [],
+              travel_pace: null,
+              budget_level: null,
+              diet_preference: null,
+              mobility_needs: null,
+            });
+          } else {
+            console.error("⚠️ Profile load error:", profileErr);
+            setUserProfile({
+              interests: [],
+              travel_pace: null,
+              budget_level: null,
+              diet_preference: null,
+              mobility_needs: null,
+            });
+          }
+        }
       } catch (err) {
         console.error("❌ Failed to load user profile:", err);
-        // Set empty profile if loading fails
-        setUserProfile({});
+        setUserProfile({
+          interests: [],
+          travel_pace: null,
+          budget_level: null,
+          diet_preference: null,
+          mobility_needs: null,
+        });
       } finally {
         setIsLoadingProfile(false);
       }
@@ -154,7 +184,7 @@ export default function RecommendationsPage() {
     loadTrip();
   }, [tripId]);
   
-  // Detect location for selected day
+  // ✅ FIXED: Improved location detection
   useEffect(() => {
     console.log("\n=== 🔍 FIXED Location Detection Started ===");
     console.log(`Days loaded: ${days.length}, Items loaded: ${items.length}`);
@@ -187,89 +217,129 @@ export default function RecommendationsPage() {
       let detectedLocation = destination;
       const cities: string[] = [];
       
-      // ✅ Track if we find Singapore explicitly
-      let hasSingapore = false;
+      // ✅ COMPREHENSIVE DATABASES
+      const majorCities: Record<string, string> = {
+        'sydney': 'Sydney',
+        'melbourne': 'Melbourne',
+        'brisbane': 'Brisbane',
+        'perth': 'Perth',
+        'adelaide': 'Adelaide',
+        'canberra': 'Canberra',
+        'gold coast': 'Gold Coast',
+        'tokyo': 'Tokyo',
+        'osaka': 'Osaka',
+        'kyoto': 'Kyoto',
+        'singapore': 'Singapore',
+        'bangkok': 'Bangkok',
+        'seoul': 'Seoul',
+        'hong kong': 'Hong Kong',
+        'honolulu': 'Honolulu',
+      };
       
-      dayItems.forEach(item => {
-        if (!item.address) {
-          console.log(`    ❌ ${item.title}: No address`);
-          return;
+      // ✅ STATES to EXCLUDE
+      const excludeStates = [
+        'new south wales', 'nsw',
+        'victoria', 'vic',
+        'queensland', 'qld',
+        'western australia', 'wa',
+        'south australia', 'sa',
+        'tasmania', 'tas',
+        'northern territory', 'nt',
+        'scotland', 'england', 'wales',
+        'montana', 'wyoming', 'california',
+        'south carolina', 'north carolina',
+        'hawaii',  // state, not city
+      ];
+      
+      // ✅ NEIGHBORHOODS to EXCLUDE
+      const excludeNeighborhoods = [
+        'the rocks', 'bondi', 'manly', 'darling harbour',
+        'circular quay', 'mascot', 'bayside',
+        'st kilda', 'southbank', 'fortitude valley',
+        'shibuya', 'shinjuku', 'harajuku',
+        'sentosa', 'marina bay',
+        'fife', 'great falls', 'rock hill',
+      ];
+      
+      for (const item of dayItems) {
+        if (!item.address) continue;
+        
+        const addressLower = item.address.toLowerCase();
+        
+        // ✅ STRATEGY 1: Check for major cities in ENTIRE address
+        let cityFound = false;
+        for (const [keyword, cityName] of Object.entries(majorCities)) {
+          const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+          if (regex.test(addressLower)) {
+            cities.push(cityName);
+            console.log(`     ✅ MATCHED MAJOR CITY: ${cityName}`);
+            cityFound = true;
+            break;
+          }
         }
         
+        if (cityFound) continue;
+        
+        // ✅ STRATEGY 2: Parse address parts (but EXCLUDE states!)
         const parts = item.address.split(',').map(p => p.trim());
-        console.log(`    📍 ${item.title}: ${item.address}`);
+        let detectedCity: string | null = null;
         
-        // Try multiple strategies
-        let detectedCity = null;
-        
-        // Strategy 1: Third from end (for detailed addresses)
-        if (parts.length >= 3) {
-          let potential = parts[parts.length - 3];
-          potential = potential.replace(/ City| Prefecture| Ward| District/gi, '').trim();
-          if (potential.toLowerCase() !== 'japan') {
+        // Try positions -2, -3, -4 (skip -1 which is country)
+        for (const index of [-2, -3, -4]) {
+          const absIndex = Math.abs(index);
+          if (absIndex > parts.length) continue;
+          
+          const arrayIndex = parts.length + index;
+          let potential = parts[arrayIndex];
+          
+          // Clean up
+          potential = potential
+            .replace(/ City/gi, '')
+            .replace(/ Prefecture/gi, '')
+            .replace(/ Municipality/gi, '')
+            .trim();
+          
+          const potentialLower = potential.toLowerCase();
+          
+          // ✅ VALIDATE: Is this a city?
+          const isValid = (
+            !excludeStates.includes(potentialLower) &&
+            !excludeNeighborhoods.includes(potentialLower) &&
+            potential.length > 2 &&
+            !/^\d/.test(potential) &&
+            /[a-zA-Z]/.test(potential)
+          );
+          
+          if (isValid) {
             detectedCity = potential;
-            console.log(`       ✅ Strategy 1: "${detectedCity}"`);
+            console.log(`     ✅ Extracted from address[${index}]: '${detectedCity}'`);
+            break;
           }
         }
         
-        // Strategy 2: Second from end (for simple addresses)
-        if (!detectedCity && parts.length >= 2) {
-          let potential = parts[parts.length - 2];
-          potential = potential.replace(/ City| Prefecture/gi, '').trim();
-          if (potential.toLowerCase() !== 'japan') {
-            detectedCity = potential;
-            console.log(`       ✅ Strategy 2: "${detectedCity}"`);
-          }
-        }
-        
-        // Strategy 3: Check for major cities
-        if (!detectedCity) {
-          const majorCities = ['Tokyo', 'Osaka', 'Kyoto', 'Sapporo', 'Hokkaido'];
-          for (const part of parts) {
-            for (const city of majorCities) {
-              if (part.toLowerCase().includes(city.toLowerCase())) {
-                detectedCity = city;
-                console.log(`       ✅ Strategy 3: "${detectedCity}"`);
-                break;
-              }
-            }
-            if (detectedCity) break;
-          }
-        }
-        
-        // ✅ Filter out known bad cities BEFORE adding
         if (detectedCity) {
-          const invalidCities = [
-            'fife', 'great falls', 'montana', 'scotland', 'united kingdom',
-            'st andrews', 'st. andrews', 'cluny road', 'mandai', 'orange grove'
-          ];
-          
-          const cityLower = detectedCity.toLowerCase();
-          const isInvalid = invalidCities.some(invalid => cityLower.includes(invalid));
-          
-          if (!isInvalid) {
-            cities.push(detectedCity);
-            console.log(`       ✅ Added: "${detectedCity}"`);
-          } else {
-            console.log(`       ⚠️ FILTERED (invalid): "${detectedCity}"`);
-          }
+          cities.push(detectedCity);
         }
       }
       
       console.log(`\n📊 Detected cities:`, cities);
       
       if (cities.length > 0) {
-        // Use most common city
-        const cityCounts = cities.reduce((acc, city) => {
-          acc[city] = (acc[city] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>);
+        // Count occurrences
+        const cityCounts: Record<string, number> = {};
+        for (const city of cities) {
+          cityCounts[city] = (cityCounts[city] || 0) + 1;
+        }
         
-        const sortedCities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]);
+        // Get most common
+        const sortedCities = Object.entries(cityCounts)
+          .sort((a, b) => b[1] - a[1]);
+        
         detectedLocation = sortedCities[0][0];
-        console.log(`LOCATION DETECTED: "${detectedLocation}"`);
+        
+        console.log(`✅ FINAL LOCATION: ${detectedLocation} (${cityCounts[detectedLocation]} occurrences)`);
       } else {
-        console.log(`⚠️ No cities found, using default: ${destination}`);
+        console.log(`⚠️ No valid cities found, using trip default: ${destination}`);
       }
       
       setCurrentDayLocation(detectedLocation);
@@ -369,6 +439,18 @@ export default function RecommendationsPage() {
         console.log(`  - Food: ${newCategories.food.length}`);
         console.log(`  - Culture: ${newCategories.culture.length}`);
         
+        const totalRecs = [...newCategories.nearby, ...newCategories.food, ...newCategories.culture];
+        const withCoords = totalRecs.filter(r => r.lat != null && r.lon != null).length;
+        console.log(`📍 Recommendations with coordinates: ${withCoords}/${totalRecs.length}`);
+        
+        totalRecs.forEach((rec, idx) => {
+          if (rec.lat && rec.lon) {
+            console.log(`  ✅ ${idx + 1}. ${rec.name}: (${rec.lat}, ${rec.lon})`);
+          } else {
+            console.log(`  ⚠️ ${idx + 1}. ${rec.name}: NO COORDINATES`);
+          }
+        });
+        
         setCategories(newCategories);
         
         if (response.destination) {
@@ -404,6 +486,13 @@ export default function RecommendationsPage() {
     }
     
     console.log(`➕ Adding: ${recommendation.name} to Day ${selectedDay + 1}`);
+    console.log(`📍 Coordinates: lat=${recommendation.lat}, lon=${recommendation.lon}`);
+    
+    if (!recommendation.lat || !recommendation.lon) {
+      console.error("❌ Recommendation missing coordinates:", recommendation);
+      alert("This recommendation is missing location data and cannot be added. Please refresh recommendations and try again.");
+      return;
+    }
     
     try {
       const response = await apiFetch("/f1/recommendations/quick-add/", {
