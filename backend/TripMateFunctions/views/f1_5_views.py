@@ -3,17 +3,17 @@
 F1.5 - AI-Powered Recommendations (Real-time AI, No Database)
 
 UPDATED: Now includes user profile preferences for personalized recommendations
-- User-specific preferences from Profile model
-- Each user gets personalized recommendations (not shared with collaborators)
-- Better day-specific location detection and city filtering
-- Allows both trip owners AND collaborators to access recommendations
+AND geographic coordinates (lat/lon/address) for each recommendation
+
+CRITICAL FIX: Added geocoding to ensure every recommendation has coordinates
+so that place-details endpoint works properly when items are added to itinerary.
 """
 
 import os
 import json
 import logging
 import requests
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 
 from rest_framework.views import APIView
@@ -21,7 +21,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Q, Max
 
 from ..models import Trip, TripDay, ItineraryItem, AppUser, Profile
 
@@ -79,7 +79,66 @@ def call_sealion_ai(prompt: str, temperature: float = 0.7, max_tokens: int = 200
 
 
 # ============================================================================
-# F1.5 - AI Recommendations View (WITH USER PROFILE PREFERENCES)
+# Helper: Geocoding (Get coordinates for place names)
+# ============================================================================
+
+def geocode_place(place_name: str, city: str) -> Optional[Tuple[float, float, str]]:
+    """
+    Geocode a place name to get coordinates.
+    Returns (lat, lon, formatted_address) or None if failed.
+    
+    Uses Mapbox Geocoding API (you already have MAPBOX_ACCESS_TOKEN).
+    """
+    mapbox_token = os.environ.get("MAPBOX_ACCESS_TOKEN")
+    if not mapbox_token:
+        logger.warning("MAPBOX_ACCESS_TOKEN not set, geocoding disabled")
+        return None
+    
+    try:
+        # Combine place name with city for better accuracy
+        query = f"{place_name}, {city}"
+        
+        url = "https://api.mapbox.com/geocoding/v5/mapbox.places/{}.json".format(
+            requests.utils.quote(query)
+        )
+        
+        params = {
+            "access_token": mapbox_token,
+            "limit": 1,
+            "types": "poi,address,place",  # POI for landmarks, address for specific places
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code != 200:
+            logger.warning(f"Geocoding failed for '{query}': status {response.status_code}")
+            return None
+        
+        data = response.json()
+        features = data.get("features", [])
+        
+        if not features:
+            logger.warning(f"No geocoding results for '{query}'")
+            return None
+        
+        feature = features[0]
+        coordinates = feature.get("geometry", {}).get("coordinates", [])
+        place_name_full = feature.get("place_name", "")
+        
+        if len(coordinates) >= 2:
+            lon, lat = coordinates[0], coordinates[1]
+            logger.info(f"✅ Geocoded '{place_name}' in {city}: ({lat}, {lon})")
+            return (lat, lon, place_name_full)
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Geocoding error for '{place_name}' in {city}: {e}")
+        return None
+
+
+# ============================================================================
+# F1.5 - AI Recommendations View (WITH COORDINATES)
 # ============================================================================
 
 class AIRecommendationsView(APIView):
@@ -87,12 +146,10 @@ class AIRecommendationsView(APIView):
     GET/POST /f1/recommendations/ai/?trip_id=367&day_index=1&location=Sapporo
     
     UPDATED VERSION:
-    - ✅ Uses current user's profile preferences (NOT collaborators)
-    - ✅ Personalized recommendations per user
-    - Better location detection from addresses
-    - More comprehensive city filtering
-    - Day-specific recommendations
-    - Allows both owners AND collaborators
+    - ✅ Uses current user's profile preferences
+    - ✅ Includes geographic coordinates (lat/lon/address) for each recommendation
+    - ✅ Geocodes AI-generated place names automatically
+    - ✅ Allows both owners AND collaborators
     """
     permission_classes = [IsAuthenticated]
     
@@ -135,7 +192,7 @@ class AIRecommendationsView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Fetch CURRENT USER'S profile preferences (NOT collaborators)
+        # Fetch CURRENT USER'S profile preferences
         user_preferences = self._get_user_preferences(app_user)
         logger.info(f"✅ Loaded preferences for {app_user.email}: {user_preferences}")
         
@@ -209,15 +266,39 @@ class AIRecommendationsView(APIView):
             itinerary_hash = self._compute_itinerary_hash(day_items)
             
             # ====================================================================
-            # GENERATE PERSONALIZED RECOMMENDATIONS (WITH USER PREFERENCES)
+            # GENERATE PERSONALIZED RECOMMENDATIONS WITH COORDINATES
             # ====================================================================
             categories = self._generate_categorized_recommendations(
                 destination=destination,
                 trip=trip,
                 items=day_items,
                 day_index=target_day_index,
-                user_preferences=user_preferences  # NEW: Pass user preferences
+                user_preferences=user_preferences
             )
+            
+            # ✅ CRITICAL: Geocode all recommendations to add coordinates
+            for category_name, recommendations in categories.items():
+                for rec in recommendations:
+                    if not rec.get('lat') or not rec.get('lon'):
+                        # Try to geocode this recommendation
+                        coords = geocode_place(rec['name'], destination)
+                        if coords:
+                            rec['lat'], rec['lon'], rec['address'] = coords
+                        else:
+                            logger.warning(f"⚠️ Could not geocode: {rec['name']} in {destination}")
+                            # Keep recommendation but mark it as missing coordinates
+                            rec['lat'] = None
+                            rec['lon'] = None
+                            rec['address'] = None
+            
+            # Log coordinate statistics
+            total_recs = sum(len(recs) for recs in categories.values())
+            with_coords = sum(
+                1 for recs in categories.values() 
+                for rec in recs 
+                if rec.get('lat') and rec.get('lon')
+            )
+            logger.info(f"📍 Geocoding result: {with_coords}/{total_recs} recommendations have coordinates")
             
             return Response({
                 "success": True,
@@ -225,7 +306,7 @@ class AIRecommendationsView(APIView):
                 "day_index": target_day_index,
                 "itinerary_hash": itinerary_hash,
                 "categories": categories,
-                "personalized": True,  # Flag to indicate personalized results
+                "personalized": True,
             })
             
         except Exception as e:
@@ -242,10 +323,7 @@ class AIRecommendationsView(APIView):
             })
     
     def _get_user_preferences(self, app_user: AppUser) -> Dict[str, Any]:
-        """
-        Fetch the current user's profile preferences.
-        Returns preferences for THIS user only (not collaborators).
-        """
+        """Fetch the current user's profile preferences."""
         try:
             profile = Profile.objects.get(id=app_user.id)
             
@@ -272,10 +350,7 @@ class AIRecommendationsView(APIView):
             }
     
     def _detect_location_from_items(self, items: List[ItineraryItem]) -> str:
-        """
-        IMPROVED: Detect the primary location from a list of itinerary items.
-        Extracts city names more accurately from addresses.
-        """
+        """Detect the primary location from a list of itinerary items."""
         if not items:
             logger.warning("No items provided for location detection")
             return ""
@@ -284,37 +359,28 @@ class AIRecommendationsView(APIView):
         
         logger.info("🔍 Starting location detection from addresses...")
         
-        # Method 1: Extract from addresses (most reliable)
         for item in items:
             if not item.address:
                 logger.info(f"  ❌ {item.title}: No address")
                 continue
                 
-            # Split address by commas
             parts = [p.strip() for p in item.address.split(',')]
             logger.info(f"  📍 {item.title}: {item.address}")
-            logger.info(f"     Address parts: {parts}")
             
-            # Try multiple strategies to extract city
             detected_city = None
             
-            # Strategy 1: For Japan addresses (format: Place, District/Ward, City, Prefecture, Country)
-            # Example: "Tsukiji Fish Market, Tsukiji, Chuo City, Tokyo, Japan"
-            # City is usually at index -3 (third from end)
+            # Strategy 1: Third from end (Japan addresses)
             if len(parts) >= 3:
                 potential_city = parts[-3].strip()
-                # Check if it looks like a city (not "Japan" or prefecture names)
                 if potential_city.lower() not in ['japan', 'prefecture']:
-                    # Clean up common suffixes
                     for suffix in [' City', ' Prefecture', ' Ward', ' District']:
                         if potential_city.endswith(suffix):
                             potential_city = potential_city[:-len(suffix)].strip()
                     
                     detected_city = potential_city
-                    logger.info(f"     ✅ Strategy 1 (index -3): Detected '{detected_city}'")
+                    logger.info(f"     ✅ Strategy 1: Detected '{detected_city}'")
             
-            # Strategy 2: For simpler addresses (Place, City, Country)
-            # Example: "Sapporo Clock Tower, Sapporo, Japan"
+            # Strategy 2: Second from end
             if not detected_city and len(parts) >= 2:
                 potential_city = parts[-2].strip()
                 if potential_city.lower() != 'japan':
@@ -323,9 +389,9 @@ class AIRecommendationsView(APIView):
                             potential_city = potential_city[:-len(suffix)].strip()
                     
                     detected_city = potential_city
-                    logger.info(f"     ✅ Strategy 2 (index -2): Detected '{detected_city}'")
+                    logger.info(f"     ✅ Strategy 2: Detected '{detected_city}'")
             
-            # Strategy 3: Check for major city names in any part of address
+            # Strategy 3: Check for major cities
             if not detected_city:
                 major_cities = [
                     'Tokyo', 'Osaka', 'Kyoto', 'Sapporo', 'Hokkaido', 'Fukuoka',
@@ -337,51 +403,19 @@ class AIRecommendationsView(APIView):
                     for city in major_cities:
                         if city.lower() in part.lower():
                             detected_city = city
-                            logger.info(f"     ✅ Strategy 3 (major cities): Detected '{detected_city}'")
+                            logger.info(f"     ✅ Strategy 3: Detected '{detected_city}'")
                             break
                     if detected_city:
                         break
             
             if detected_city:
                 cities.append(detected_city)
-                logger.info(f"     ✅ Final detected city: '{detected_city}'")
-            else:
-                logger.info(f"     ❌ Could not detect city from address")
         
-        # Method 2: Check item titles for city names (backup)
-        if not cities:
-            logger.info("📝 No cities found in addresses, checking titles...")
-            
-            for item in items:
-                title_lower = item.title.lower() if item.title else ""
-                
-                # Check for common city names in title
-                city_map = {
-                    'sapporo': 'Sapporo',
-                    'hokkaido': 'Hokkaido',
-                    'tokyo': 'Tokyo',
-                    'kyoto': 'Kyoto',
-                    'osaka': 'Osaka',
-                    'singapore': 'Singapore',
-                    'bangkok': 'Bangkok',
-                }
-                
-                for keyword, city_name in city_map.items():
-                    if keyword in title_lower:
-                        cities.append(city_name)
-                        logger.info(f"  ✅ Found {city_name} in title: {item.title}")
-                        break
-        
-        # Return most common city, or first one
         if cities:
             from collections import Counter
             city_counts = Counter(cities)
-            most_common = city_counts.most_common(1)
-            detected_city = most_common[0][0]
-            
-            logger.info(f"📊 City frequency: {dict(city_counts)}")
-            logger.info(f"✅ FINAL DETECTED LOCATION: {detected_city} (appears {city_counts[detected_city]} times)")
-            
+            detected_city = city_counts.most_common(1)[0][0]
+            logger.info(f"✅ FINAL DETECTED LOCATION: {detected_city}")
             return detected_city
         
         logger.warning("❌ Could not detect any location from items")
@@ -390,8 +424,6 @@ class AIRecommendationsView(APIView):
     def _compute_itinerary_hash(self, items) -> str:
         """Generate a hash of the current itinerary for change detection."""
         import hashlib
-        
-        # Create string from item IDs and sort orders
         items_str = ",".join([f"{item.id}:{item.sort_order}" for item in items])
         return hashlib.md5(items_str.encode()).hexdigest()[:8]
     
@@ -401,25 +433,19 @@ class AIRecommendationsView(APIView):
         trip: Trip,
         items: List[ItineraryItem],
         day_index: int = None,
-        user_preferences: Dict[str, Any] = None  # NEW: User preferences parameter
+        user_preferences: Dict[str, Any] = None
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """
-        Generate recommendations in 3 categories for specific day/location.
-        NOW WITH USER PREFERENCES for personalization.
-        """
+        """Generate recommendations in 3 categories with user preferences."""
         
-        # Get existing places for context
         existing_places = [item.title for item in items if item.title]
         existing_places_str = ", ".join(existing_places[:8]) if existing_places else "none yet"
         
-        # Build trip context
         if day_index is not None:
             trip_context = f"Day {day_index + 1} of trip in {destination}"
         else:
             trip_duration = len(set(item.day_id for item in items if item.day_id)) or 1
             trip_context = f"{trip_duration}-day trip to {destination}"
         
-        # Use default preferences if none provided
         if user_preferences is None:
             user_preferences = {
                 'interests': [],
@@ -432,17 +458,14 @@ class AIRecommendationsView(APIView):
         
         categories = {}
         
-        # 1. NEARBY: Places near current itinerary (day-specific + personalized)
         categories["nearby"] = self._generate_nearby_recommendations(
             destination, existing_places_str, trip_context, user_preferences
         )
         
-        # 2. FOOD: Dining experiences (location-specific + personalized)
         categories["food"] = self._generate_food_recommendations(
             destination, trip_context, user_preferences
         )
         
-        # 3. CULTURE: Cultural attractions (location-specific + personalized)
         categories["culture"] = self._generate_culture_recommendations(
             destination, trip_context, user_preferences
         )
@@ -451,27 +474,21 @@ class AIRecommendationsView(APIView):
     
     def _build_preference_context(self, user_preferences: Dict[str, Any]) -> str:
         """Build a string describing user preferences for AI prompt."""
-        
         parts = []
         
-        # Interests
         if user_preferences.get('interests'):
             interests_str = ", ".join(user_preferences['interests'])
             parts.append(f"Interests: {interests_str}")
         
-        # Travel pace
         if user_preferences.get('travel_pace'):
             parts.append(f"Pace: {user_preferences['travel_pace']}")
         
-        # Budget level
         if user_preferences.get('budget_level'):
             parts.append(f"Budget: {user_preferences['budget_level']}")
         
-        # Diet preference
         if user_preferences.get('diet_preference'):
             parts.append(f"Diet: {user_preferences['diet_preference']}")
         
-        # Mobility needs
         if user_preferences.get('mobility_needs'):
             parts.append(f"Mobility: {user_preferences['mobility_needs']}")
         
@@ -489,10 +506,8 @@ class AIRecommendationsView(APIView):
     ) -> List[Dict[str, Any]]:
         """Generate nearby place recommendations using AI with user preferences."""
         
-        # Build preference context
         pref_context = self._build_preference_context(user_preferences)
         
-        # Build personalization instructions
         personalization = ""
         if user_preferences.get('interests'):
             interests = ", ".join(user_preferences['interests'])
@@ -509,9 +524,9 @@ class AIRecommendationsView(APIView):
         
         if user_preferences.get('travel_pace'):
             if user_preferences['travel_pace'].lower() in ['relaxed', 'slow']:
-                personalization += f"\n- Suggest leisurely activities, avoid rushed itineraries"
+                personalization += f"\n- Suggest leisurely activities"
             elif user_preferences['travel_pace'].lower() in ['fast', 'packed']:
-                personalization += f"\n- Include activities that can be done efficiently"
+                personalization += f"\n- Include efficient activities"
         
         prompt = f"""You are a local travel expert in {destination}. The user is planning a {trip_context}.
 
@@ -528,36 +543,24 @@ CRITICAL REQUIREMENTS:
 - Must be within walking distance or short travel from their existing stops
 - Must complement what they already have
 - Must match user's interests and preferences
-- Must be diverse (different types of attractions)
 - Must be real, well-known places in {destination}
 
 Format as JSON array:
 [
   {{
     "name": "Place name (must be in {destination})",
-    "description": "Why visit (explain how it matches user's preferences, max 100 chars)",
+    "description": "Why visit (max 100 chars)",
     "category": "nearby",
     "duration": "30 min",
     "cost": "Free",
     "best_time": "Morning",
     "highlight": false,
-    "nearby_to": "Name of existing stop it's near",
+    "nearby_to": "Existing stop name",
     "matched_preferences": ["Interest: culture", "Budget: free"]
   }}
 ]
 
-IMPORTANT: The "matched_preferences" field should list which user preferences this recommendation matches.
-Examples:
-- If matches interest in "food": ["Interest: food"]
-- If matches budget preference "budget": ["Budget-friendly"]
-- If matches diet "vegetarian": ["Vegetarian options"]
-- If accessible: ["Wheelchair accessible"]
-
-VERIFY: Each suggestion is actually located in {destination} AND matches user preferences!
-
-Mark the BEST recommendation (that best matches user preferences) with "highlight": true.
-Keep descriptions under 100 characters.
-Use realistic costs matching user's budget preference.
+Mark the BEST recommendation with "highlight": true.
 Respond ONLY with valid JSON array, no markdown."""
 
         try:
@@ -566,7 +569,7 @@ Respond ONLY with valid JSON array, no markdown."""
             recs = json.loads(content)
             validated = self._validate_recommendations(recs)
             filtered = self._filter_wrong_location(validated, destination)
-            logger.info(f"✅ Generated {len(filtered)} personalized nearby recommendations for {destination}")
+            logger.info(f"✅ Generated {len(filtered)} nearby recommendations")
             return filtered
         except Exception as e:
             logger.warning(f"AI nearby recommendations failed: {e}")
@@ -578,76 +581,51 @@ Respond ONLY with valid JSON array, no markdown."""
         trip_context: str,
         user_preferences: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Generate food & dining recommendations using AI with user preferences."""
+        """Generate food recommendations using AI with user preferences."""
         
-        # Build preference context
         pref_context = self._build_preference_context(user_preferences)
         
-        # Build diet-specific instructions
         diet_requirements = ""
         if user_preferences.get('diet_preference'):
             diet_pref = user_preferences['diet_preference']
             if diet_pref.lower() in ['vegetarian', 'vegan', 'halal', 'kosher']:
-                diet_requirements = f"\n⚠️ CRITICAL: User is {diet_pref}. ONLY recommend restaurants that serve {diet_pref} options!"
+                diet_requirements = f"\n⚠️ CRITICAL: User is {diet_pref}. ONLY recommend restaurants with {diet_pref} options!"
             elif diet_pref.lower() != 'no restrictions':
-                diet_requirements = f"\n⚠️ IMPORTANT: User has dietary preference: {diet_pref}. Consider this in recommendations."
+                diet_requirements = f"\n⚠️ User has dietary preference: {diet_pref}"
         
-        # Budget instructions
         budget_guidance = ""
         if user_preferences.get('budget_level'):
             if user_preferences['budget_level'].lower() in ['budget', 'low']:
-                budget_guidance = "\n💰 Focus on affordable local eateries and street food"
+                budget_guidance = "\n💰 Focus on affordable eateries"
             elif user_preferences['budget_level'].lower() in ['luxury', 'high']:
-                budget_guidance = "\n💎 Include fine dining and premium restaurants"
+                budget_guidance = "\n💎 Include fine dining"
         
-        prompt = f"""You are a local food expert in {destination}. Suggest 3-4 must-try food experiences specifically in {destination}.
+        prompt = f"""You are a local food expert in {destination}. Suggest 3-4 must-try food experiences in {destination}.
 
 {pref_context}
 {diet_requirements}
 {budget_guidance}
 
-IMPORTANT: ALL suggestions MUST be:
-- Actually located IN {destination} (not other cities)
-- Real, existing restaurants or food areas in {destination}
-- Popular with both locals and tourists in {destination}
-- MATCH user's dietary preferences
-
-Context: {trip_context}
-
-Include:
-- Local specialties unique to {destination}
-- Authentic restaurants or food streets IN {destination}
-- Unique dining experiences available IN {destination}
+ALL suggestions MUST be:
+- Located IN {destination}
+- Real, existing restaurants
+- Match user's dietary preferences
 
 Format as JSON array:
 [
   {{
-    "name": "Restaurant/Food name (must be in {destination})",
-    "description": "What makes it special + why it matches user preferences (max 100 chars)",
+    "name": "Restaurant name (in {destination})",
+    "description": "What makes it special (max 100 chars)",
     "category": "food",
     "duration": "1-2 hours",
     "cost": "$20-40",
     "best_time": "Lunch",
     "highlight": false,
-    "matched_preferences": ["Interest: food", "Diet: vegetarian"]
+    "matched_preferences": ["Diet: vegetarian", "Budget-friendly"]
   }}
 ]
 
-IMPORTANT: The "matched_preferences" field should list which user preferences this recommendation matches.
-Examples:
-- If vegetarian restaurant: ["Vegetarian-friendly"]
-- If budget option: ["Budget-friendly"]
-- If matches food interest: ["Interest: food"]
-- If local specialty: ["Local cuisine"]
-
-CRITICAL: Verify each suggestion:
-1. Is actually in {destination} (not another city)
-2. Matches user's dietary preference{' (' + user_preferences.get('diet_preference') + ')' if user_preferences.get('diet_preference') else ''}
-3. Fits user's budget level{' (' + user_preferences.get('budget_level') + ')' if user_preferences.get('budget_level') else ''}
-
-Mark the BEST recommendation (that best matches ALL preferences) with "highlight": true.
-Keep descriptions under 100 characters.
-Use realistic price ranges for {destination}.
+Mark the BEST recommendation with "highlight": true.
 Respond ONLY with valid JSON array, no markdown."""
 
         try:
@@ -656,7 +634,7 @@ Respond ONLY with valid JSON array, no markdown."""
             recs = json.loads(content)
             validated = self._validate_recommendations(recs)
             filtered = self._filter_wrong_location(validated, destination)
-            logger.info(f"✅ Generated {len(filtered)} personalized food recommendations for {destination}")
+            logger.info(f"✅ Generated {len(filtered)} food recommendations")
             return filtered
         except Exception as e:
             logger.warning(f"AI food recommendations failed: {e}")
@@ -668,52 +646,40 @@ Respond ONLY with valid JSON array, no markdown."""
         trip_context: str,
         user_preferences: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Generate cultural attraction recommendations using AI with user preferences."""
+        """Generate cultural attraction recommendations using AI."""
         
-        # Build preference context
         pref_context = self._build_preference_context(user_preferences)
         
-        # Build interest-specific guidance
         interest_guidance = ""
         if user_preferences.get('interests'):
             interests = user_preferences['interests']
             if 'culture' in interests or 'history' in interests:
-                interest_guidance += "\n- User loves culture/history - emphasize historical significance"
-            if 'art' in interests or 'photography' in interests:
-                interest_guidance += "\n- User interested in art/photography - suggest visually stunning sites"
+                interest_guidance += "\n- Emphasize historical significance"
+            if 'art' in interests:
+                interest_guidance += "\n- Suggest art museums and galleries"
             if 'nature' in interests:
-                interest_guidance += "\n- User loves nature - include cultural sites with gardens/natural elements"
+                interest_guidance += "\n- Include sites with gardens/nature"
         
-        # Mobility considerations
         accessibility_note = ""
         if user_preferences.get('mobility_needs') and user_preferences['mobility_needs'].lower() != 'none':
-            accessibility_note = f"\n♿ IMPORTANT: Ensure recommendations are accessible for: {user_preferences['mobility_needs']}"
+            accessibility_note = f"\n♿ Ensure accessibility for: {user_preferences['mobility_needs']}"
         
-        prompt = f"""You are a cultural guide for {destination}. Suggest 3-4 cultural attractions specifically in {destination}.
+        prompt = f"""You are a cultural guide for {destination}. Suggest 3-4 cultural attractions in {destination}.
 
 {pref_context}
 {interest_guidance}
 {accessibility_note}
 
-IMPORTANT: ALL suggestions MUST be:
-- Actually located IN {destination} (not other cities)
-- Real, existing cultural sites in {destination}
-- Famous landmarks or attractions IN {destination}
-- MATCH user's interests and accessibility needs
-
-Context: {trip_context}
-
-Include:
-- Museums located IN {destination}
-- Temples/shrines/churches IN {destination}
-- Historical sites IN {destination}
-- Cultural experiences available IN {destination}
+ALL suggestions MUST be:
+- Located IN {destination}
+- Real cultural sites
+- Match user interests
 
 Format as JSON array:
 [
   {{
-    "name": "Attraction name (must be in {destination})",
-    "description": "Why visit + how it matches user interests (max 100 chars)",
+    "name": "Attraction name (in {destination})",
+    "description": "Why visit (max 100 chars)",
     "category": "culture",
     "duration": "2-3 hours",
     "cost": "$10-20",
@@ -723,22 +689,7 @@ Format as JSON array:
   }}
 ]
 
-IMPORTANT: The "matched_preferences" field should list which user preferences this recommendation matches.
-Examples:
-- If historical site and user likes history: ["Interest: history"]
-- If art museum and user likes art: ["Interest: art"]
-- If accessible: ["Wheelchair accessible"]
-- If photogenic and user likes photography: ["Interest: photography"]
-- If includes nature: ["Interest: nature"]
-
-CRITICAL: Verify each suggestion:
-1. Is actually in {destination} (not another city)
-2. Matches user's interests{' (' + ', '.join(user_preferences.get('interests', [])) + ')' if user_preferences.get('interests') else ''}
-3. Is accessible if needed{' (' + user_preferences.get('mobility_needs') + ')' if user_preferences.get('mobility_needs') and user_preferences['mobility_needs'] != 'none' else ''}
-
-Mark the BEST recommendation (that best matches user's profile) with "highlight": true.
-Keep descriptions under 100 characters.
-Use realistic entry fees and durations.
+Mark the BEST recommendation with "highlight": true.
 Respond ONLY with valid JSON array, no markdown."""
 
         try:
@@ -747,7 +698,7 @@ Respond ONLY with valid JSON array, no markdown."""
             recs = json.loads(content)
             validated = self._validate_recommendations(recs)
             filtered = self._filter_wrong_location(validated, destination)
-            logger.info(f"✅ Generated {len(filtered)} personalized culture recommendations for {destination}")
+            logger.info(f"✅ Generated {len(filtered)} culture recommendations")
             return filtered
         except Exception as e:
             logger.warning(f"AI culture recommendations failed: {e}")
@@ -757,7 +708,6 @@ Respond ONLY with valid JSON array, no markdown."""
         """Remove markdown code fences from JSON."""
         content = content.strip()
         
-        # Remove markdown code fences
         if content.startswith("```json"):
             content = content[7:]
         elif content.startswith("```"):
@@ -774,12 +724,10 @@ Respond ONLY with valid JSON array, no markdown."""
         
         for rec in recs:
             if isinstance(rec, dict) and "name" in rec:
-                # Truncate long descriptions
                 description = rec.get("description", "")
                 if len(description) > 150:
                     description = description[:147] + "..."
                 
-                # Get matched preferences (may be empty list)
                 matched_prefs = rec.get("matched_preferences", [])
                 if not isinstance(matched_prefs, list):
                     matched_prefs = []
@@ -794,57 +742,32 @@ Respond ONLY with valid JSON array, no markdown."""
                     "highlight": rec.get("highlight", False),
                     "nearby_to": rec.get("nearby_to"),
                     "action": rec.get("action"),
-                    "matched_preferences": matched_prefs,  # NEW: Include matched preferences
+                    "matched_preferences": matched_prefs,
+                    # ✅ Initialize coordinate fields (will be filled by geocoding)
+                    "lat": rec.get("lat"),
+                    "lon": rec.get("lon"),
+                    "address": rec.get("address"),
+                    "xid": rec.get("xid"),
                 })
         
         return validated
     
     def _filter_wrong_location(self, recommendations: List[Dict], expected_location: str) -> List[Dict]:
-        """
-        FIXED: Filter out recommendations that mention wrong cities.
-        Now properly handles city hierarchies (e.g., Sapporo is in Hokkaido but they're different)
-        """
+        """Filter out recommendations that mention wrong cities."""
         if not expected_location:
-            logger.info("No expected location provided, skipping filter")
             return recommendations
         
-        # City database - FIXED: Handle Hokkaido/Sapporo relationship properly
         city_groups = {
-            # Japan - Major Cities
-            "tokyo": ["tokyo", "shibuya", "shinjuku", "harajuku", "asakusa", "ginza", "roppongi", "akihabara"],
-            "osaka": ["osaka", "dotonbori", "namba", "umeda", "shinsekai"],
+            "tokyo": ["tokyo", "shibuya", "shinjuku", "harajuku", "asakusa", "ginza"],
+            "osaka": ["osaka", "dotonbori", "namba", "umeda"],
             "kyoto": ["kyoto", "gion", "arashiyama", "fushimi"],
-            
-            # Hokkaido Region - Special handling
-            "sapporo": ["sapporo", "susukino", "hokkaido"],  # Include hokkaido for Sapporo
-            "otaru": ["otaru"],
-            "hakodate": ["hakodate"],
-            "niseko": ["niseko"],
-            
-            "fukuoka": ["fukuoka", "hakata"],
-            "hiroshima": ["hiroshima", "miyajima"],
-            "yokohama": ["yokohama"],
-            "nagoya": ["nagoya"],
-            "nara": ["nara"],
-            "kobe": ["kobe"],
-            
-            # Other Asia
+            "sapporo": ["sapporo", "susukino", "hokkaido"],
             "singapore": ["singapore"],
-            "kuala lumpur": ["kuala lumpur"],
-            "bangkok": ["bangkok", "sukhumvit"],
-            "seoul": ["seoul", "gangnam", "hongdae"],
-            "busan": ["busan"],
-            "beijing": ["beijing", "peking"],
-            "shanghai": ["shanghai", "pudong"],
-            "hong kong": ["hong kong", "kowloon"],
+            "bangkok": ["bangkok"],
+            "seoul": ["seoul"],
         }
         
-        # Normalize expected location
         expected_lower = expected_location.lower().strip()
-        
-        logger.info(f"🔍 Filtering recommendations for: {expected_location}")
-        
-        # Find which city group the expected location belongs to
         expected_group = None
         expected_city_key = None
         
@@ -852,24 +775,16 @@ Respond ONLY with valid JSON array, no markdown."""
             if any(alias in expected_lower for alias in aliases):
                 expected_group = aliases
                 expected_city_key = city_key
-                logger.info(f"✅ Matched to city group: {city_key} (aliases: {aliases})")
                 break
         
         if not expected_group:
-            logger.info(f"⚠️ Location '{expected_location}' not in filter database, skipping strict filter")
             return recommendations
         
-        # Get all other cities' aliases (cities to filter out)
         wrong_cities = []
         for city_key, aliases in city_groups.items():
             if city_key != expected_city_key:
-                safe_aliases = [a for a in aliases if len(a) >= 4]
-                wrong_cities.extend(safe_aliases)
+                wrong_cities.extend([a for a in aliases if len(a) >= 4])
         
-        logger.info(f"🚫 Will filter out mentions of: {wrong_cities[:10]}... (showing first 10)")
-        logger.info(f"✅ Will KEEP mentions of: {expected_group}")
-        
-        # Filter recommendations
         filtered = []
         import re
         
@@ -877,28 +792,17 @@ Respond ONLY with valid JSON array, no markdown."""
             name_lower = rec.get("name", "").lower()
             desc_lower = rec.get("description", "").lower()
             
-            # Check if recommendation mentions a WRONG city
             contains_wrong_city = False
-            detected_wrong = None
             
             for wrong_city in wrong_cities:
                 pattern = r'\b' + re.escape(wrong_city) + r'\b'
                 
                 if re.search(pattern, name_lower) or re.search(pattern, desc_lower):
                     contains_wrong_city = True
-                    detected_wrong = wrong_city
                     break
             
             if not contains_wrong_city:
                 filtered.append(rec)
-                logger.info(f"  ✅ KEPT: {rec.get('name')}")
-            else:
-                logger.warning(
-                    f"  ❌ FILTERED: '{rec.get('name')}' - mentions '{detected_wrong}' "
-                    f"(wrong for {expected_location})"
-                )
-        
-        logger.info(f"📊 Filter result: {len(filtered)}/{len(recommendations)} recommendations passed")
         
         return filtered
     
@@ -914,41 +818,53 @@ Respond ONLY with valid JSON array, no markdown."""
         """Fallback nearby recommendations."""
         return [{
             "name": f"Explore {destination}",
-            "description": "Discover nearby attractions and hidden gems",
+            "description": "Discover nearby attractions",
             "category": "nearby",
             "duration": "2 hours",
             "cost": "Free-$20",
             "best_time": "Anytime",
-            "highlight": True
+            "highlight": True,
+            "matched_preferences": [],
+            "lat": None,
+            "lon": None,
+            "address": None,
         }]
     
     def _fallback_food(self, destination: str) -> List[Dict[str, Any]]:
         """Fallback food recommendations."""
         return [{
             "name": f"Local Cuisine Tour",
-            "description": f"Try authentic {destination} food and local specialties",
+            "description": f"Try authentic {destination} food",
             "category": "food",
             "duration": "1-2 hours",
             "cost": "$20-40",
             "best_time": "Lunch or Dinner",
-            "highlight": True
+            "highlight": True,
+            "matched_preferences": [],
+            "lat": None,
+            "lon": None,
+            "address": None,
         }]
     
     def _fallback_culture(self, destination: str) -> List[Dict[str, Any]]:
         """Fallback culture recommendations."""
         return [{
             "name": f"Cultural Heritage Sites",
-            "description": f"Visit {destination}'s most iconic historical and cultural landmarks",
+            "description": f"Visit {destination}'s landmarks",
             "category": "culture",
             "duration": "Half day",
             "cost": "$10-30",
             "best_time": "Morning",
-            "highlight": True
+            "highlight": True,
+            "matched_preferences": [],
+            "lat": None,
+            "lon": None,
+            "address": None,
         }]
 
 
 # ============================================================================
-# Quick Add Recommendation (WITH USER ACCESS CHECK)
+# Quick Add Recommendation (WITH COORDINATES)
 # ============================================================================
 
 class QuickAddRecommendationView(APIView):
@@ -956,13 +872,14 @@ class QuickAddRecommendationView(APIView):
     POST /f1/recommendations/quick-add/
     
     Quickly add an AI-generated recommendation to trip itinerary.
+    ✅ Validates coordinates before adding
     ✅ Allows both owners AND collaborators
     """
     permission_classes = [IsAuthenticated]
     
     def post(self, request, *args, **kwargs):
         trip_id = request.data.get('trip_id')
-        day_index = request.data.get('day_index', 0)
+        day_index = request.data.get('day_index', 0)  # 0-indexed
         recommendation = request.data.get('recommendation', {})
         
         if not trip_id or not recommendation or not recommendation.get('name'):
@@ -984,7 +901,7 @@ class QuickAddRecommendationView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Allow both owner AND collaborators to add recommendations
+        # Allow both owner AND collaborators
         trip = Trip.objects.filter(
             Q(id=trip_id) & (Q(owner=app_user) | Q(collaborators__user=app_user))
         ).distinct().first()
@@ -995,7 +912,32 @@ class QuickAddRecommendationView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Get or create the day (day_index is 0-indexed, but day_index in DB is 1-indexed)
+        # ✅ Extract coordinates from recommendation
+        name = recommendation.get('name', 'New Place')
+        lat = recommendation.get('lat')
+        lon = recommendation.get('lon')
+        address = recommendation.get('address')
+        xid = recommendation.get('xid')
+        
+        # ✅ CRITICAL: Validate coordinates exist
+        if lat is None or lon is None:
+            logger.error(f"❌ Recommendation missing coordinates: {name}")
+            return Response({
+                'success': False,
+                'error': f'Cannot add "{name}" - missing location data. Please refresh recommendations and try again.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Convert to float
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except (TypeError, ValueError):
+            return Response({
+                'success': False,
+                'error': 'Invalid coordinate format'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get or create the day (0-indexed to 1-indexed)
         actual_day_index = day_index + 1
         trip_day, created = TripDay.objects.get_or_create(
             trip=trip,
@@ -1003,22 +945,29 @@ class QuickAddRecommendationView(APIView):
             defaults={'note': f'Day {actual_day_index}'}
         )
         
-        # Get the next sort order for this day
-        existing_items = ItineraryItem.objects.filter(trip=trip, day=trip_day)
-        next_sort_order = existing_items.count() + 1
+        # Get next sort order
+        max_sort = ItineraryItem.objects.filter(
+            trip=trip, 
+            day=trip_day
+        ).aggregate(Max('sort_order'))['sort_order__max'] or 0
         
-        # Create itinerary item
+        # ✅ Create itinerary item WITH coordinates
         item = ItineraryItem.objects.create(
             trip=trip,
             day=trip_day,
-            title=recommendation.get('name', 'New Activity'),
+            title=name,
             item_type=recommendation.get('category', 'activity'),
             notes_summary=recommendation.get('description', ''),
-            sort_order=next_sort_order,
+            sort_order=max_sort + 1,
             is_all_day=False,
+            # ✅ CRITICAL: Store coordinates
+            lat=lat,
+            lon=lon,
+            address=address,
+            # xid=xid,  # Uncomment if your model has xid field
         )
         
-        logger.info(f"Added recommendation '{item.title}' to trip {trip_id}, day {actual_day_index}")
+        logger.info(f"✅ Added '{name}' to trip {trip_id}, day {actual_day_index} with coords ({lat}, {lon})")
         
         return Response({
             "success": True,
@@ -1028,6 +977,9 @@ class QuickAddRecommendationView(APIView):
                 "title": item.title,
                 "day_index": actual_day_index,
                 "category": item.item_type,
-                "sort_order": item.sort_order
+                "sort_order": item.sort_order,
+                "lat": item.lat,
+                "lon": item.lon,
+                "address": item.address,
             }
         }, status=status.HTTP_201_CREATED)
