@@ -6,6 +6,7 @@ type SidebarItem =
   | "users"
   | "itineraries"
   | "content"
+  | "faqs"
   | "reports"
   | "faq";
 

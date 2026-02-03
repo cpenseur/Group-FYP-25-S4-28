@@ -97,6 +97,7 @@ class CountryInfo(models.Model):
     required_documents = models.TextField(blank=True, null=True)
     local_transport_info = models.TextField(blank=True, null=True)
     payment_notes = models.TextField(blank=True, null=True)
+    is_sponsored = models.BooleanField(default=False)
 
     updated_at = models.DateTimeField(default=django_timezone.now)
 
@@ -791,6 +792,27 @@ class TripHistoryEntry(models.Model):
 # COMMUNITY FAQ & Q&A
 # --------------------------------------------------
 
+class CommunityFAQ(models.Model):
+    country = models.CharField(max_length=100)
+    category = models.CharField(max_length=50)
+    question = models.TextField()
+    answer = models.TextField()
+
+    is_published = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "community_faq"
+        unique_together = ("country", "category", "question")
+        indexes = [
+            models.Index(fields=["country"]),
+            models.Index(fields=["country", "category"]),
+        ]
+
+    def __str__(self):
+        return f"{self.country} [{self.category}] {self.question[:40]}"
 
 class CommunityFAQ(models.Model):
     """Community-contributed FAQs"""

@@ -62,6 +62,8 @@ type AdminStats = {
   activeUsersDelta: StatDelta;
   itinerariesDelta: StatDelta;
   pendingDelta: StatDelta;
+  newSignups: number;
+  avgSessionLengthMin: number;
 };
 
 type AdminUserRow = {
@@ -76,6 +78,9 @@ type AdminUserRow = {
   last_active_at?: string | null;
 };
 
+type SidebarItem = "dashboard" | "users" | "content" | "faqs" | "analytics" | "reports" | "security";
+type TabKey = "users" | "moderation";
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -84,7 +89,7 @@ export default function AdminDashboard() {
   const [usersLoading, setUsersLoading] = useState(false);
   const [search, setSearch] = useState("");
 
-  const [activeSidebarItem, setActiveSidebarItem] = useState("dashboard");
+  const [activeSidebarItem, setActiveSidebarItem] = useState<SidebarItem>("dashboard");
   const [activeTab, setActiveTab] = useState<"users" | "moderation">("moderation");
   const [moderationItems, setModerationItems] = useState(initialModerationItems);
   const [showPendingOnly, setShowPendingOnly] = useState(false);
@@ -186,6 +191,8 @@ export default function AdminDashboard() {
     activeUsersDelta: emptyDelta,
     itinerariesDelta: emptyDelta,
     pendingDelta: emptyDelta,
+    newSignups: 0,
+    avgSessionLengthMin: 0,
   });
 
   const [statsLoading, setStatsLoading] = useState(false);
@@ -407,6 +414,8 @@ export default function AdminDashboard() {
         activeUsersDelta: calcDelta(activeThisWeek, activeLastWeek),
         itinerariesDelta: calcDelta(tripsThisWeek, tripsLastWeek),
         pendingDelta: calcDelta(pendingThisWeek, pendingLastWeek),
+        newSignups: usersThisWeek, // or another value if you have a different source
+        avgSessionLengthMin: 0, // TODO: Replace with real value if available
       });
     } finally {
       setStatsLoading(false);
@@ -1095,6 +1104,7 @@ export default function AdminDashboard() {
                   </aside>
                 </>
               )}
+
               {activeSidebarItem === "content" && (
                 <>
                   <div className="card" style={{ gridColumn: "1 / -1" }}>

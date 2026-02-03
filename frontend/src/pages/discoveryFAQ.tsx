@@ -272,53 +272,106 @@ const CATEGORY_TABS: (FAQCategory | "All")[] = [
 
 const FAQ_PAGE_SIZE = 8;
 
+// ✅ Make it like discoveryLocal.tsx (absolute backend URL)
+const COMMUNITY_FAQ_API = "http://127.0.0.1:8000/api/f2/community_faq/";
+
+// --------------- helpers ---------------
+
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
+function toNumber(v: unknown): number | null {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeFaqRow(row: unknown): FAQItem | null {
+  if (!row || typeof row !== "object") return null;
+  const r = row as Record<string, unknown>;
+
+  const id = toNumber(r.id);
+  const country = isNonEmptyString(r.country) ? r.country.trim() : "";
+  const category = isNonEmptyString(r.category) ? r.category.trim() : "";
+  const question = isNonEmptyString(r.question) ? r.question.trim() : "";
+  const answer = isNonEmptyString(r.answer) ? r.answer.trim() : "";
+
+  if (!id || !country || !category || !question || !answer) return null;
+  return { id, country, category, question, answer };
+}
+
+async function fetchFAQItems(): Promise<FAQItem[]> {
+  const res = await fetch(COMMUNITY_FAQ_API, {
+    headers: { Accept: "application/json" },
+    credentials: "include",
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status} – ${text.slice(0, 140)}…`);
+  }
+
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const text = await res.text();
+    throw new Error(
+      `Expected JSON but got '${contentType}'. First part of response: ${text.slice(
+        0,
+        140
+      )}…`
+    );
+  }
+
+  const raw = (await res.json()) as unknown[];
+  return raw
+    .map((row: unknown) => normalizeFaqRow(row))
+    .filter((x: FAQItem | null): x is FAQItem => x !== null);
+}
+
+// --------------- page ---------------
+
 export default function DiscoveryFAQ() {
-  const [faqItems, setFaqItems] = useState<FAQItem[]>(FALLBACK_FAQ_ITEMS);
-  const [loading, setLoading] = useState(true);
+  const [faqItems, setFaqItems] = useState<FAQItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
   const [countrySearch, setCountrySearch] = useState<string>("");
-  const [activeCategory, setActiveCategory] = useState<FAQCategory | "All">(
-    "All"
-  );
+  const [activeCategory, setActiveCategory] = useState<string>("All");
   const [openQuestionId, setOpenQuestionId] = useState<number | null>(null);
 
-  // Fetch FAQs from API
   useEffect(() => {
-    const fetchFaqs = async () => {
+    let cancelled = false;
+
+    (async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/f8/community-faqs/`);
-        if (!res.ok) throw new Error("Failed to fetch FAQs");
-        const data = await res.json();
-        const faqs = (Array.isArray(data) ? data : data.results || [])
-          .filter((faq: any) => faq.is_published !== false)
-          .map((faq: any) => ({
-            id: faq.id,
-            country: faq.country || "General",
-            category: faq.category || "General",
-            question: faq.question,
-            answer: faq.answer,
-          }));
-        if (faqs.length > 0) {
-          setFaqItems(faqs);
-        }
-      } catch (e) {
-        console.error("Error fetching FAQs:", e);
-        // Keep fallback data
+        setLoading(true);
+        setError(null);
+
+        const items = await fetchFAQItems();
+        if (cancelled) return;
+
+        setFaqItems(items);
+      } catch (e: unknown) {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "Failed to load FAQs.");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
+    })();
+
+    return () => {
+      cancelled = true;
     };
-    fetchFaqs();
   }, []);
 
-  // Build country metadata from FAQ items, sorted by count DESC then name ASC
-  const countryList = useMemo(() => {
-    return Array.from(
-      faqItems.reduce<Map<string, number>>((map, faq) => {
-        map.set(faq.country, (map.get(faq.country) || 0) + 1);
-        return map;
-      }, new Map())
-    )
+  const COUNTRY_LIST = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const faq of faqItems) {
+      map.set(faq.country, (map.get(faq.country) || 0) + 1);
+    }
+
+    return Array.from(map.entries())
       .map(([country, count]) => ({ country, count }))
       .sort((a, b) => {
         if (b.count !== a.count) return b.count - a.count;
@@ -326,23 +379,57 @@ export default function DiscoveryFAQ() {
       });
   }, [faqItems]);
 
-  // ---------------- Country grid view ----------------
   const countrySearchLower = countrySearch.trim().toLowerCase();
-
   const filteredCountries = useMemo(() => {
-    if (!countrySearchLower) return countryList;
-    return countryList.filter((c) =>
+    if (!countrySearchLower) return COUNTRY_LIST;
+    return COUNTRY_LIST.filter((c) =>
       c.country.toLowerCase().startsWith(countrySearchLower)
     );
-  }, [countrySearchLower, countryList]);
+  }, [COUNTRY_LIST, countrySearchLower]);
 
-  // ---------------- Country FAQ view ----------------
   const faqsForCountry = useMemo(() => {
     if (!selectedCountry) return [];
-    const base = faqItems.filter((f) => f.country === selectedCountry);
-    if (activeCategory === "All") return base;
-    return base.filter((f) => f.category === activeCategory);
-  }, [selectedCountry, activeCategory, faqItems]);
+    return faqItems.filter((f) => f.country === selectedCountry);
+  }, [faqItems, selectedCountry]);
+
+  // ✅ dynamic categories from DB + auto include any new category
+  const categoryTabs = useMemo(() => {
+    if (!selectedCountry) return ["All"];
+
+    const counts = new Map<string, number>();
+    for (const f of faqsForCountry) {
+      const cat = (f.category || "").trim();
+      if (!cat) continue;
+      counts.set(cat, (counts.get(cat) || 0) + 1);
+    }
+
+    const sorted = Array.from(counts.entries())
+      .map(([category, count]) => ({ category, count }))
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.category.localeCompare(b.category);
+      })
+      .map((x) => x.category);
+
+    return ["All", ...sorted];
+  }, [selectedCountry, faqsForCountry]);
+
+  useEffect(() => {
+    if (!selectedCountry) {
+      setActiveCategory("All");
+      return;
+    }
+    if (!categoryTabs.includes(activeCategory)) {
+      setActiveCategory("All");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCountry, categoryTabs]);
+
+  const filteredFaqsForCountry = useMemo(() => {
+    if (!selectedCountry) return [];
+    if (activeCategory === "All") return faqsForCountry;
+    return faqsForCountry.filter((f) => f.category === activeCategory);
+  }, [selectedCountry, faqsForCountry, activeCategory]);
 
   const handleOpenCountry = (country: string) => {
     setSelectedCountry(country);
@@ -357,7 +444,6 @@ export default function DiscoveryFAQ() {
     setOpenQuestionId(null);
   };
 
-  // Helper for Local / International / FAQ tabs
   const renderTopTabs = () => (
     <div
       style={{
@@ -416,7 +502,6 @@ export default function DiscoveryFAQ() {
     </div>
   );
 
-  // -------------- Layout wrapper --------------
   return (
     <div
       style={{
@@ -428,18 +513,18 @@ export default function DiscoveryFAQ() {
       }}
     >
       <div style={{ width: "100%", maxWidth: "1100px" }}>
-        {/* Header */}
         <header style={{ textAlign: "center", marginBottom: "2.5rem" }}>
           <h1
             style={{
-              fontSize: "2.3rem",
-              fontWeight: 700,
-              marginBottom: "0.5rem",
+              margin: 0,
+              fontSize: "2.6rem",
+              fontWeight: 800,
+              lineHeight: 1.05,
+              letterSpacing: "-0.02em",
             }}
           >
-            Community Itinerary
-            <br />
-            Discovery
+            <span style={{ display: "block" }}>Community Itinerary</span>
+            <span style={{ display: "block" }}>Discovery</span>
           </h1>
           <p style={{ color: "#555", marginBottom: "1.4rem" }}>
             Discover journeys. Inspire adventures.
@@ -464,32 +549,51 @@ export default function DiscoveryFAQ() {
           </p>
         </header>
 
-        {/* Two modes: Country grid OR Country FAQ list */}
-        {selectedCountry ? (
-          <CountryFAQView
-            key={selectedCountry + activeCategory}
-            country={selectedCountry}
-            faqs={faqsForCountry}
-            activeCategory={activeCategory}
-            setActiveCategory={setActiveCategory}
-            openQuestionId={openQuestionId}
-            setOpenQuestionId={setOpenQuestionId}
-            onBack={handleBackToCountries}
-          />
-        ) : (
-          <CountryGridView
-            countries={filteredCountries}
-            search={countrySearch}
-            setSearch={setCountrySearch}
-            onSelectCountry={handleOpenCountry}
-          />
+        {loading && (
+          <p style={{ textAlign: "center", color: "#555" }}>Loading FAQs…</p>
+        )}
+
+        {!loading && error && (
+          <p
+            style={{
+              textAlign: "center",
+              color: "#b91c1c",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {error}
+          </p>
+        )}
+
+        {!loading && !error && (
+          <>
+            {selectedCountry ? (
+              <CountryFAQView
+                key={selectedCountry + activeCategory}
+                faqs={filteredFaqsForCountry}
+                categoryTabs={categoryTabs}
+                activeCategory={activeCategory}
+                setActiveCategory={setActiveCategory}
+                openQuestionId={openQuestionId}
+                setOpenQuestionId={setOpenQuestionId}
+                onBack={handleBackToCountries}
+              />
+            ) : (
+              <CountryGridView
+                countries={filteredCountries}
+                search={countrySearch}
+                setSearch={setCountrySearch}
+                onSelectCountry={handleOpenCountry}
+              />
+            )}
+          </>
         )}
       </div>
     </div>
   );
 }
 
-// ------------------ Country grid component ------------------
+// ------------------ Country grid ------------------
 
 type CountryGridProps = {
   countries: { country: string; count: number }[];
@@ -506,7 +610,6 @@ function CountryGridView({
 }: CountryGridProps) {
   return (
     <>
-      {/* Search */}
       <div
         style={{
           display: "flex",
@@ -576,6 +679,7 @@ function CountryGridView({
             >
               {c.count} FAQ{c.count === 1 ? "" : "s"}
             </div>
+
             <div
               style={{
                 position: "absolute",
@@ -586,11 +690,7 @@ function CountryGridView({
               }}
             >
               <span
-                style={{
-                  fontSize: "1.05rem",
-                  fontWeight: 600,
-                  color: "#222",
-                }}
+                style={{ fontSize: "1.05rem", fontWeight: 600, color: "#222" }}
               >
                 {c.country}
               </span>
@@ -602,21 +702,21 @@ function CountryGridView({
   );
 }
 
-// ------------------ Country FAQ component ------------------
+// ------------------ Country FAQ list ------------------
 
 type CountryFAQViewProps = {
-  country: string;
   faqs: FAQItem[];
-  activeCategory: FAQCategory | "All";
-  setActiveCategory: (cat: FAQCategory | "All") => void;
+  categoryTabs: string[];
+  activeCategory: string;
+  setActiveCategory: (cat: string) => void;
   openQuestionId: number | null;
   setOpenQuestionId: (id: number | null) => void;
   onBack: () => void;
 };
 
 function CountryFAQView({
-  country,
   faqs,
+  categoryTabs,
   activeCategory,
   setActiveCategory,
   openQuestionId,
@@ -625,17 +725,13 @@ function CountryFAQView({
 }: CountryFAQViewProps) {
   const [page, setPage] = useState(1);
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(faqs.length / FAQ_PAGE_SIZE) || 1
-  );
+  const totalPages = Math.max(1, Math.ceil(faqs.length / FAQ_PAGE_SIZE) || 1);
   const currentPage = Math.min(page, totalPages);
   const startIndex = (currentPage - 1) * FAQ_PAGE_SIZE;
   const pagedFaqs = faqs.slice(startIndex, startIndex + FAQ_PAGE_SIZE);
 
   return (
     <div>
-      {/* Back link (centered) */}
       <div
         style={{
           display: "flex",
@@ -658,39 +754,52 @@ function CountryFAQView({
         </button>
       </div>
 
-      {/* Category tabs */}
+      {/* scrollable tabs */}
       <div
         style={{
           display: "flex",
-          flexWrap: "wrap",
-          gap: "0.6rem",
-          marginBottom: "1.5rem",
           justifyContent: "center",
+          marginBottom: "1.5rem",
         }}
       >
-        {CATEGORY_TABS.map((cat) => {
-          const isActive = activeCategory === cat;
-          return (
-            <button
-              key={cat}
-              onClick={() => {
-                setActiveCategory(cat);
-                setPage(1); // reset pagination on category change
-              }}
-              style={{
-                borderRadius: "999px",
-                border: isActive ? "none" : "1px solid #d0d0dc",
-                padding: "0.35rem 0.9rem",
-                fontSize: "0.85rem",
-                cursor: "pointer",
-                background: isActive ? "#111" : "#fff",
-                color: isActive ? "#fff" : "#333",
-              }}
-            >
-              {cat === "All" ? "All" : cat}
-            </button>
-          );
-        })}
+        <div
+          style={{
+            display: "flex",
+            gap: "0.6rem",
+            padding: "0.1rem 0.2rem",
+            overflowX: "auto",
+            overflowY: "hidden",
+            whiteSpace: "nowrap",
+            WebkitOverflowScrolling: "touch",
+            maxWidth: "100%",
+          }}
+        >
+          {categoryTabs.map((cat) => {
+            const isActive = activeCategory === cat;
+            return (
+              <button
+                key={cat}
+                onClick={() => {
+                  setActiveCategory(cat);
+                  setPage(1);
+                  setOpenQuestionId(null);
+                }}
+                style={{
+                  flex: "0 0 auto",
+                  borderRadius: "999px",
+                  border: isActive ? "none" : "1px solid #d0d0dc",
+                  padding: "0.35rem 0.9rem",
+                  fontSize: "1.05rem",
+                  cursor: "pointer",
+                  background: isActive ? "#111" : "#fff",
+                  color: isActive ? "#fff" : "#333",
+                }}
+              >
+                {cat}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {faqs.length === 0 ? (
@@ -699,13 +808,7 @@ function CountryFAQView({
         </p>
       ) : (
         <>
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.8rem",
-            }}
-          >
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem" }}>
             {pagedFaqs.map((faq) => {
               const isOpen = openQuestionId === faq.id;
               return (
@@ -719,9 +822,7 @@ function CountryFAQView({
                   }}
                 >
                   <button
-                    onClick={() =>
-                      setOpenQuestionId(isOpen ? null : faq.id)
-                    }
+                    onClick={() => setOpenQuestionId(isOpen ? null : faq.id)}
                     style={{
                       width: "100%",
                       padding: "0.95rem 1.25rem",
@@ -733,13 +834,7 @@ function CountryFAQView({
                       cursor: "pointer",
                     }}
                   >
-                    <span
-                      style={{
-                        fontSize: "0.95rem",
-                        fontWeight: 500,
-                        textAlign: "left",
-                      }}
-                    >
+                    <span style={{ fontSize: "1.45rem", fontWeight: 500, textAlign: "left" }}>
                       {faq.question}
                     </span>
                     <span
@@ -759,16 +854,14 @@ function CountryFAQView({
                     </span>
                   </button>
 
-                  {/* Animated answer section */}
                   <div
                     style={{
                       maxHeight: isOpen ? "300px" : "0px",
                       opacity: isOpen ? 1 : 0,
                       overflow: "hidden",
-                      transition:
-                        "max-height 0.3s ease, opacity 0.3s ease",
+                      transition: "max-height 0.3s ease, opacity 0.3s ease",
                       padding: isOpen ? "0 1.25rem 0.9rem" : "0 1.25rem 0",
-                      fontSize: "0.9rem",
+                      fontSize: "1.15rem",
                       color: "#555",
                     }}
                   >
@@ -781,13 +874,7 @@ function CountryFAQView({
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div
-              style={{
-                marginTop: "2rem",
-                display: "flex",
-                justifyContent: "center",
-              }}
-            >
+            <div style={{ marginTop: "2rem", display: "flex", justifyContent: "center" }}>
               <div
                 style={{
                   display: "inline-flex",
@@ -802,15 +889,12 @@ function CountryFAQView({
               >
                 <button
                   disabled={currentPage === 1}
-                  onClick={() =>
-                    currentPage > 1 && setPage(currentPage - 1)
-                  }
+                  onClick={() => currentPage > 1 && setPage(currentPage - 1)}
                   style={{
                     border: "none",
                     background: "transparent",
                     padding: "0.25rem 0.5rem",
-                    cursor:
-                      currentPage === 1 ? "default" : "pointer",
+                    cursor: currentPage === 1 ? "default" : "pointer",
                     opacity: currentPage === 1 ? 0.3 : 1,
                   }}
                 >
@@ -843,20 +927,13 @@ function CountryFAQView({
 
                 <button
                   disabled={currentPage === totalPages}
-                  onClick={() =>
-                    currentPage < totalPages &&
-                    setPage(currentPage + 1)
-                  }
+                  onClick={() => currentPage < totalPages && setPage(currentPage + 1)}
                   style={{
                     border: "none",
                     background: "transparent",
                     padding: "0.25rem 0.5rem",
-                    cursor:
-                      currentPage === totalPages
-                        ? "default"
-                        : "pointer",
-                    opacity:
-                      currentPage === totalPages ? 0.3 : 1,
+                    cursor: currentPage === totalPages ? "default" : "pointer",
+                    opacity: currentPage === totalPages ? 0.3 : 1,
                   }}
                 >
                   →

@@ -9,6 +9,7 @@ from ..serializers.f8_serializers import (
     F8CommunityFAQSerializer,
     F8GeneralFAQSerializer,
 )
+from ..permissions import IsAppAdmin
 
 from datetime import datetime, timedelta, time
 
@@ -20,13 +21,20 @@ from django.db.models import TextField
 
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import AllowAny
-from TripMateFunctions.permissions import IsAppAdmin
 from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.filters import SearchFilter, OrderingFilter
 
 
 class F8AdminUserViewSet(BaseViewSet):
     queryset = AppUser.objects.all()
     serializer_class = F8AdminUserSerializer
+
+    # Search & sort support
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ["email", "full_name"]
+    ordering_fields = ["created_at", "updated_at", "email"]
+    ordering = ["-created_at"]
 
 
 class F8AdminTripViewSet(BaseViewSet):
@@ -36,8 +44,9 @@ class F8AdminTripViewSet(BaseViewSet):
     @action(detail=True, methods=["patch"], permission_classes=[IsAppAdmin])
     def moderate(self, request, pk=None):
         """
-        PATCH /api/admin/trips/{id}/moderate/
-        Body: { "status": "APPROVED" } or { "status": "REJECTED" }
+        PATCH /api/f8/trips/{id}/moderate/
+        Body: { "status": "APPROVED" | "REJECTED" }
+        Moderate a flagged itinerary.
         """
         trip = self.get_object()
 
@@ -110,6 +119,53 @@ class F8AdminTripViewSet(BaseViewSet):
 class F8AdminDestinationFAQViewSet(BaseViewSet):
     queryset = DestinationFAQ.objects.all()
     serializer_class = F8AdminDestinationFAQSerializer
+
+    # Search & sort support
+    filter_backends = [SearchFilter, OrderingFilter]
+    # ✅ Search directly on model fields (not through relationships)
+    search_fields = ["country", "category", "question", "answer"]
+    ordering_fields = ["country", "category", "created_at", "updated_at"]
+    ordering = ["-created_at"]  # Default to newest first
+
+    # 📦 Bulk publish / unpublish
+    @action(detail=False, methods=["post"], url_path="bulk")
+    def bulk_update(self, request):
+        """
+        POST /api/f8/destination-faqs/bulk/
+
+        Body:
+        {
+          "ids": [1, 2, 3],
+          "is_published": true
+        }
+        """
+        ids = request.data.get("ids", [])
+        is_published = request.data.get("is_published")
+
+        if not isinstance(ids, list) or not ids:
+            return Response(
+                {"detail": "ids must be a non-empty list"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if is_published is None:
+            return Response(
+                {"detail": "is_published is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        updated = DestinationFAQ.objects.filter(id__in=ids).update(
+            is_published=bool(is_published)
+        )
+
+        return Response(
+            {
+                "ok": True,
+                "updated": updated,
+                "is_published": bool(is_published),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class F8AdminDestinationQAViewSet(BaseViewSet):
@@ -220,15 +276,17 @@ def admin_analytics(request):
     total_itineraries = Trip.objects.count()
 
     active_users = AppUser.objects.filter(last_active_at__gte=start_dt, last_active_at__lt=end_dt).count()
+    
+    # Previous period total active users (for % change)
     active_users_prev_total = AppUser.objects.filter(
         last_active_at__gte=prev_start_dt,
-        last_active_at__lt=prev_end_dt,
+        last_active_at__lt=prev_end_dt
     ).count()
 
     qs = (
         AppUser.objects
-        .filter(updated_at__gte=start_dt, updated_at__lt=end_dt)
-        .annotate(day=TruncDate("updated_at"))
+        .filter(last_active_at__gte=start_dt, last_active_at__lt=end_dt)
+        .annotate(day=TruncDate("last_active_at"))
         .values("day")
         .annotate(cnt=Count("id"))
         .order_by("day")
@@ -249,87 +307,131 @@ def admin_analytics(request):
         "popular_itineraries": popular_itineraries,
     })
 
-@api_view(["GET"])
-@permission_classes([IsAppAdmin])
-def admin_report_preview(request):
-    rtype = request.GET.get("type")
-    from_str = request.GET.get("from")
-    to_str = request.GET.get("to")
 
-    if not rtype or not from_str or not to_str:
-        return Response({"detail": "Missing type/from/to"}, status=400)
+class F8AdminCommunityFAQViewSet(BaseViewSet):
+    """
+    ViewSet for managing Community FAQs
+    Endpoint: /api/f8/destination-faqs/
+    """
+    queryset = CommunityFAQ.objects.all()
+    serializer_class = F8CommunityFAQSerializer
 
-    start_date = _parse_yyyy_mm_dd(from_str)
-    end_date = _parse_yyyy_mm_dd(to_str)
+    # Enable search and ordering
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ["country", "category", "question", "answer"]
+    ordering_fields = ["country", "category", "created_at", "updated_at", "is_published"]
+    ordering = ["-created_at"]  # Default: newest first
 
-    start_dt = timezone.make_aware(datetime.combine(start_date, time.min))
-    end_dt = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), time.min))
+    def get_queryset(self):
+        """
+        Override to add any custom filtering
+        """
+        queryset = super().get_queryset()
+        
+        # Filter by published status if query param exists
+        is_published = self.request.query_params.get('is_published', None)
+        if is_published is not None:
+            queryset = queryset.filter(is_published=is_published.lower() == 'true')
+        
+        # Filter by country if query param exists
+        country = self.request.query_params.get('country', None)
+        if country and country != 'all':
+            queryset = queryset.filter(country=country)
+        
+        return queryset
 
-    if rtype == "user_activity":
-        active_users = AppUser.objects.filter(last_active_at__gte=start_dt, last_active_at__lt=end_dt).count()
-        new_signups = AppUser.objects.filter(created_at__gte=start_dt, created_at__lt=end_dt).count()
-        itineraries_created = Trip.objects.filter(created_at__gte=start_dt, created_at__lt=end_dt).count()
-        pending_verifications = AppUser.objects.filter(status=AppUser.Status.PENDING, created_at__gte=start_dt, created_at__lt=end_dt).count()
+    @action(detail=False, methods=["post"], url_path="bulk")
+    def bulk_update(self, request):
+        """
+        Bulk publish or unpublish FAQs
+        
+        POST /api/f8/destination-faqs/bulk/
+        
+        Request body:
+        {
+          "ids": [1, 2, 3],
+          "is_published": true
+        }
+        
+        Response:
+        {
+          "ok": true,
+          "updated": 3,
+          "is_published": true
+        }
+        """
+        ids = request.data.get("ids", [])
+        is_published = request.data.get("is_published")
 
-        return Response({
-            "heading": "User Activity\nReport",
-            "cards": [
-                {"label": "Active\nUsers", "value": str(active_users), "tone": "neutral"},
-                {"label": "New\nSignups", "value": str(new_signups), "tone": "neutral"},
-                {"label": "Itineraries\nCreated", "value": str(itineraries_created), "tone": "neutral"},
-                {"label": "Pending\nVerifications", "value": str(pending_verifications), "tone": "warn" if pending_verifications > 0 else "neutral"},
-            ],
-            "note": "Active users, signups,\nand engagement metrics",
-        })
+        # Validate input
+        if not isinstance(ids, list) or not ids:
+            return Response(
+                {"detail": "ids must be a non-empty list"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-    if rtype == "itinerary_stats":
-        itineraries_created = Trip.objects.filter(created_at__gte=start_dt, created_at__lt=end_dt).count()
+        if is_published is None:
+            return Response(
+                {"detail": "is_published is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        top = (
-            Trip.objects
-            .filter(created_at__gte=start_dt, created_at__lt=end_dt)
-            .exclude(main_country__isnull=True)
-            .exclude(main_country__exact="")
-            .values("main_country")
-            .annotate(cnt=Count("id"))
-            .order_by("-cnt")
-            .first()
+        # Perform bulk update
+        updated = CommunityFAQ.objects.filter(id__in=ids).update(
+            is_published=bool(is_published)
         )
-        top_country = top["main_country"] if top else "-"
+
+        return Response(
+            {
+                "ok": True,
+                "updated": updated,
+                "is_published": bool(is_published),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["get"], url_path="stats")
+    def get_stats(self, request):
+        """
+        Get FAQ statistics
+        
+        GET /api/f8/destination-faqs/stats/
+        
+        Response:
+        {
+          "total": 150,
+          "published": 120,
+          "draft": 30,
+          "by_country": {...},
+          "by_category": {...}
+        }
+        """
+        from django.db.models import Count
+
+        queryset = self.get_queryset()
+        
+        total = queryset.count()
+        published = queryset.filter(is_published=True).count()
+        draft = queryset.filter(is_published=False).count()
+        
+        # Count by country
+        by_country = dict(
+            queryset.values('country')
+            .annotate(count=Count('id'))
+            .values_list('country', 'count')
+        )
+        
+        # Count by category
+        by_category = dict(
+            queryset.values('category')
+            .annotate(count=Count('id'))
+            .values_list('category', 'count')
+        )
 
         return Response({
-            "heading": "Itinerary\nStatistics",
-            "cards": [
-                {"label": "Itineraries\nCreated", "value": str(itineraries_created), "tone": "neutral"},
-                {"label": "Top\nCountry", "value": str(top_country), "tone": "neutral"},
-            ],
-            "note": "Created itineraries,\npopular destinations,\nand trends",
+            "total": total,
+            "published": published,
+            "draft": draft,
+            "by_country": by_country,
+            "by_category": by_category,
         })
-
-    if rtype == "content_moderation":
-        flagged = Trip.objects.filter(is_flagged=True, created_at__gte=start_dt, created_at__lt=end_dt).count()
-        approved = Trip.objects.filter(moderation_status="APPROVED", moderated_at__gte=start_dt, moderated_at__lt=end_dt).count()
-
-        return Response({
-            "heading": "Content\nModeration\nReport",
-            "cards": [
-                {"label": "Flagged", "value": str(flagged), "tone": "warn"},
-                {"label": "Approved", "value": str(approved), "tone": "good"},
-            ],
-            "note": "Flagged content,\napprovals,\nand rejections",
-        })
-
-    if rtype == "growth_analytics":
-        new_signups = AppUser.objects.filter(created_at__gte=start_dt, created_at__lt=end_dt).count()
-        itineraries_created = Trip.objects.filter(created_at__gte=start_dt, created_at__lt=end_dt).count()
-
-        return Response({
-            "heading": "Growth\nAnalytics",
-            "cards": [
-                {"label": "New\nUsers", "value": str(new_signups), "tone": "good"},
-                {"label": "New\nItineraries", "value": str(itineraries_created), "tone": "good"},
-            ],
-            "note": "Growth across key metrics",
-        })
-
-    return Response({"detail": f"Unknown type: {rtype}"}, status=400)
