@@ -1,4 +1,5 @@
 // frontend/src/pages/RecommendationsPage.tsx
+// FIXED VERSION - Improved location detection to avoid wrong cities
 
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
@@ -16,7 +17,12 @@ interface Recommendation {
   highlight: boolean;
   nearby_to?: string;
   action?: string;
-  matched_preferences?: string[];  // NEW: User preferences this recommendation matches
+  matched_preferences?: string[];
+  // ✅ CRITICAL for place details to work
+  lat?: number | null;
+  lon?: number | null;
+  address?: string | null;
+  xid?: string | null;
 }
 
 interface CategoryRecommendations {
@@ -50,7 +56,6 @@ type TripResponse = {
   items: ItineraryItem[];
 };
 
-// NEW: User profile preferences interface
 interface UserProfile {
   interests?: string[];
   travel_pace?: string;
@@ -62,16 +67,13 @@ interface UserProfile {
 export default function RecommendationsPage() {
   const { tripId } = useParams();
   
-  // Trip data (for map)
   const [trip, setTrip] = useState<TripResponse | null>(null);
   const [items, setItems] = useState<ItineraryItem[]>([]);
   const [days, setDays] = useState<TripDayResponse[]>([]);
   
-  // NEW: User profile preferences
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   
-  // Recommendations
   const [destination, setDestination] = useState("Tokyo");
   const [destinationInfo] = useState({
     description: "Discover amazing places and experiences.",
@@ -89,34 +91,63 @@ export default function RecommendationsPage() {
   const [activeCategory, setActiveCategory] = useState<keyof CategoryRecommendations>("nearby");
   const [currentDayLocation, setCurrentDayLocation] = useState<string | null>(null);
   
-  // Track loading state to prevent duplicate calls
   const loadingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   
-  // NEW: Load user profile preferences
+  // ✅ Profile loading with 404 fallback
   useEffect(() => {
     const loadUserProfile = async () => {
       try {
         console.log("📋 Loading user profile preferences...");
         setIsLoadingProfile(true);
         
-        // Fetch current user's profile
-        const profileData = await apiFetch("/f1/profile/");
-        
-        const profile: UserProfile = {
-          interests: profileData.interests || [],
-          travel_pace: profileData.travel_pace || null,
-          budget_level: profileData.budget_level || null,
-          diet_preference: profileData.diet_preference || null,
-          mobility_needs: profileData.mobility_needs || null,
-        };
-        
-        setUserProfile(profile);
-        console.log("✅ User profile loaded:", profile);
+        try {
+          const profileData = await apiFetch("/f1/profile/");
+          
+          const profile: UserProfile = {
+            interests: profileData.interests || [],
+            travel_pace: profileData.travel_pace || null,
+            budget_level: profileData.budget_level || null,
+            diet_preference: profileData.diet_preference || null,
+            mobility_needs: profileData.mobility_needs || null,
+          };
+          
+          setUserProfile(profile);
+          console.log("✅ User profile loaded:", profile);
+        } catch (profileErr: any) {
+          const errorMessage = profileErr.message || String(profileErr);
+          
+          if (errorMessage.includes('404') || 
+              errorMessage.includes('Not Found') ||
+              errorMessage.includes('not found')) {
+            console.warn("⚠️ Profile endpoint not available (404), using default preferences");
+            setUserProfile({
+              interests: [],
+              travel_pace: null,
+              budget_level: null,
+              diet_preference: null,
+              mobility_needs: null,
+            });
+          } else {
+            console.error("⚠️ Profile load error:", profileErr);
+            setUserProfile({
+              interests: [],
+              travel_pace: null,
+              budget_level: null,
+              diet_preference: null,
+              mobility_needs: null,
+            });
+          }
+        }
       } catch (err) {
         console.error("❌ Failed to load user profile:", err);
-        // Set empty profile if loading fails
-        setUserProfile({});
+        setUserProfile({
+          interests: [],
+          travel_pace: null,
+          budget_level: null,
+          diet_preference: null,
+          mobility_needs: null,
+        });
       } finally {
         setIsLoadingProfile(false);
       }
@@ -125,7 +156,6 @@ export default function RecommendationsPage() {
     loadUserProfile();
   }, []);
   
-  // Load trip data
   useEffect(() => {
     if (!tripId) return;
     
@@ -137,12 +167,10 @@ export default function RecommendationsPage() {
         setItems(data.items || []);
         setDays(data.days || []);
         
-        // Set destination from trip
         const dest = data.main_city || data.main_country || "Tokyo";
         setDestination(dest);
         console.log(`✅ Trip loaded: ${dest}, ${data.days.length} days, ${data.items.length} items`);
         
-        // Set default selected day to first day
         if (data.days && data.days.length > 0) {
           const firstDayIndex = data.days[0].day_index - 1;
           console.log(`🎯 Setting initial selected day to: ${firstDayIndex} (Day ${data.days[0].day_index})`);
@@ -156,9 +184,9 @@ export default function RecommendationsPage() {
     loadTrip();
   }, [tripId]);
   
-  // Detect location for selected day
+  // ✅ FIXED: Improved location detection
   useEffect(() => {
-    console.log("\n=== 🔍 Location Detection Started ===");
+    console.log("\n=== 🔍 FIXED Location Detection Started ===");
     console.log(`Days loaded: ${days.length}, Items loaded: ${items.length}`);
     console.log(`Selected day index: ${selectedDay}`);
     
@@ -167,7 +195,6 @@ export default function RecommendationsPage() {
       return;
     }
     
-    // Find the actual day object (day_index is 1-based in DB)
     const targetDayIndex = selectedDay + 1;
     const dayObj = days.find(d => d.day_index === targetDayIndex);
     console.log(`Looking for day with day_index=${targetDayIndex}:`, dayObj ? "✅ Found" : "❌ Not found");
@@ -180,7 +207,6 @@ export default function RecommendationsPage() {
     
     console.log(`Found day: ID=${dayObj.id}, day_index=${dayObj.day_index}`);
     
-    // Get items for this day
     const dayItems = items.filter(item => item.day === dayObj.id);
     console.log(`\n📍 Day ${targetDayIndex} has ${dayItems.length} items:`);
     dayItems.forEach(item => {
@@ -188,76 +214,132 @@ export default function RecommendationsPage() {
     });
     
     if (dayItems.length > 0) {
-      // Extract location from items' addresses
-      let detectedLocation = destination; // default
+      let detectedLocation = destination;
       const cities: string[] = [];
       
-      dayItems.forEach(item => {
-        if (!item.address) {
-          console.log(`    ❌ ${item.title}: No address`);
-          return;
+      // ✅ COMPREHENSIVE DATABASES
+      const majorCities: Record<string, string> = {
+        'sydney': 'Sydney',
+        'melbourne': 'Melbourne',
+        'brisbane': 'Brisbane',
+        'perth': 'Perth',
+        'adelaide': 'Adelaide',
+        'canberra': 'Canberra',
+        'gold coast': 'Gold Coast',
+        'tokyo': 'Tokyo',
+        'osaka': 'Osaka',
+        'kyoto': 'Kyoto',
+        'singapore': 'Singapore',
+        'bangkok': 'Bangkok',
+        'seoul': 'Seoul',
+        'hong kong': 'Hong Kong',
+        'honolulu': 'Honolulu',
+      };
+      
+      // ✅ STATES to EXCLUDE
+      const excludeStates = [
+        'new south wales', 'nsw',
+        'victoria', 'vic',
+        'queensland', 'qld',
+        'western australia', 'wa',
+        'south australia', 'sa',
+        'tasmania', 'tas',
+        'northern territory', 'nt',
+        'scotland', 'england', 'wales',
+        'montana', 'wyoming', 'california',
+        'south carolina', 'north carolina',
+        'hawaii',  // state, not city
+      ];
+      
+      // ✅ NEIGHBORHOODS to EXCLUDE
+      const excludeNeighborhoods = [
+        'the rocks', 'bondi', 'manly', 'darling harbour',
+        'circular quay', 'mascot', 'bayside',
+        'st kilda', 'southbank', 'fortitude valley',
+        'shibuya', 'shinjuku', 'harajuku',
+        'sentosa', 'marina bay',
+        'fife', 'great falls', 'rock hill',
+      ];
+      
+      for (const item of dayItems) {
+        if (!item.address) continue;
+        
+        const addressLower = item.address.toLowerCase();
+        
+        // ✅ STRATEGY 1: Check for major cities in ENTIRE address
+        let cityFound = false;
+        for (const [keyword, cityName] of Object.entries(majorCities)) {
+          const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+          if (regex.test(addressLower)) {
+            cities.push(cityName);
+            console.log(`     ✅ MATCHED MAJOR CITY: ${cityName}`);
+            cityFound = true;
+            break;
+          }
         }
         
+        if (cityFound) continue;
+        
+        // ✅ STRATEGY 2: Parse address parts (but EXCLUDE states!)
         const parts = item.address.split(',').map(p => p.trim());
-        console.log(`    📍 ${item.title}: ${item.address}`);
+        let detectedCity: string | null = null;
         
-        // Try multiple strategies
-        let detectedCity = null;
-        
-        // Strategy 1: Third from end (for detailed addresses)
-        if (parts.length >= 3) {
-          let potential = parts[parts.length - 3];
-          potential = potential.replace(/ City| Prefecture| Ward| District/gi, '').trim();
-          if (potential.toLowerCase() !== 'japan') {
+        // Try positions -2, -3, -4 (skip -1 which is country)
+        for (const index of [-2, -3, -4]) {
+          const absIndex = Math.abs(index);
+          if (absIndex > parts.length) continue;
+          
+          const arrayIndex = parts.length + index;
+          let potential = parts[arrayIndex];
+          
+          // Clean up
+          potential = potential
+            .replace(/ City/gi, '')
+            .replace(/ Prefecture/gi, '')
+            .replace(/ Municipality/gi, '')
+            .trim();
+          
+          const potentialLower = potential.toLowerCase();
+          
+          // ✅ VALIDATE: Is this a city?
+          const isValid = (
+            !excludeStates.includes(potentialLower) &&
+            !excludeNeighborhoods.includes(potentialLower) &&
+            potential.length > 2 &&
+            !/^\d/.test(potential) &&
+            /[a-zA-Z]/.test(potential)
+          );
+          
+          if (isValid) {
             detectedCity = potential;
-            console.log(`       ✅ Strategy 1: "${detectedCity}"`);
-          }
-        }
-        
-        // Strategy 2: Second from end (for simple addresses)
-        if (!detectedCity && parts.length >= 2) {
-          let potential = parts[parts.length - 2];
-          potential = potential.replace(/ City| Prefecture/gi, '').trim();
-          if (potential.toLowerCase() !== 'japan') {
-            detectedCity = potential;
-            console.log(`       ✅ Strategy 2: "${detectedCity}"`);
-          }
-        }
-        
-        // Strategy 3: Check for major cities
-        if (!detectedCity) {
-          const majorCities = ['Tokyo', 'Osaka', 'Kyoto', 'Sapporo', 'Hokkaido'];
-          for (const part of parts) {
-            for (const city of majorCities) {
-              if (part.toLowerCase().includes(city.toLowerCase())) {
-                detectedCity = city;
-                console.log(`       ✅ Strategy 3: "${detectedCity}"`);
-                break;
-              }
-            }
-            if (detectedCity) break;
+            console.log(`     ✅ Extracted from address[${index}]: '${detectedCity}'`);
+            break;
           }
         }
         
         if (detectedCity) {
           cities.push(detectedCity);
         }
-      });
+      }
       
       console.log(`\n📊 Detected cities:`, cities);
       
       if (cities.length > 0) {
-        // Use most common city
-        const cityCounts = cities.reduce((acc, city) => {
-          acc[city] = (acc[city] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>);
+        // Count occurrences
+        const cityCounts: Record<string, number> = {};
+        for (const city of cities) {
+          cityCounts[city] = (cityCounts[city] || 0) + 1;
+        }
         
-        const sortedCities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]);
+        // Get most common
+        const sortedCities = Object.entries(cityCounts)
+          .sort((a, b) => b[1] - a[1]);
+        
         detectedLocation = sortedCities[0][0];
-        console.log(`LOCATION DETECTED: "${detectedLocation}"`);
+        
+        console.log(`✅ FINAL LOCATION: ${detectedLocation} (${cityCounts[detectedLocation]} occurrences)`);
       } else {
-        console.log(`⚠️ No cities found, using default: ${destination}`);
+        console.log(`⚠️ No valid cities found, using trip default: ${destination}`);
       }
       
       setCurrentDayLocation(detectedLocation);
@@ -269,9 +351,7 @@ export default function RecommendationsPage() {
     console.log("=== Location Detection Complete ===\n");
   }, [selectedDay, items, days, destination]);
   
-  // UPDATED: Load recommendations with user preferences
   useEffect(() => {
-    // Wait for both location and profile to be ready
     if (!currentDayLocation || !tripId || isLoadingProfile) {
       console.log("⏳ Waiting for location, tripId, or user profile...");
       return;
@@ -279,20 +359,18 @@ export default function RecommendationsPage() {
     
     console.log(`\nScheduling recommendations refresh for: ${currentDayLocation} (Day ${selectedDay + 1})`);
     
-    // Cancel any pending request
     if (abortControllerRef.current) {
       console.log("Cancelling previous request");
       abortControllerRef.current.abort();
     }
     
-    // Debounce: wait a bit before loading
     const timer = setTimeout(() => {
       if (!loadingRef.current) {
         loadRecommendations();
       } else {
-        console.log("⏸Already loading, skipping duplicate request");
+        console.log("⏸ Already loading, skipping duplicate request");
       }
-    }, 300); // 300ms debounce
+    }, 300);
     
     return () => {
       clearTimeout(timer);
@@ -313,26 +391,21 @@ export default function RecommendationsPage() {
     console.log(`Location: ${location}`);
     console.log(`User Preferences:`, userProfile);
     
-    // Set loading flag
     loadingRef.current = true;
     setIsLoading(true);
     setError(null);
     
-    // Create abort controller for this request
     abortControllerRef.current = new AbortController();
     
     try {
-      // Build URL with location parameters
       let url = `/f1/recommendations/ai/?trip_id=${tripId}&day_index=${selectedDay}&location=${encodeURIComponent(location)}`;
       
-      // NEW: Add user preferences to the request body
       const requestBody: any = {
         trip_id: tripId,
         day_index: selectedDay,
         location: location,
       };
       
-      // Add user preferences if available
       if (userProfile) {
         requestBody.user_preferences = {
           interests: userProfile.interests || [],
@@ -365,6 +438,18 @@ export default function RecommendationsPage() {
         console.log(`  - Nearby: ${newCategories.nearby.length}`);
         console.log(`  - Food: ${newCategories.food.length}`);
         console.log(`  - Culture: ${newCategories.culture.length}`);
+        
+        const totalRecs = [...newCategories.nearby, ...newCategories.food, ...newCategories.culture];
+        const withCoords = totalRecs.filter(r => r.lat != null && r.lon != null).length;
+        console.log(`📍 Recommendations with coordinates: ${withCoords}/${totalRecs.length}`);
+        
+        totalRecs.forEach((rec, idx) => {
+          if (rec.lat && rec.lon) {
+            console.log(`  ✅ ${idx + 1}. ${rec.name}: (${rec.lat}, ${rec.lon})`);
+          } else {
+            console.log(`  ⚠️ ${idx + 1}. ${rec.name}: NO COORDINATES`);
+          }
+        });
         
         setCategories(newCategories);
         
@@ -401,6 +486,13 @@ export default function RecommendationsPage() {
     }
     
     console.log(`➕ Adding: ${recommendation.name} to Day ${selectedDay + 1}`);
+    console.log(`📍 Coordinates: lat=${recommendation.lat}, lon=${recommendation.lon}`);
+    
+    if (!recommendation.lat || !recommendation.lon) {
+      console.error("❌ Recommendation missing coordinates:", recommendation);
+      alert("This recommendation is missing location data and cannot be added. Please refresh recommendations and try again.");
+      return;
+    }
     
     try {
       const response = await apiFetch("/f1/recommendations/quick-add/", {
@@ -415,11 +507,9 @@ export default function RecommendationsPage() {
       if (response.success) {
         alert(`${response.message}`);
         
-        // Reload trip
         const data: TripResponse = await apiFetch(`/f1/trips/${tripId}/`);
         setItems(data.items || []);
         
-        // Refresh recommendations
         await loadRecommendations();
       }
     } catch (err: any) {
@@ -428,7 +518,6 @@ export default function RecommendationsPage() {
     }
   };
   
-  // Prepare map items
   const dayIndexMap = new Map(days.map((d) => [d.id, d.day_index]));
   
   const itemsInTripOrder = [...items].sort((a, b) => {
@@ -473,7 +562,6 @@ export default function RecommendationsPage() {
   const currentRecommendations = categories[activeCategory] || [];
   const totalRecommendations = Object.values(categories).flat().length;
   
-  // NEW: Display user preferences summary
   const renderPreferencesSummary = () => {
     if (!userProfile || isLoadingProfile) return null;
     
@@ -578,7 +666,6 @@ export default function RecommendationsPage() {
           margin: 0,
           padding: 0,
         }}>
-          {/* LEFT: Map */}
           <div style={{
             position: "sticky",
             top: 90,
@@ -591,7 +678,6 @@ export default function RecommendationsPage() {
             <ItineraryMap items={mapItems} photos={[]} />
           </div>
           
-          {/* RIGHT: Recommendations */}
           <div style={{
             height: "calc(90vh - 90px)",
             backgroundColor: "white",
@@ -599,7 +685,6 @@ export default function RecommendationsPage() {
             boxShadow: "0 8px 20px rgba(15,23,42,0.08)",
             overflowY: "auto",
           }}>
-            {/* Header */}
             <div style={{
               paddingBottom: "1rem",
               borderBottom: "1px solid #e5e7eb",
@@ -635,7 +720,6 @@ export default function RecommendationsPage() {
                 {destinationInfo.description}
               </p>
               
-              {/* NEW: User preferences summary */}
               {renderPreferencesSummary()}
               
               <div style={{
@@ -682,7 +766,6 @@ export default function RecommendationsPage() {
                 </button>
               </div>
               
-              {/* Category tabs */}
               <div style={{
                 display: "flex",
                 gap: "16px",
@@ -731,7 +814,6 @@ export default function RecommendationsPage() {
                 })}
               </div>
               
-              {/* Day selector */}
               <div style={{
                 display: "flex",
                 alignItems: "center",
@@ -779,7 +861,6 @@ export default function RecommendationsPage() {
               </div>
             </div>
             
-            {/* Content */}
             <div style={{ paddingTop: "16px" }}>
               {isLoading && (
                 <div style={{ textAlign: "center", padding: "60px 20px" }}>
@@ -847,6 +928,23 @@ export default function RecommendationsPage() {
                             <span>Top Pick</span>
                           </div>
                         )}
+                        
+                        {(!rec.lat || !rec.lon) && (
+                          <div style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            padding: "4px 10px",
+                            backgroundColor: "#fef2f2",
+                            color: "#dc2626",
+                            borderRadius: "12px",
+                            fontSize: "11px",
+                            fontWeight: 600,
+                          }}>
+                            <span>⚠️</span>
+                            <span>No location</span>
+                          </div>
+                        )}
                       </div>
                       
                       <h3 style={{
@@ -880,7 +978,6 @@ export default function RecommendationsPage() {
                         <div>💰 {rec.cost}</div>
                         <div>🕐 {rec.best_time}</div>
                         
-                        {/* NEW: Show matched preferences */}
                         {rec.matched_preferences && rec.matched_preferences.length > 0 && (
                           <div style={{
                             marginTop: "8px",
@@ -925,24 +1022,31 @@ export default function RecommendationsPage() {
                           ? window.location.href = `/trip/${tripId}/itinerary`
                           : handleQuickAdd(rec)
                         }
+                        disabled={!rec.lat || !rec.lon}
                         style={{
                           width: "100%",
                           padding: "10px",
-                          backgroundColor: rec.action === "optimize_route" ? "#10b981" : "#4f46e5",
+                          backgroundColor: (!rec.lat || !rec.lon) ? "#d1d5db" : (rec.action === "optimize_route" ? "#10b981" : "#4f46e5"),
                           color: "white",
                           border: "none",
                           borderRadius: "8px",
                           fontSize: "13px",
                           fontWeight: 600,
-                          cursor: "pointer",
+                          cursor: (!rec.lat || !rec.lon) ? "not-allowed" : "pointer",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
                           gap: "6px",
+                          opacity: (!rec.lat || !rec.lon) ? 0.6 : 1,
                         }}
                       >
                         <span>{rec.action === "optimize_route" ? "⚡" : "+"}</span>
-                        <span>{rec.action === "optimize_route" ? "Go to Optimizer" : `Add to Day ${selectedDay + 1}`}</span>
+                        <span>
+                          {(!rec.lat || !rec.lon) 
+                            ? "Location unavailable" 
+                            : (rec.action === "optimize_route" ? "Go to Optimizer" : `Add to Day ${selectedDay + 1}`)
+                          }
+                        </span>
                       </button>
                     </div>
                   ))}
