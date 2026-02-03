@@ -52,7 +52,7 @@ import jingshan from "../assets/jingshan.jpg";
 import tiananmen from "../assets/tiananmen.jpg";
 import hutong from "../assets/hutong.jpg";
 import greatwall from "../assets/greatwall.jpg";
-import wangfujing from "../assets/wangfujing.jpg";
+import wangfujing from "../assets/wangfujing.JPG";
 import peking from "../assets/peking.png";
 import shanghai from "../assets/shanghai.jpg";
 import pudong from "../assets/pudong.jpg";
