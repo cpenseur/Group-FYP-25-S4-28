@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { exportPDF as ExportPDF } from "../components/exportPDF";
 import { supabase } from "../lib/supabaseClient"; 
+import { useNavigate } from "react-router-dom";
 
 type ReportKey = "user_activity" | "itinerary_stats" | "content_moderation" | "growth_analytics";
 type FormatKey = "pdf" | "excel" | "csv";
@@ -60,8 +61,36 @@ export default function AdminReportsView({
     []
   );
 
+    const navigate = useNavigate();
+
     const handleExport = async () => {
-        setPdfOpen(true);
+        // Navigate to appropriate export page based on report type
+        const params = new URLSearchParams({
+            from: fromDate,
+            to: toDate,
+            export: "true"
+        });
+
+        switch (reportType) {
+            case "user_activity":
+                // Export dashboard page
+                navigate(`/admin-dashboard?${params.toString()}&view=dashboard`);
+                break;
+            case "itinerary_stats":
+                // Export analytics page without Popular Itineraries
+                navigate(`/admin-dashboard?${params.toString()}&view=analytics&hidePopular=true`);
+                break;
+            case "growth_analytics":
+                // Export whole analytics page
+                navigate(`/admin-dashboard?${params.toString()}&view=analytics`);
+                break;
+            case "content_moderation":
+                // For content moderation, use the PDF export
+                setPdfOpen(true);
+                break;
+            default:
+                setPdfOpen(true);
+        }
     };
 
     const fetchPreview = async () => {

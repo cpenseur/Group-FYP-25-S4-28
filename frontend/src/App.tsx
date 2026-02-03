@@ -1,6 +1,6 @@
 // frontend/src/App.tsx
 import { useState, useEffect } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 import { supabase } from "./lib/supabaseClient";
 import { ensureCsrfToken } from "./lib/apiClient";
 import Home from "./pages/Home";
@@ -23,6 +23,7 @@ import Demo from "./pages/Demo";
 import TravelGuidesTutorial from "./pages/travelGuidesTutorial";
 import GuestFAQPage from "./pages/guestFAQpage";
 import AdminDashboard from "./pages/adminDashboard";
+import AdminProfile from "./pages/adminProfile";
 import Profile from "./pages/profile";
 import Login from "./components/login";
 import ResetPassword from "./pages/resetPassword";
@@ -118,9 +119,12 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith("/admin");
+
   return (
     <>
-      <TopBar />
+      {!isAdminRoute && <TopBar />}
 
       <Routes>
         {/* Dev home */}
@@ -139,8 +143,9 @@ export default function App() {
           path="/travel-guides/:guideId"
           element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />}
         />
-        <Route path="/guest-faq" element={<GuestFAQPage />} />
+        <Route path="/guest-faq" element={<GuestFAQPage onLoginClick={openLogin} onSignupClick={openSignup} />} />
         <Route path="/admin-dashboard" element={<AdminDashboard />} />
+        <Route path="/admin-profile" element={<AdminProfile />} />
         <Route path="/profile" element={<Profile />} />
         <Route
           path="/signin"

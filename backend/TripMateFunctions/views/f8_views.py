@@ -215,12 +215,16 @@ def admin_report_preview(request):
     if rtype == "user_activity":
         active_users = AppUser.objects.filter(last_active_at__gte=start_dt, last_active_at__lt=end_dt).count()
         new_signups = AppUser.objects.filter(created_at__gte=start_dt, created_at__lt=end_dt).count()
+        itineraries_created = Trip.objects.filter(created_at__gte=start_dt, created_at__lt=end_dt).count()
+        pending_verifications = AppUser.objects.filter(status=AppUser.Status.PENDING, created_at__gte=start_dt, created_at__lt=end_dt).count()
 
         return Response({
             "heading": "User Activity\nReport",
             "cards": [
                 {"label": "Active\nUsers", "value": str(active_users), "tone": "neutral"},
                 {"label": "New\nSignups", "value": str(new_signups), "tone": "neutral"},
+                {"label": "Itineraries\nCreated", "value": str(itineraries_created), "tone": "neutral"},
+                {"label": "Pending\nVerifications", "value": str(pending_verifications), "tone": "warn" if pending_verifications > 0 else "neutral"},
             ],
             "note": "Active users, signups,\nand engagement metrics",
         })

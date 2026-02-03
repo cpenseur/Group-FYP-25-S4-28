@@ -1,6 +1,6 @@
 // src/pages/adminDashboard.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import AdminNavbar from "../components/adminNavbar";
 import AdminSidebar from "../components/adminSidebar";
@@ -80,6 +80,7 @@ type AdminUserRow = {
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
@@ -97,6 +98,84 @@ export default function AdminDashboard() {
 
   const [viewOpen, setViewOpen] = useState(false);
   const [viewUser, setViewUser] = useState<AdminUserRow | null>(null);
+
+  // Export mode state from URL params
+  const [exportMode, setExportMode] = useState(false);
+  const [hidePopularItineraries, setHidePopularItineraries] = useState(false);
+  const [exportFromDate, setExportFromDate] = useState<string | undefined>(undefined);
+  const [exportToDate, setExportToDate] = useState<string | undefined>(undefined);
+  
+  // Export preview data (for User Activity Report)
+  type ExportPreviewData = {
+    heading: string;
+    cards: { label: string; value: string; tone: "neutral" | "good" | "warn" }[];
+    note: string;
+  };
+  const [exportPreviewData, setExportPreviewData] = useState<ExportPreviewData | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
+
+  // Fetch export preview data for User Activity Report
+  const fetchExportPreview = async (from: string, to: string) => {
+    setExportLoading(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return;
+
+      const params = new URLSearchParams({ type: "user_activity", from, to });
+      const r = await fetch(`http://localhost:8000/api/admin/reports/preview/?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (r.ok) {
+        const json = await r.json();
+        setExportPreviewData(json);
+      }
+    } catch (e) {
+      console.error("Failed to fetch export preview:", e);
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  // Handle URL params for export mode
+  useEffect(() => {
+    const isExport = searchParams.get("export") === "true";
+    const view = searchParams.get("view");
+    const hidePopular = searchParams.get("hidePopular") === "true";
+    const fromDate = searchParams.get("from");
+    const toDate = searchParams.get("to");
+
+    if (isExport) {
+      setExportMode(true);
+      setHidePopularItineraries(hidePopular);
+      setExportFromDate(fromDate || undefined);
+      setExportToDate(toDate || undefined);
+      
+      // Set the appropriate view
+      if (view === "analytics") {
+        setActiveSidebarItem("analytics");
+      } else if (view === "dashboard") {
+        setActiveSidebarItem("dashboard");
+        // Fetch preview data for dashboard export
+        if (fromDate && toDate) {
+          fetchExportPreview(fromDate, toDate);
+        }
+      }
+
+      // Trigger print after a short delay to allow rendering
+      setTimeout(() => {
+        window.print();
+        // Clear URL params after printing
+        setSearchParams({});
+        setExportMode(false);
+        setHidePopularItineraries(false);
+        setExportFromDate(undefined);
+        setExportToDate(undefined);
+        setExportPreviewData(null);
+      }, 2000);
+    }
+  }, [searchParams, setSearchParams]);
 
 
   const emptyDelta: StatDelta = { direction: "flat", percent: 0, diff: 0, label: "" };
@@ -464,7 +543,7 @@ export default function AdminDashboard() {
   return (
     <>
       <AdminNavbar
-        onProfileClick={() => navigate("/profile")}
+        onProfileClick={() => navigate("/admin-profile")}
         onLogoutClick={async () => {
           await supabase.auth.signOut();
           navigate("/signin", { replace: true });
@@ -486,7 +565,7 @@ export default function AdminDashboard() {
         {/* MAIN */}
         <main className="admin-main">
           <div id="print-area">
-            {activeSidebarItem === "dashboard" && (
+            {activeSidebarItem === "dashboard" && !exportMode && (
               <header className="admin-header">
                 <div>
                   <h1>Admin Dashboard</h1>
@@ -519,7 +598,7 @@ export default function AdminDashboard() {
             )}
 
             {/* STATS – only for dashboard */}
-            {activeSidebarItem === "dashboard" && (
+            {activeSidebarItem === "dashboard" && !exportMode && (
               <section className="stats-row">
                 <div className="stat-card">
                   <div className="stat-header">
@@ -603,10 +682,98 @@ export default function AdminDashboard() {
               </section>
             )}
 
+            {/* EXPORT MODE - User Activity Report View */}
+            {activeSidebarItem === "dashboard" && exportMode && (
+              <section className="export-report-view" style={{
+                padding: "32px",
+                background: "#fff",
+                borderRadius: "16px",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+                maxWidth: "1000px",
+                margin: "0 auto"
+              }}>
+                <h1 style={{ 
+                  fontSize: "28px", 
+                  fontWeight: 900, 
+                  marginBottom: "24px",
+                  color: "#111827"
+                }}>
+                  {exportPreviewData?.heading?.replace(/\n/g, " ") || "User Activity Report"}
+                </h1>
+                
+                {exportLoading ? (
+                  <p>Loading report data...</p>
+                ) : (
+                  <>
+                    {/* Stats Cards from API - all filtered by date range */}
+                    <div style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(4, 1fr)",
+                      gap: "16px",
+                      marginBottom: "24px"
+                    }}>
+                      {/* All cards from Preview API (date-filtered) */}
+                      {exportPreviewData?.cards.map((card, idx) => (
+                        <div key={idx} style={{
+                          padding: "20px",
+                          border: "1px solid #e5e7eb",
+                          borderRadius: "12px",
+                          background: "#fafafa"
+                        }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                            <span style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                              {card.label.replace(/\n/g, " ")}
+                            </span>
+                            <span style={{ fontSize: "18px" }}>
+                              {card.label.toLowerCase().includes("active") ? "👥" : 
+                               card.label.toLowerCase().includes("signup") ? "✅" :
+                               card.label.toLowerCase().includes("itinerar") ? "🧳" :
+                               card.label.toLowerCase().includes("pending") || card.label.toLowerCase().includes("verif") ? "⚠️" : "📊"}
+                            </span>
+                          </div>
+                          <div style={{ 
+                            fontSize: "36px", 
+                            fontWeight: 900, 
+                            color: card.tone === "good" ? "#059669" : card.tone === "warn" ? "#dc2626" : "#111827",
+                            marginBottom: "8px" 
+                          }}>
+                            {card.value}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {exportPreviewData?.note && (
+                      <p style={{ 
+                        fontSize: "14px", 
+                        color: "#6b7280",
+                        marginBottom: "16px",
+                        fontStyle: "italic"
+                      }}>
+                        {exportPreviewData.note.replace(/\n/g, " ")}
+                      </p>
+                    )}
+                  </>
+                )}
+                
+                <div style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: "12px",
+                  color: "#9ca3af",
+                  borderTop: "1px solid #e5e7eb",
+                  paddingTop: "16px"
+                }}>
+                  <span>Report Generated: {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                  <span>Date Range: {exportFromDate ? new Date(exportFromDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "-"} - {exportToDate ? new Date(exportToDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "-"}</span>
+                </div>
+              </section>
+            )}
+
             {/* GRID BELOW – SWITCH BY SIDEBAR ITEM */}
             <section className={"content-grid " + (activeSidebarItem === "dashboard" ? "content-grid--dashboard" : "")}>
-              {/* DASHBOARD VIEW */}
-              {activeSidebarItem === "dashboard" && (
+              {/* DASHBOARD VIEW - hide when in export mode */}
+              {activeSidebarItem === "dashboard" && !exportMode && (
                 <>
                   {/* LEFT COLUMN */}
                   <div className="card card-moderation">
@@ -792,6 +959,9 @@ export default function AdminDashboard() {
                         console.log("apply filter", from, to);
                         // later call your fetchAnalytics(from,to)
                       }}
+                      hidePopularItineraries={hidePopularItineraries}
+                      initialFrom={exportFromDate}
+                      initialTo={exportToDate}
                     />
                   </div>
                 )}              
