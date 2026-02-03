@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+from datetime import timedelta
 
 import requests
 from django.conf import settings
@@ -621,14 +622,21 @@ JSON only, nothing else.
 
         # ---------- create DB objects ----------
         with transaction.atomic():
-            # keep availability window stored on trip (fine)
+            # Calculate actual trip dates based on duration_days (slider value).
+            # Use the availability window start as trip start, then add duration.
+            # e.g. availability Feb 13 - Mar 24, duration 5 days → trip is Feb 13 - Feb 17
+            actual_start = start_date  # from availability window
+            actual_end = None
+            if actual_start:
+                actual_end = actual_start + timedelta(days=duration - 1)
+            
             trip = Trip.objects.create(
                 owner=user,
                 title=itinerary.get("title", "AI Trip"),
                 main_city=itinerary.get("main_city"),
                 main_country=itinerary.get("main_country"),
-                start_date=start_date,
-                end_date=end_date,
+                start_date=actual_start,
+                end_date=actual_end,
                 visibility=Trip.Visibility.PRIVATE,
                 travel_type="solo_ai",
             )
@@ -641,10 +649,12 @@ JSON only, nothing else.
                 accepted_at=timezone.now(),
             )
 
-            # IMPORTANT: TripDay.date should NOT be derived from availability window
-            TripDay.objects.bulk_create(
-                [TripDay(trip=trip, day_index=i + 1, date=None) for i in range(duration)]
-            )
+            # Create TripDay objects with actual dates based on trip start_date
+            trip_days = []
+            for i in range(duration):
+                day_date = actual_start + timedelta(days=i) if actual_start else None
+                trip_days.append(TripDay(trip=trip, day_index=i + 1, date=day_date))
+            TripDay.objects.bulk_create(trip_days)
 
             day_map = {d.day_index: d for d in TripDay.objects.filter(trip=trip)}
 
