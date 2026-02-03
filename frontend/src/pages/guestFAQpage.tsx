@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import styled from "styled-components";
 import LandingNavbar from "../components/landingNavbar";
 import LandingFooter from "../components/landingFooter";
+import { supabase } from "../lib/supabaseClient";
 import {
   Bot,
   Users,
@@ -12,17 +13,62 @@ import {
   Search,
   SlidersHorizontal,
   Plus,
-  X
+  X,
+  Loader2
 } from "lucide-react";
 
-export default function GuestFAQPage() {
+// Define FAQ type
+interface FAQ {
+  id: number;
+  category: string;
+  question: string;
+  answer: string;
+  display_order: number;
+}
+
+interface GuestFAQPageProps {
+  onLoginClick: () => void;
+  onSignupClick: () => void;
+}
+
+export default function GuestFAQPage({ onLoginClick, onSignupClick }: GuestFAQPageProps) {
   const navigate = useNavigate();
-  useEffect(() => {
-  window.scrollTo(0, 0);
-  }, []);  
-  const [openIndex, setOpenIndex] = useState<number | null>(0);
+  const [faqs, setFaqs] = useState<FAQ[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchText, setSearchText] = useState("");
+
+  // Fetch FAQs from Supabase
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    fetchFAQs();
+  }, []);
+
+  const fetchFAQs = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("faqs")
+        .select("*")
+        .eq("is_active", true)
+        .order("display_order", { ascending: true });
+
+      if (error) throw error;
+
+      setFaqs(data || []);
+      // Open the first FAQ by default if there are any
+      if (data && data.length > 0) {
+        setOpenIndex(data[0].id);
+      }
+    } catch (err: any) {
+      console.error("Error fetching FAQs:", err);
+      setError("Failed to load FAQs. Please try again later.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const navLinks = [
     { name: 'Home', path: '/landing-page#hero' },
@@ -40,48 +86,14 @@ export default function GuestFAQPage() {
     { label: "Troubleshoot", icon: <Wrench size={16} color="#4a4a4a" /> }
   ];
 
-  // UPDATED: Includes new Troubleshoot question (Option B)
-  const faqs = [
-    {
-      category: "General",
-      q: "How does the AI itinerary generator work?",
-      a: "Enter your destination, dates, budget, and travel style. Our AI processes thousands of data points to generate a personalized day-by-day plan."
-    },
-    {
-      category: "Collaboration",
-      q: "Can I invite friends to plan the trip with me?",
-      a: "Yes! You can invite friends, collaborate in real time, add ideas, and vote on suggested plans."
-    },
-    {
-      category: "General",
-      q: "How do I create my first itinerary?",
-      a: "Just provide your destination and dates. TripMate instantly creates a smart starter itinerary for you."
-    },
-    {
-      category: "Account",
-      q: "Is TripMate free to use?",
-      a: "TripMate is free for basic features. Premium features offer enhanced recommendations and AI tools."
-    },
-    {
-      category: "AI Features",
-      q: "How do I use the AI-powered itinerary builder?",
-      a: "Describe your trip goals and preferences. The AI will generate optimized routes based on travel time, opening hours, and popularity."
-    },
-    {
-      category: "Troubleshoot",
-      q: "I encountered an error. How can I reach the support team?",
-      a: "You can report any errors by scrolling to the footer and selecting Support → Report an issue. This will notify our admin team, who will assist you promptly."
-    }
-  ];
-
   // FILTERING LOGIC FOR CATEGORY + SEARCH
   const filteredFaqs = faqs.filter((faq) => {
     const matchesCategory =
       activeCategory === "All" || faq.category === activeCategory;
 
     const matchesSearch =
-      faq.q.toLowerCase().includes(searchText.toLowerCase()) ||
-      faq.a.toLowerCase().includes(searchText.toLowerCase());
+      faq.question.toLowerCase().includes(searchText.toLowerCase()) ||
+      faq.answer.toLowerCase().includes(searchText.toLowerCase());
 
     return matchesCategory && matchesSearch;
   });
@@ -89,7 +101,7 @@ export default function GuestFAQPage() {
   return (
     <Container>
       {/* Navigation Bar */}
-      <LandingNavbar navLinks={navLinks} />
+      <LandingNavbar navLinks={navLinks} onLoginClick={onLoginClick} onSignupClick={onSignupClick} />
 
       {/* Main Content */}
       <ContentWrapper>
@@ -135,26 +147,36 @@ export default function GuestFAQPage() {
 
         {/* FAQ CONTAINER */}
         <FAQContainer>
-          {filteredFaqs.length === 0 && (
+          {loading && (
+            <LoadingWrapper>
+              <Loader2 size={24} className="spinner" />
+              <span>Loading FAQs...</span>
+            </LoadingWrapper>
+          )}
+
+          {error && (
+            <ErrorMessage>{error}</ErrorMessage>
+          )}
+
+          {!loading && !error && filteredFaqs.length === 0 && (
             <NoResults>
               No results found.
             </NoResults>
           )}
 
-          {filteredFaqs.map((faq, i) => {
-            const realIndex = faqs.indexOf(faq); // use original index
-            const open = openIndex === realIndex;
+          {!loading && !error && filteredFaqs.map((faq, i) => {
+            const open = openIndex === faq.id;
 
             return (
-              <FAQItem key={realIndex}>
+              <FAQItem key={faq.id}>
                 {/* FAQ HEADER */}
-                <FAQHeader onClick={() => setOpenIndex(open ? null : realIndex)}>
+                <FAQHeader onClick={() => setOpenIndex(open ? null : faq.id)}>
                   <FAQNumberWrapper>
                     <FAQNumber>
-                      {String(realIndex + 1).padStart(2, "0")}
+                      {String(i + 1).padStart(2, "0")}
                     </FAQNumber>
                     <FAQQuestion>
-                      {faq.q}
+                      {faq.question}
                     </FAQQuestion>
                   </FAQNumberWrapper>
 
@@ -172,7 +194,7 @@ export default function GuestFAQPage() {
                 {open && (
                   <FAQAnswer>
                     <FAQAnswerText>
-                      {faq.a}
+                      {faq.answer}
                     </FAQAnswerText>
                   </FAQAnswer>
                 )}
@@ -286,6 +308,36 @@ const NoResults = styled.p`
   text-align: center;
   font-size: 15px;
   color: #777;
+`;
+
+const LoadingWrapper = styled.div`
+  padding: 3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  color: #666;
+  font-size: 15px;
+
+  .spinner {
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+`;
+
+const ErrorMessage = styled.p`
+  padding: 2rem;
+  text-align: center;
+  font-size: 15px;
+  color: #dc2626;
 `;
 
 const FAQItem = styled.div`

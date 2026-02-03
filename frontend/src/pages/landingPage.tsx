@@ -23,8 +23,8 @@ import {
   BookOpen,
   Bot,
   Users,
-  ClipboardCheck,
-  FileText
+  CloudSun,
+  UsersRound
 } from "lucide-react";
 
 type LandingPageProps = {
@@ -267,11 +267,11 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
           <FlipCard>
             <FlipInner>
               <FlipFront>
-                <BenefitIcon><ClipboardCheck/></BenefitIcon>
-                <FlipTitle>Smart packing checklists</FlipTitle>
+                <BenefitIcon><CloudSun/></BenefitIcon>
+                <FlipTitle>Adaptive Planner</FlipTitle>
               </FlipFront>
               <FlipBack>
-                <FlipBackText>AI-generated lists ensure you never forget essentials again.</FlipBackText>
+                <FlipBackText>Automatically adjusts your itinerary based on weather forecasts and venue opening times.</FlipBackText>
               </FlipBack>
             </FlipInner>
           </FlipCard>
@@ -291,11 +291,11 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
           <FlipCard>
             <FlipInner>
               <FlipFront>
-                <BenefitIcon><FileText /></BenefitIcon>
-                <FlipTitle>Travel document storage</FlipTitle>
+                <BenefitIcon><UsersRound /></BenefitIcon>
+                <FlipTitle>Group Itinerary AI Generation</FlipTitle>
               </FlipFront>
               <FlipBack>
-                <FlipBackText>Keep all your tickets, bookings & passports securely in one place.</FlipBackText>
+                <FlipBackText>Merge everyone's preferences into one optimized group itinerary powered by AI.</FlipBackText>
               </FlipBack>
             </FlipInner>
           </FlipCard>
@@ -338,70 +338,49 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
         </ShowcaseCards>
       </ShowcaseSection>
 
-      {/* Travel Insights */}
+      {/* Travel Insights - Demo Trips */}
       <Section light>
         <SectionHeader>
           <SectionSubtitle>TRAVEL INTELLIGENCE</SectionSubtitle>
           <SectionTitle>Insights for the Inquisitive Traveller</SectionTitle>
           <SectionDescription>
-            Expert tips and guides to make your journeys even more memorable
+            Explore curated demo itineraries shared by our community
           </SectionDescription>
         </SectionHeader>
         
         <InsightsGrid>
-          {insights.map((insight, index) => (
-            <InsightCard key={index}>
-              <InsightIcon>{insight.icon}</InsightIcon>
-              <InsightContent>
-                <InsightTitle>{insight.title}</InsightTitle>
-                <InsightDescription>{insight.description}</InsightDescription>
-                <ReadMore>
-                  Read More <ChevronRight size={14} />
-                </ReadMore>
-              </InsightContent>
-            </InsightCard>
-          ))}
+          {isLoading ? (
+            <LoadingText>Loading demo trips...</LoadingText>
+          ) : demoTrips.length > 0 ? (
+            demoTrips.slice(0, 4).map((trip, index) => (
+              <InsightCard key={trip.id || index} onClick={() => navigate(`/discovery-itinerary/${trip.id}`)}>
+                {trip.cover_image ? (
+                  <InsightThumbnail src={trip.cover_image} alt={trip.title} />
+                ) : (
+                  <InsightIcon>🗺️</InsightIcon>
+                )}
+                <InsightContent>
+                  <InsightTitle>{trip.title}</InsightTitle>
+                  <InsightDescription>
+                    {trip.main_city && trip.main_country 
+                      ? `${trip.main_city}, ${trip.main_country}` 
+                      : trip.main_city || trip.main_country || 'Explore this amazing destination'}
+                    {trip.start_date && trip.end_date && (
+                      <> • {new Date(trip.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(trip.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</>
+                    )}
+                  </InsightDescription>
+                  <ReadMore>
+                    View Itinerary <ChevronRight size={14} />
+                  </ReadMore>
+                </InsightContent>
+              </InsightCard>
+            ))
+          ) : (
+            <LoadingText>No demo trips available</LoadingText>
+          )}
         </InsightsGrid>
       </Section>
 
-      {/* Newsletter */}
-      <NewsletterSection>
-        <NewsletterContent>
-          <Mail size={40} color="#3b82f6" />
-          <SectionTitle>Stay in the Loop</SectionTitle>
-          <SectionDescription>
-            Subscribe to our newsletter for travel tips, feature updates, and exclusive offers
-          </SectionDescription>
-          
-          <NewsletterFormContainer>
-            {isSubmitted ? (
-              <SuccessMessage>
-                <Check size={20} />
-                Thank you for subscribing!
-              </SuccessMessage>
-            ) : (
-              <NewsletterForm onSubmit={handleNewsletterSubmit}>
-                <InputWrapper>
-                  <Mail size={20} color="#6b7280" />
-                  <NewsletterInput
-                    type="email"
-                    placeholder="Enter your email address"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </InputWrapper>
-                <NewsletterSubmitButton type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? 'Subscribing...' : 'Subscribe'}
-                </NewsletterSubmitButton>
-              </NewsletterForm>
-            )}
-            <PrivacyNote>
-              We respect your privacy. Unsubscribe at any time.
-            </PrivacyNote>
-          </NewsletterFormContainer>
-        </NewsletterContent>
-      </NewsletterSection>
       {/* Footer CTA - Using Component */}
       <LandingFooter />
     </Container>
@@ -941,6 +920,7 @@ const InsightCard = styled.div`
   gap: 1rem;
   transition: transform 0.2s, box-shadow 0.2s;
   border: 1px solid #e5e7eb;
+  cursor: pointer;
 
   &:hover {
     transform: translateY(-3px);
@@ -950,6 +930,22 @@ const InsightCard = styled.div`
 
 const InsightIcon = styled.div`
   font-size: 2rem;
+  flex-shrink: 0;
+`;
+
+const InsightThumbnail = styled.img`
+  width: 80px;
+  height: 80px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+`;
+
+const LoadingText = styled.p`
+  text-align: center;
+  color: #6b7280;
+  font-size: 1rem;
+  grid-column: 1 / -1;
 `;
 
 const InsightContent = styled.div`

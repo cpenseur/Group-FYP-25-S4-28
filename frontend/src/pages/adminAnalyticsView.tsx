@@ -24,6 +24,9 @@ type Props = {
   onApplyFilter?: (from: string, to: string) => void;
   countryStats?: CountryStat[];
   popularItineraries?: PopularItinerary[];
+  hidePopularItineraries?: boolean;
+  initialFrom?: string;
+  initialTo?: string;
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
@@ -138,9 +141,18 @@ export default function AnalyticsView({
   onApplyFilter,
   countryStats: countryStatsProp,
   popularItineraries: popularProp,
+  hidePopularItineraries = false,
+  initialFrom,
+  initialTo,
 }: Props) {
-  const [analyticsFrom, setAnalyticsFrom] = useState("2025-12-15");
-  const [analyticsTo, setAnalyticsTo] = useState("2026-01-14");
+  const [analyticsFrom, setAnalyticsFrom] = useState(initialFrom || "2025-12-15");
+  const [analyticsTo, setAnalyticsTo] = useState(initialTo || "2026-01-14");
+
+  // Update dates when props change (for export mode)
+  useEffect(() => {
+    if (initialFrom) setAnalyticsFrom(initialFrom);
+    if (initialTo) setAnalyticsTo(initialTo);
+  }, [initialFrom, initialTo]);
 
   const [apiStats, setApiStats] = useState<Stats>({
     activeUsers: statsProp?.activeUsers ?? 0,
@@ -303,11 +315,11 @@ export default function AnalyticsView({
     }
   };
 
-  // Auto-load once (DB-linked)
+  // Auto-load once (DB-linked) or when initial dates change
   useEffect(() => {
     fetchAnalytics(analyticsFrom, analyticsTo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialFrom, initialTo]);
 
   const computedCountryStats = useMemo<CountryStat[]>(
     () => (apiCountryStats?.length ? apiCountryStats : countryStatsProp) ?? [],
@@ -691,6 +703,7 @@ export default function AnalyticsView({
         </section>
 
         {/* Popular itineraries */}
+        {!hidePopularItineraries && (
         <section className="tm-card tm-card-popular">
           <div className="tm-card-head">
             <div>
@@ -755,6 +768,7 @@ export default function AnalyticsView({
             </div>
           </div>
         </section>
+        )}
       </div>
 
       <style>{`
