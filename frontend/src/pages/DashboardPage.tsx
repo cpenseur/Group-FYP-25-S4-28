@@ -358,7 +358,20 @@ export default function DashboardPage() {
     const list = await apiFetch("/f1/trips/", { method: "GET" });
     const baseTrips: TripOverview[] = Array.isArray(list) ? list : list?.results ?? [];
 
-    // ensure we have collaborators/budget/location_label (from overview endpoint)
+    // Check if we already have the data we need (avoid unnecessary API calls)
+    const needsOverview =
+      baseTrips.length > 0 &&
+      (baseTrips[0].collaborators === undefined ||
+        baseTrips[0].planned_total === undefined ||
+        baseTrips[0].location_label === undefined);
+
+    if (!needsOverview) {
+      setTrips(baseTrips);
+      setLoading(false);
+      return;
+    }
+
+    // Only fetch overview if needed
     const withOverview = await Promise.all(
       baseTrips.map(async (t) => {
         try {
@@ -374,6 +387,12 @@ export default function DashboardPage() {
     setLoading(false);
   }
 
+  // Load trips immediately on mount
+  useEffect(() => {
+    loadTrips().catch(() => setLoading(false));
+  }, []);
+
+  // Also reload if auth state changes (e.g., user signs in while on page)
   useEffect(() => {
     let wasLoggedIn = false;
     supabase.auth.getSession().then(({ data }) => {

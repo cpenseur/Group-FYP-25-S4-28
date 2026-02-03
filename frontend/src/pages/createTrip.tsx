@@ -4,6 +4,44 @@ import { apiFetch } from "../lib/apiClient";
 import CountryCityPicker from "../components/CountryCityPicker";
 import InviteTripmates, { toInvitePayload } from "../components/InviteTripmates";
 
+/* ---------------- DATE HELPERS ---------------- */
+function formatDisplayDate(date: Date | null): string {
+  if (!date) return "Select date";
+  return date.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+}
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+function isSameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+function isBetween(date: Date, start: Date, end: Date): boolean {
+  const t = startOfDay(date).getTime();
+  const s = startOfDay(start).getTime();
+  const e = startOfDay(end).getTime();
+  return t > s && t < e;
+}
+function getDaysInMonth(year: number, month: number): Date[] {
+  const days: Date[] = [];
+  let d = new Date(year, month, 1);
+  while (d.getMonth() === month) {
+    days.push(new Date(d));
+    d = new Date(year, month, d.getDate() + 1);
+  }
+  return days;
+}
+function toISODate(d: Date | null): string | null {
+  if (!d) return null;
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 type NewTripPayload = {
   title: string;
   main_city: string;
@@ -19,8 +57,13 @@ export default function CreateTrip() {
 
   const [destinationCountry, setDestinationCountry] = useState("Singapore");
   const [mainCity, setMainCity] = useState("Singapore");
-  const [startDate, setStartDate] = useState<string>("");
-  const [endDate, setEndDate] = useState<string>("");
+  
+  // Calendar state
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
+  const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
 
   const [invites, setInvites] = useState<string[]>([]);
 
@@ -31,6 +74,109 @@ export default function CreateTrip() {
   const [inviteLinks, setInviteLinks] = useState<InviteLink[]>([]);
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
   const [pendingTripId, setPendingTripId] = useState<number | null>(null);
+
+  /* ---------------- CALENDAR LOGIC ---------------- */
+  const handleDayClick = (date: Date) => {
+    if (!startDate || (startDate && endDate)) {
+      setStartDate(date);
+      setEndDate(null);
+      return;
+    }
+    if (startOfDay(date) < startOfDay(startDate)) {
+      setStartDate(date);
+      return;
+    }
+    setEndDate(date);
+    setTimeout(() => setCalendarOpen(false), 200);
+  };
+
+  const renderMonthGrid = (offset: number) => {
+    const month = calendarMonth + offset;
+    const yearOffset = Math.floor(month / 12);
+    const effMonth = ((month % 12) + 12) % 12;
+    const year = calendarYear + yearOffset;
+
+    const firstDay = new Date(year, effMonth, 1).getDay();
+    const days = getDaysInMonth(year, effMonth);
+    const blanks = firstDay === 0 ? 6 : firstDay - 1;
+
+    const cells: (Date | null)[] = [];
+    for (let i = 0; i < blanks; i++) cells.push(null);
+    cells.push(...days);
+    while (cells.length % 7 !== 0) cells.push(null);
+
+    const weekdayLabels = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+
+    return (
+      <div style={{ flex: 1 }}>
+        <div style={{ display: "flex", justifyContent: offset === 0 ? "space-between" : "center", alignItems: "center", marginBottom: "10px", fontWeight: 600, fontSize: "14px" }}>
+          {offset === 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                let m = calendarMonth - 1;
+                let y = calendarYear;
+                if (m < 0) { m = 11; y -= 1; }
+                setCalendarMonth(m); setCalendarYear(y);
+              }}
+              style={{ border: "none", background: "transparent", fontSize: "20px", cursor: "pointer" }}
+            >
+              ‹
+            </button>
+          ) : (
+            <div style={{ width: "20px" }} />
+          )}
+
+          <div>
+            {new Date(year, effMonth, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+          </div>
+
+          {offset === 1 ? (
+            <button
+              type="button"
+              onClick={() => {
+                let m = calendarMonth + 1;
+                let y = calendarYear;
+                if (m > 11) { m = 0; y += 1; }
+                setCalendarMonth(m); setCalendarYear(y);
+              }}
+              style={{ border: "none", background: "transparent", fontSize: "20px", cursor: "pointer" }}
+            >
+              ›
+            </button>
+          ) : (
+            <div style={{ width: "20px" }} />
+          )}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", fontSize: "11px", color: "#a0a0b8", marginBottom: "6px" }}>
+          {weekdayLabels.map((w) => (<div key={w} style={{ textAlign: "center" }}>{w}</div>))}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", rowGap: "8px" }}>
+          {cells.map((date, idx) => {
+            if (!date) return <div key={idx} />;
+            const isStart = startDate && isSameDay(date, startDate);
+            const isEnd = endDate && isSameDay(date, endDate);
+            const inRange = startDate && endDate && isBetween(date, startDate, endDate);
+
+            let bg = "transparent";
+            let color = "#333";
+            if (isStart || isEnd) { bg = "#f97316"; color = "#fff"; }
+            else if (inRange) { bg = "rgba(249, 115, 22, 0.15)"; }
+
+            return (
+              <div key={idx} onClick={() => handleDayClick(date)} style={{ display: "flex", justifyContent: "center", cursor: "pointer" }}>
+                <div style={{ width: "28px", height: "28px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: bg, color, fontSize: "13px" }}>
+                  {date.getDate()}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   async function inviteCollaborators(tripId: number, inviteList: string[]): Promise<InviteLink[]> {
     if (!inviteList.length) return [];
@@ -83,8 +229,8 @@ export default function CreateTrip() {
       title: `Trip to ${destinationCountry}`,
       main_city: (mainCity || destinationCountry).trim(),
       main_country: destinationCountry.trim(),
-      start_date: startDate,
-      end_date: endDate,
+      start_date: toISODate(startDate),
+      end_date: toISODate(endDate),
     };
 
     const inviteList = [...invites];    
@@ -372,19 +518,20 @@ export default function CreateTrip() {
                 >
                   Start date <span style={{ color: "#ef4444" }}>*</span>
                 </label>
-                <div style={{ minWidth: 0 }}>
-                  <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  style={{
-                    width: "94%",
-                    borderRadius: 12,
-                    border: "1px solid #d1d5db",
-                    padding: "0.7rem 0.95rem",
+                <div 
+                  onClick={() => setCalendarOpen(true)}
+                  style={{ 
+                    background: "#fff", 
+                    padding: "0.7rem 0.95rem", 
+                    borderRadius: "12px", 
+                    border: "1px solid #d1d5db", 
+                    cursor: "pointer",
                     fontSize: "0.95rem",
+                    color: startDate ? "#111827" : "#9ca3af",
+                    minHeight: "20px",
                   }}
-                  />
+                >
+                  {formatDisplayDate(startDate)}
                 </div>
               </div>
 
@@ -400,22 +547,73 @@ export default function CreateTrip() {
                 >
                   End date <span style={{ color: "#ef4444" }}>*</span>
                 </label>
-                <div style={{ minWidth: 0 }}>
-                  <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  style={{
-                    width: "93.5%",
-                    borderRadius: 12,
-                    border: "1px solid #d1d5db",
-                    padding: "0.7rem 0.95rem",
+                <div 
+                  onClick={() => setCalendarOpen(true)}
+                  style={{ 
+                    background: "#fff", 
+                    padding: "0.7rem 0.95rem", 
+                    borderRadius: "12px", 
+                    border: "1px solid #d1d5db", 
+                    cursor: "pointer",
                     fontSize: "0.95rem",
+                    color: endDate ? "#111827" : "#9ca3af",
+                    minHeight: "20px",
                   }}
-                  />
+                >
+                  {formatDisplayDate(endDate)}
                 </div>
               </div>
             </div>
+
+            {/* Calendar Popup */}
+            {calendarOpen && (
+              <div
+                onClick={() => setCalendarOpen(false)}
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  background: "rgba(0,0,0,0.35)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  zIndex: 1000,
+                }}
+              >
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    width: "750px",
+                    background: "#fff",
+                    padding: "24px 28px",
+                    borderRadius: "20px",
+                    border: "1px solid #dfe3ff",
+                    boxShadow: "0px 18px 40px rgba(0,0,0,0.15)",
+                    display: "flex",
+                    gap: "30px",
+                    position: "relative",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setCalendarOpen(false)}
+                    style={{ 
+                      position: "absolute", 
+                      top: "10px", 
+                      right: "18px", 
+                      border: "none", 
+                      background: "transparent", 
+                      fontSize: "22px", 
+                      cursor: "pointer", 
+                      color: "#666" 
+                    }}
+                  >
+                    ×
+                  </button>
+                  {renderMonthGrid(0)}
+                  {renderMonthGrid(1)}
+                </div>
+              </div>
+            )}
 
             <InviteTripmates invites={invites} setInvites={setInvites} />
           </div>
