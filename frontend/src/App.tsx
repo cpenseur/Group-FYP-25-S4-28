@@ -127,8 +127,12 @@ export default function App() {
       {!isAdminRoute && <TopBar />}
 
       <Routes>
-        {/* Dev home */}
-        <Route path="/" element={<Home />} />
+
+        {/* Default to LandingPage */}
+        <Route
+          path="/"
+          element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup} />}
+        />
 
         {/* PohYee */}
         <Route
