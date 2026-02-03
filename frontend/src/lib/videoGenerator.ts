@@ -67,6 +67,28 @@ export class MapVideoGenerator {
     document.body.appendChild(this.mapContainer);
   }
 
+  private getSupportedMimeType(): string {
+    // List of codecs to try, in order of preference
+    const codecs = [
+      "video/webm;codecs=vp9",
+      "video/webm;codecs=vp8",
+      "video/webm",
+      "video/mp4;codecs=h264",
+      "video/mp4",
+    ];
+
+    for (const codec of codecs) {
+      if (MediaRecorder.isTypeSupported(codec)) {
+        console.log(`Using video codec: ${codec}`);
+        return codec;
+      }
+    }
+
+    // Fallback - let the browser decide
+    console.warn("No preferred codec supported, using browser default");
+    return "";
+  }
+
   async generate(options: GenerateVideoOptions): Promise<Blob> {
     const { groups, transportModes, title, onProgress } = options;
 
@@ -74,10 +96,17 @@ export class MapVideoGenerator {
       await this.initializeMap(groups);
 
       const stream = this.canvas.captureStream(FPS);
-      this.mediaRecorder = new MediaRecorder(stream, {
-        mimeType: "video/webm;codecs=vp9",
-        videoBitsPerSecond: 1500000,  // ✅ REDUCED: 1.5 Mbps (was 3 Mbps) - 50% smaller files
-      });
+      const mimeType = this.getSupportedMimeType();
+      
+      const recorderOptions: MediaRecorderOptions = {
+        videoBitsPerSecond: 1500000,  // 1.5 Mbps for smaller files
+      };
+      
+      if (mimeType) {
+        recorderOptions.mimeType = mimeType;
+      }
+      
+      this.mediaRecorder = new MediaRecorder(stream, recorderOptions);
 
       this.recordedChunks = [];
 
