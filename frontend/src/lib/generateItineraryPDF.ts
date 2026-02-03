@@ -176,7 +176,8 @@ async function createRouteMapCanvas(items: ItineraryItem[], width: number = 1000
         for (let tx = 0; tx < tilesX; tx++) {
           const tileX = startTileX + tx;
           const tileY = startTileY + ty;
-          const tileUrl = `https://tile.openstreetmap.org/${zoom}/${tileX}/${tileY}.png`;
+          // Use CARTO Positron tiles - clean style with Latin/alphabetic labels
+          const tileUrl = `https://a.basemaps.cartocdn.com/rastertiles/voyager_labels_under/${zoom}/${tileX}/${tileY}.png`;
           
           tilePromises.push(
             loadImage(tileUrl)
@@ -307,7 +308,7 @@ async function createRouteMapCanvas(items: ItineraryItem[], width: number = 1000
 
     // Number
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 12px Arial';
+    ctx.font = 'bold 12px Arial, Helvetica, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText((index + 1).toString(), x, y);
@@ -372,7 +373,7 @@ async function createRouteMapCanvas(items: ItineraryItem[], width: number = 1000
     ctx.fill();
     
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 11px Arial';
+    ctx.font = 'bold 11px Arial, Helvetica, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText((index + 1).toString(), legendX + 30, itemY + 10);
@@ -669,28 +670,20 @@ export async function generateItineraryPDF(
     
     const dayItems = getItemsForDay(sortedItems, day.id);
     
-    // Day header - softer style with left accent
-    pdf.setFillColor(...COLORS.coolBg);
-    pdf.roundedRect(margin, y, contentWidth, 16, 3, 3, "F");
-    // Left accent bar
+    // Day header - matching Trip Route Map header style
     pdf.setFillColor(...COLORS.primary);
-    pdf.roundedRect(margin, y, 4, 16, 2, 2, "F");
-    // Border
-    pdf.setDrawColor(...COLORS.lightGray);
-    pdf.setLineWidth(0.3);
-    pdf.roundedRect(margin, y, contentWidth, 16, 3, 3, "S");
-    
-    pdf.setTextColor(...COLORS.primary);
+    pdf.roundedRect(margin, y, contentWidth, 16, 2, 2, "F");
+    pdf.setTextColor(...COLORS.white);
     pdf.setFontSize(13);
     pdf.setFont("helvetica", "bold");
-    pdf.text(`Day ${day.day_index}`, margin + 10, y + 11);
     
+    // Day label and date on same line
+    let dayLabel = `Day ${day.day_index}`;
     if (day.date) {
-      pdf.setTextColor(...COLORS.gray);
-      pdf.setFontSize(10);
-      pdf.setFont("helvetica", "normal");
-      pdf.text(formatDate(day.date), margin + 45, y + 11);
+      const shortDate = new Date(day.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+      dayLabel += ` - ${shortDate}`;
     }
+    pdf.text(dayLabel, margin + 4, y + 11);
     
     y += 20;
 
@@ -713,7 +706,7 @@ export async function generateItineraryPDF(
       
       let noteY = y + 5;
       for (const line of displayLines) {
-        pdf.text(`📝 ${line}`, margin + 5, noteY);
+        pdf.text(line, margin + 5, noteY);
         noteY += 4;
       }
       
@@ -851,15 +844,12 @@ export async function generateItineraryPDF(
         pdf.setFontSize(8);
         pdf.setFont("helvetica", "normal");
         
-        // Add location icon indicator
-        pdf.text("📍", titleX - 1, currentY + 2);
-        
         // Truncate long addresses
         let addr = item.address;
         while (pdf.getTextWidth(addr) > contentMaxWidth - 10 && addr.length > 20) {
           addr = addr.slice(0, -4) + "...";
         }
-        pdf.text(addr, titleX + 5, currentY + 2);
+        pdf.text(addr, titleX, currentY + 2);
         currentY += 6;
       }
 

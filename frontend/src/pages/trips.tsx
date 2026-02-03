@@ -165,6 +165,8 @@ export default function TripsPage() {
           borderRadius: 16,
           outline: deleteMode ? "2px solid rgba(239,68,68,0.35)" : "none",
           transition: "outline 160ms ease",
+          width: "100%",
+          minWidth: 0,
         }}
       >
         <TripCard
@@ -285,7 +287,7 @@ export default function TripsPage() {
             Upcoming Trips <span style={{ color: "#9ca3af", marginLeft: 8 }}><Info size={14} /></span>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18, maxWidth: 1240, width: "100%" }}>
             {(loading ? Array.from({ length: 4 }) : upcoming).map((t: any, idx: number) => {
               if (loading) {
                 return (
@@ -311,7 +313,7 @@ export default function TripsPage() {
             All Trips <span style={{ color: "#9ca3af", marginLeft: 8 }}><Info size={14} /></span>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18, maxWidth: 1240, width: "100%" }}>
             {(loading ? Array.from({ length: 8 }) : allTrips).map((t: any, idx: number) => {
               if (loading) {
                 return (

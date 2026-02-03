@@ -60,8 +60,18 @@ export default function TripCard({
   variant = "grid",
   width,
 }: Props) {
-  const cityLabel = trip.location_label || trip.main_city || "—";
+  // Clean up city label - remove country suffix if present (e.g., "Tokyo, Japan" -> "Tokyo")
+  const rawCity = trip.location_label || trip.main_city || "—";
   const countryLabel = trip.main_country || "—";
+  
+  let cityLabel = rawCity;
+  if (rawCity.includes(",") && countryLabel !== "—") {
+    const parts = rawCity.split(",").map((p) => p.trim());
+    // If the last part matches the country, remove it
+    if (parts.length > 1 && parts[parts.length - 1].toLowerCase() === countryLabel.toLowerCase()) {
+      cityLabel = parts.slice(0, -1).join(", ");
+    }
+  }
 
   const budget =
     trip.planned_total && trip.currency_symbol
@@ -73,7 +83,7 @@ export default function TripCard({
   const cover = pickTripCover(trip.main_country);
 
   const isMini = variant === "mini";
-  const cardWidth = width ?? (isMini ? 240 : undefined);
+  const cardWidth = width ?? (isMini ? 240 : "100%");
 
   return (
     <button
@@ -85,8 +95,9 @@ export default function TripCard({
         padding: 0,
         cursor: "pointer",
         textAlign: "left",
-
-        width: isMini ? cardWidth : "100%",
+        width: cardWidth,
+        minWidth: 0,
+        overflow: "hidden",
         display: "block",
       }}
     >
@@ -111,11 +122,51 @@ export default function TripCard({
           />
         </div>
 
-        <div style={{ padding: isMini ? 12 : "10px 12px" }}>
-          <div style={{ fontWeight: 650, color: "#111827", fontSize: 13, lineHeight: 1.2 }}>
-            {cityLabel}
+        <div style={{ padding: isMini ? 12 : "10px 12px", minWidth: 0 }}>
+          <div 
+            style={{ 
+              fontWeight: 700, 
+              color: "#111827", 
+              fontSize: 14, 
+              lineHeight: 1.3,
+              marginBottom: 4,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={trip.title}
+          >
+            {trip.title || "Untitled Trip"}
           </div>
-          <div style={{ color: "#6b7280", fontSize: 12, marginTop: 2 }}>{countryLabel}</div>
+          <div 
+            style={{ 
+              color: "#6b7280", 
+              fontSize: 12, 
+              lineHeight: 1.3,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={cityLabel !== "—" && countryLabel !== "—" 
+              ? (cityLabel.toLowerCase() === countryLabel.toLowerCase() 
+                  ? cityLabel 
+                  : `${cityLabel}, ${countryLabel}`)
+              : cityLabel !== "—" 
+                ? cityLabel 
+                : countryLabel !== "—" 
+                  ? countryLabel 
+                  : "No location set"}
+          >
+            {cityLabel !== "—" && countryLabel !== "—" 
+              ? (cityLabel.toLowerCase() === countryLabel.toLowerCase() 
+                  ? cityLabel 
+                  : `${cityLabel}, ${countryLabel}`)
+              : cityLabel !== "—" 
+                ? cityLabel 
+                : countryLabel !== "—" 
+                  ? countryLabel 
+                  : "No location set"}
+          </div>
 
           <div
             style={{
