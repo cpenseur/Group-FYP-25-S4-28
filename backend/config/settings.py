@@ -264,15 +264,22 @@ GEMINI_MODEL = env("GEMINI_MODEL", default="gemini-1.5-flash")
 
 # Email setting
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = "smtp.gmail.com"
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = "tripmatebyfyp25s428@gmail.com"
-EMAIL_HOST_PASSWORD = "woha tkax mbzc vqof"
-DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+EMAIL_HOST = env("EMAIL_HOST", default="smtp.gmail.com")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER)
 
-INVITATION_EMAIL_HOST = "smtp.gmail.com"
-INVITATION_EMAIL_PORT = 587
-INVITATION_EMAIL_USE_TLS = True
-INVITATION_EMAIL_USER = "tripmatebyfyp25s428@gmail.com"
-INVITATION_EMAIL_PASSWORD = "tmsb ntgs ogvh bffy"
+# Invitation email (used by TripMate invitation flow)
+INVITATION_EMAIL_HOST = env("INVITATION_EMAIL_HOST", default=EMAIL_HOST)
+INVITATION_EMAIL_PORT = env.int("INVITATION_EMAIL_PORT", default=EMAIL_PORT)
+INVITATION_EMAIL_USE_TLS = env.bool("INVITATION_EMAIL_USE_TLS", default=EMAIL_USE_TLS)
+INVITATION_EMAIL_USER = env("INVITATION_EMAIL_USER", default=EMAIL_HOST_USER)
+INVITATION_EMAIL_PASSWORD = env("INVITATION_EMAIL_PASSWORD", default=EMAIL_HOST_PASSWORD)
+
+# Brevo (Sendinblue) HTTP API
+BREVO_API_KEY = env("BREVO_API_KEY", default="")
+BREVO_SENDER_EMAIL = env("BREVO_SENDER_EMAIL", default=DEFAULT_FROM_EMAIL)
+BREVO_SENDER_NAME = env("BREVO_SENDER_NAME", default="TripMate")
+BREVO_API_URL = env("BREVO_API_URL", default="https://api.brevo.com/v3/smtp/email")

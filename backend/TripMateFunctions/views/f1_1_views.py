@@ -167,20 +167,45 @@ class TripViewSet(BaseViewSet):
             import threading
             def send_invitation_email():
                 try:
-                    send_mail(
-                        subject="You're invited to a Trip on TripMate ✈️",
-                        message=(
-                            f"You've been invited to join a trip.\n\n"
-                            f"Click the link below to accept the invite:\n"
-                            f"{invite_url}\n\n"
-                            f"Please note: this invitation will expire 24 hours after it is issued.\n"                    
-                            f"If you didn't expect this, you can ignore this email."
-                        ),
-                        from_email=settings.DEFAULT_FROM_EMAIL,
-                        recipient_list=[email],
-                        fail_silently=True,
+                    subject = "You're invited to a Trip on TripMate ✈️"
+                    body = (
+                        "You've been invited to join a trip.\n\n"
+                        f"Click the link below to accept the invite:\n{invite_url}\n\n"
+                        "Please note: this invitation will expire 24 hours after it is issued.\n"
+                        "If you didn't expect this, you can ignore this email."
                     )
-                    logger.info(f"Invitation email sent to {email}")
+
+                    if getattr(settings, "BREVO_API_KEY", ""):
+                        headers = {
+                            "api-key": settings.BREVO_API_KEY,
+                            "Content-Type": "application/json",
+                        }
+                        payload = {
+                            "sender": {
+                                "email": settings.BREVO_SENDER_EMAIL,
+                                "name": settings.BREVO_SENDER_NAME,
+                            },
+                            "to": [{"email": email}],
+                            "subject": subject,
+                            "textContent": body,
+                        }
+                        resp = requests.post(
+                            getattr(settings, "BREVO_API_URL", "https://api.brevo.com/v3/smtp/email"),
+                            headers=headers,
+                            json=payload,
+                            timeout=10,
+                        )
+                        resp.raise_for_status()
+                        logger.info(f"Invitation email sent to {email} via Brevo (messageId={resp.json().get('messageId')})")
+                    else:
+                        send_mail(
+                            subject=subject,
+                            message=body,
+                            from_email=settings.DEFAULT_FROM_EMAIL,
+                            recipient_list=[email],
+                            fail_silently=True,
+                        )
+                        logger.info(f"Invitation email sent to {email} via SMTP backend")
                 except Exception as e:
                     logger.error(f"Failed to send invitation email to {email}: {str(e)}")
             
