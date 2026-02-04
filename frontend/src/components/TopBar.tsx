@@ -111,28 +111,29 @@ const LogoutButton = styled.button`
 function UserHeader({ onLogout }: { onLogout: () => void }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const isActive = (path: string) => location.pathname === path;
+  // Check both obfuscated and legacy paths for active state
+  const isActive = (paths: string[]) => paths.some(p => location.pathname === p);
 
   return (
     <Navbar>
       <NavContainer>
         {/* Logo (includes TripMate text) */}
-        <Left onClick={() => navigate("/dashboard")}>
+        <Left onClick={() => navigate("/a/d")}>
           <LogoImg src={logo} alt="TripMate Logo" />
         </Left>
 
         <RightSection>
           <DesktopNav>
-            <NavItem to="/dashboard" $active={isActive("/dashboard")}>
+            <NavItem to="/a/d" $active={isActive(["/a/d", "/dashboard"])}>
               Dashboard
             </NavItem>
-            <NavItem to="/trips" $active={isActive("/trips")}>
+            <NavItem to="/a/t" $active={isActive(["/a/t", "/trips"])}>
               Trips
             </NavItem>
-            <NavItem to="/discovery-local" $active={isActive("/discovery-local")}>
+            <NavItem to="/a/dl" $active={isActive(["/a/dl", "/discovery-local"])}>
               Explore
             </NavItem>
-            <NavItem to="/profile" $active={isActive("/profile")}>
+            <NavItem to="/a/p" $active={isActive(["/a/p", "/profile"])}>
               Profile
             </NavItem>
           </DesktopNav>

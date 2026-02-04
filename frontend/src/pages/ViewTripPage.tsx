@@ -1,6 +1,7 @@
 // frontend/src/pages/ViewTripPage.tsx
 import { useEffect, useState } from "react";
-import { useParams , useNavigate} from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useTripId } from "../hooks/useDecodedParams";
 import { MapPin, Eye, Bed, CalendarDays, FileText, DollarSign, Camera, Lightbulb } from "lucide-react";
 import ItineraryMap, { MapItineraryItem } from "../components/ItineraryMap";
 import Login from "../components/login"; 
@@ -43,7 +44,7 @@ type ViewTripData = {
 type ActiveTab = 'itinerary' | 'notes' | 'budget' | 'media' | 'recommendations';
 
 export default function ViewTripPage() {
-  const { tripId } = useParams<{ tripId: string }>();
+  const tripId = useTripId();
   const [tripData, setTripData] = useState<ViewTripData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

@@ -1,6 +1,7 @@
 // discoveryItineraryDetail.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams, useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useTripId } from "../hooks/useDecodedParams";
 
 import { MapContainer, TileLayer, Marker, Polyline, Popup } from "react-leaflet";
 import L from "leaflet";
@@ -411,7 +412,7 @@ function PlaceThumb({
 }
 
 export default function DiscoveryItineraryDetail() {
-  const { tripId } = useParams<{ tripId: string }>();
+  const tripId = useTripId();
   const navigate = useNavigate();
 
   const [trip, setTrip] = useState<TripDetail | null>(null);

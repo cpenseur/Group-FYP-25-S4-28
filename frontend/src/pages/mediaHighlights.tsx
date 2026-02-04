@@ -1,7 +1,8 @@
 // frontend/src/pages/mediaHighlights.tsx
 
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useTripId } from "../hooks/useDecodedParams";
 import { apiFetch } from "../lib/apiClient";
 import { supabase } from "../lib/supabaseClient";
 import { generateMapTripVideo } from "../lib/videoGenerator";
@@ -97,7 +98,7 @@ interface PhotosByDay {
 export default function MediaHighlights() {
   console.log("🔄 MediaHighlights component rendered");
 
-  const { tripId } = useParams();
+  const tripId = useTripId();
   const navigate = useNavigate();
 
   const [trip, setTrip] = useState<Trip | null>(null);

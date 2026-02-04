@@ -1,6 +1,7 @@
 // frontend/src/pages/itineraryEditor.tsx
 import React, { useEffect, useMemo, useRef, useState, ReactNode } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useTripId } from "../hooks/useDecodedParams";
 import { createPortal } from "react-dom";
 
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -473,7 +474,7 @@ function DayDroppable({
 /* -------------------- Component -------------------- */
 
 export default function ItineraryEditor() {
-  const { tripId } = useParams<{ tripId: string }>();
+  const tripId = useTripId();
   const navigate = useNavigate();
   const numericTripId = Number(tripId);
 

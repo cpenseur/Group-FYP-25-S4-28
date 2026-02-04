@@ -59,6 +59,11 @@ export async function apiFetch(path, options = {}) {
     }
   }
 
+  // ƒo. Prevent caching for authenticated GET requests (personalized data)
+  if (method === 'GET' && token) {
+    headers['Cache-Control'] = 'no-cache';
+  }
+
   // ƒo. Make the request with credentials to send/receive cookies
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...options,

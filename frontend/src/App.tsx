@@ -1,6 +1,6 @@
 // frontend/src/App.tsx
 import { useState, useEffect } from "react";
-import { Routes, Route, useLocation } from "react-router-dom";
+import { Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { supabase } from "./lib/supabaseClient";
 import { ensureCsrfToken } from "./lib/apiClient";
 import Home from "./pages/Home";
@@ -52,9 +52,46 @@ import GroupAITripGeneratorWait from "./pages/groupAITripGeneratorWait";
 import NotesAndChecklistPage from "./pages/notesAndChecklistPage";
 import BudgetPage from "./pages/budget";
 
+// Auth-aware redirect component for landing page
+function LandingOrDashboard({ 
+  user, 
+  onLoginClick, 
+  onSignupClick 
+}: { 
+  user: any; 
+  onLoginClick: () => void; 
+  onSignupClick: () => void;
+}) {
+  if (user) {
+    return <Navigate to="/a/d" replace />;
+  }
+  return <LandingPage onLoginClick={onLoginClick} onSignupClick={onSignupClick} />;
+}
+
+// Protected route wrapper - redirects to landing if not logged in
+function ProtectedRoute({ 
+  user, 
+  authLoading, 
+  children 
+}: { 
+  user: any; 
+  authLoading: boolean; 
+  children: React.ReactNode;
+}) {
+  if (authLoading) {
+    return null; // Or a loading spinner
+  }
+  if (!user) {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}
+
 export default function App() {
   const [showLogin, setShowLogin] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [user, setUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
   const openLogin = () => {
     setShowLogin(true);
@@ -74,11 +111,20 @@ export default function App() {
    * Auth state change listener + optional CSRF
    */
   useEffect(() => {
+    // Check initial auth state
+    const checkUser = async () => {
+      const { data } = await supabase.auth.getSession();
+      setUser(data.session?.user ?? null);
+      setAuthLoading(false);
+    };
+    checkUser();
+
     // Try to get CSRF token (optional - JWT auth works without it)
     ensureCsrfToken();
     
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event) => {
+      async (event, session) => {
+        setUser(session?.user ?? null);
         if (event === "SIGNED_IN") {
           // Refresh CSRF on sign in (optional)
           ensureCsrfToken();
@@ -128,13 +174,73 @@ export default function App() {
 
       <Routes>
 
-        {/* Default to LandingPage */}
+        {/* Default: redirect to dashboard if logged in, otherwise show landing */}
         <Route
           path="/"
-          element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup} />}
+          element={
+            authLoading ? null : (
+              <LandingOrDashboard 
+                user={user} 
+                onLoginClick={openLogin} 
+                onSignupClick={openSignup} 
+              />
+            )
+          }
         />
 
-        {/* PohYee */}
+        {/* ==================== OBFUSCATED ROUTES ==================== */}
+        {/* Simple routes: /a/{code} */}
+        <Route path="/a/d" element={<ProtectedRoute user={user} authLoading={authLoading}><Dashboard /></ProtectedRoute>} />
+        <Route path="/a/t" element={<ProtectedRoute user={user} authLoading={authLoading}><Trips /></ProtectedRoute>} />
+        <Route path="/a/p" element={<ProtectedRoute user={user} authLoading={authLoading}><Profile /></ProtectedRoute>} />
+        <Route path="/a/c" element={<ProtectedRoute user={user} authLoading={authLoading}><CreateTrip /></ProtectedRoute>} />
+        <Route path="/a/ag1" element={<ProtectedRoute user={user} authLoading={authLoading}><AiTripGeneratorStep1 /></ProtectedRoute>} />
+        <Route path="/a/ag2" element={<ProtectedRoute user={user} authLoading={authLoading}><AiTripGeneratorStep2 /></ProtectedRoute>} />
+        <Route path="/a/agw" element={<ProtectedRoute user={user} authLoading={authLoading}><AITripGeneratorWait /></ProtectedRoute>} />
+        <Route path="/a/agg" element={<ProtectedRoute user={user} authLoading={authLoading}><AiTripGeneratorGroup /></ProtectedRoute>} />
+        <Route path="/a/dl" element={<ProtectedRoute user={user} authLoading={authLoading}><DiscoveryLocal /></ProtectedRoute>} />
+        <Route path="/a/di" element={<ProtectedRoute user={user} authLoading={authLoading}><DiscoveryInternational /></ProtectedRoute>} />
+        <Route path="/a/df" element={<ProtectedRoute user={user} authLoading={authLoading}><DiscoveryFAQ /></ProtectedRoute>} />
+        <Route path="/a/dfp" element={<ProtectedRoute user={user} authLoading={authLoading}><DestinationFaqPanel /></ProtectedRoute>} />
+        <Route path="/a/lip" element={<ProtectedRoute user={user} authLoading={authLoading}><LocalInformationPanel /></ProtectedRoute>} />
+
+        {/* Trip routes with encoded ID: /v/{encodedTripId}/{code} */}
+        <Route path="/v/:eid/i" element={<ProtectedRoute user={user} authLoading={authLoading}><ItineraryEditor /></ProtectedRoute>} />
+        <Route path="/v/:eid/b" element={<ProtectedRoute user={user} authLoading={authLoading}><BudgetPage /></ProtectedRoute>} />
+        <Route path="/v/:eid/n" element={<ProtectedRoute user={user} authLoading={authLoading}><NotesAndChecklistPage /></ProtectedRoute>} />
+        <Route path="/v/:eid/ch" element={<ProtectedRoute user={user} authLoading={authLoading}><PlanbotPage /></ProtectedRoute>} />
+        <Route path="/v/:eid/m" element={<ProtectedRoute user={user} authLoading={authLoading}><MediaHighlights /></ProtectedRoute>} />
+        <Route path="/v/:eid/r" element={<ProtectedRoute user={user} authLoading={authLoading}><ItineraryRecommendation /></ProtectedRoute>} />
+        <Route path="/v/:eid/vw" element={<ViewTripPage />} />
+        <Route path="/v/:eid/gw" element={<ProtectedRoute user={user} authLoading={authLoading}><GroupWaitForFriends /></ProtectedRoute>} />
+        <Route path="/v/:eid/gs" element={<ProtectedRoute user={user} authLoading={authLoading}><GroupItinerarySummary /></ProtectedRoute>} />
+        <Route path="/v/:eid/gaw" element={<ProtectedRoute user={user} authLoading={authLoading}><GroupAITripGeneratorWait /></ProtectedRoute>} />
+        <Route path="/v/:eid/dit" element={<ProtectedRoute user={user} authLoading={authLoading}><DiscoveryItineraryDetail /></ProtectedRoute>} />
+        
+        {/* Routes with two encoded IDs: /v/{encodedTripId}/{code}/{encodedId2} */}
+        <Route path="/v/:eid/h/:eid2" element={<ProtectedRoute user={user} authLoading={authLoading}><VideoPlayer /></ProtectedRoute>} />
+
+        {/* Token routes: /x/{code}/{token} */}
+        <Route path="/x/inv/:token" element={<TripInvitationPage />} />
+        <Route path="/x/ainv/:token" element={<TripInvitationAccept />} />
+
+        {/* ==================== LEGACY ROUTES (redirect to obfuscated) ==================== */}
+        {/* These redirect old URLs to new obfuscated ones */}
+        <Route path="/dashboard" element={<Navigate to="/a/d" replace />} />
+        <Route path="/trips" element={<Navigate to="/a/t" replace />} />
+        <Route path="/profile" element={<Navigate to="/a/p" replace />} />
+        <Route path="/create-trip" element={<Navigate to="/a/c" replace />} />
+        <Route path="/ai-trip-generator-step-1" element={<Navigate to="/a/ag1" replace />} />
+        <Route path="/ai-trip-generator-step-2" element={<Navigate to="/a/ag2" replace />} />
+        <Route path="/ai-trip-generator/wait" element={<Navigate to="/a/agw" replace />} />
+        <Route path="/ai-trip-generator-group" element={<Navigate to="/a/agg" replace />} />
+        <Route path="/discovery-local" element={<Navigate to="/a/dl" replace />} />
+        <Route path="/discovery-international" element={<Navigate to="/a/di" replace />} />
+        <Route path="/discovery-faq" element={<Navigate to="/a/df" replace />} />
+        <Route path="/destination-faq-panel" element={<Navigate to="/a/dfp" replace />} />
+        <Route path="/local-info-panel" element={<Navigate to="/a/lip" replace />} />
+
+        {/* ==================== PUBLIC ROUTES ==================== */}
         <Route
           path="/landing-page"
           element={<LandingPage onLoginClick={openLogin} onSignupClick={openSignup} />}
@@ -148,49 +254,30 @@ export default function App() {
           element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />}
         />
         <Route path="/guest-faq" element={<GuestFAQPage onLoginClick={openLogin} onSignupClick={openSignup} />} />
-        <Route path="/admin-dashboard" element={<AdminDashboard />} />
-        <Route path="/admin-profile" element={<AdminProfile />} />
-        <Route path="/profile" element={<Profile />} />
+        <Route path="/admin-dashboard" element={<ProtectedRoute user={user} authLoading={authLoading}><AdminDashboard /></ProtectedRoute>} />
+        <Route path="/admin-profile" element={<ProtectedRoute user={user} authLoading={authLoading}><AdminProfile /></ProtectedRoute>} />
         <Route
           path="/signin"
           element={<Login isOpen={true} onClose={() => window.history.back()} defaultMode="login" />}
         />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/suspendAcct" element={<SuspendAcct />} />
+        
+        {/* Legacy trip routes - kept for backwards compatibility with existing links */}
         <Route path="/trip/:tripId/view" element={<ViewTripPage />} />
-
-        {/* Vania */}
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/ai-trip-generator-step-1" element={<AiTripGeneratorStep1 />} />
-        <Route path="/ai-trip-generator-step-2" element={<AiTripGeneratorStep2 />} />
-        <Route path="/create-trip" element={<CreateTrip />} />
-        <Route path="/trip/:tripId/itinerary" element={<ItineraryEditor />} />
-        <Route path="/trip/:tripId/chatbot" element={<PlanbotPage />} />
-        <Route path="/trips" element={<Trips />} />
-        <Route path="/ai-trip-generator/wait" element={<AITripGeneratorWait />} />
+        <Route path="/trip/:tripId/itinerary" element={<ProtectedRoute user={user} authLoading={authLoading}><ItineraryEditor /></ProtectedRoute>} />
+        <Route path="/trip/:tripId/chatbot" element={<ProtectedRoute user={user} authLoading={authLoading}><PlanbotPage /></ProtectedRoute>} />
+        <Route path="/trip/:tripId/recommendations" element={<ProtectedRoute user={user} authLoading={authLoading}><ItineraryRecommendation /></ProtectedRoute>} />
+        <Route path="/trip/:tripId/media" element={<ProtectedRoute user={user} authLoading={authLoading}><MediaHighlights /></ProtectedRoute>} />
+        <Route path="/trip/:tripId/highlight/:highlightId" element={<ProtectedRoute user={user} authLoading={authLoading}><VideoPlayer /></ProtectedRoute>} />
+        <Route path="/trip/:tripId/notes" element={<ProtectedRoute user={user} authLoading={authLoading}><NotesAndChecklistPage /></ProtectedRoute>} />
+        <Route path="/trip/:tripId/budget" element={<ProtectedRoute user={user} authLoading={authLoading}><BudgetPage /></ProtectedRoute>} />
         <Route path="/trip-invitation/:token" element={<TripInvitationPage />} />
-
-        {/* KK */}
-        <Route path="/discovery-local" element={<DiscoveryLocal />} />
-        <Route path="/discovery-international" element={<DiscoveryInternational />} />
-        <Route path="/discovery-faq" element={<DiscoveryFAQ />} />
-        <Route path="/discovery-itinerary/:tripId" element={<DiscoveryItineraryDetail />} />
-
-        {/* Mingyu */}
-        <Route path="/destination-faq-panel" element={<DestinationFaqPanel />} />
-        <Route path="/local-info-panel" element={<LocalInformationPanel />} />
-        <Route path="/group-wait-for-friends/:tripId" element={<GroupWaitForFriends />} />
-        <Route path="/group-trip/:tripId/summary" element={<GroupItinerarySummary />} />
-        <Route path="/ai-trip-generator-group" element={<AiTripGeneratorGroup />} />
-        <Route path="/trip/:tripId/recommendations" element={<ItineraryRecommendation />} />
-        <Route path="/trip/:tripId/media" element={<MediaHighlights />} />
-        <Route path="/trip/:tripId/highlight/:highlightId" element={<VideoPlayer />} />
         <Route path="/ai-invitation/:token" element={<TripInvitationAccept />} />
-        <Route path="/group-ai-wait/:tripId" element={<GroupAITripGeneratorWait />} />
-
-        {/* Su */}
-        <Route path="/trip/:tripId/notes" element={<NotesAndChecklistPage />} />
-        <Route path="/trip/:tripId/budget" element={<BudgetPage />} />
+        <Route path="/discovery-itinerary/:tripId" element={<ProtectedRoute user={user} authLoading={authLoading}><DiscoveryItineraryDetail /></ProtectedRoute>} />
+        <Route path="/group-wait-for-friends/:tripId" element={<ProtectedRoute user={user} authLoading={authLoading}><GroupWaitForFriends /></ProtectedRoute>} />
+        <Route path="/group-trip/:tripId/summary" element={<ProtectedRoute user={user} authLoading={authLoading}><GroupItinerarySummary /></ProtectedRoute>} />
+        <Route path="/group-ai-wait/:tripId" element={<ProtectedRoute user={user} authLoading={authLoading}><GroupAITripGeneratorWait /></ProtectedRoute>} />
       </Routes>
 
       <Login

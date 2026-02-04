@@ -1,6 +1,6 @@
 // frontend/src/pages/budget.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useTripId } from "../hooks/useDecodedParams";
 import { apiFetch } from "../lib/apiClient";
 import TripSubHeader from "../components/TripSubHeader";
 
@@ -508,8 +508,8 @@ function CategoryBarChart({
 }
 
 export default function BudgetPage() {
-  const params = useParams();
-  const tripId = Number((params as any).tripId || (params as any).id);
+  const rawTripId = useTripId();
+  const tripId = Number(rawTripId);
 
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);

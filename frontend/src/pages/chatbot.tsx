@@ -1,6 +1,7 @@
 // frontend/src/pages/chatbot.tsx
 import React, { useState, useRef, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useTripId } from "../hooks/useDecodedParams";
 import { apiFetch } from "../lib/apiClient";
 import { supabase } from "../lib/supabaseClient";
 import planbotSmall from "../assets/planbotSmall.png";
@@ -16,7 +17,7 @@ interface ChatMessage {
 }
 
 const PlanbotPage: React.FC = () => {
-  const { tripId } = useParams<{ tripId: string }>();
+  const tripId = useTripId();
   const navigate = useNavigate();
 
   const [messages, setMessages] = useState<ChatMessage[]>([

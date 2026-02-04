@@ -2,7 +2,7 @@
 // FIXED VERSION - Improved location detection to avoid wrong cities
 
 import { useState, useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useTripId } from "../hooks/useDecodedParams";
 import TripSubHeader from "../components/TripSubHeader";
 import ItineraryMap from "../components/ItineraryMap";
 import { apiFetch } from "../lib/apiClient";
@@ -65,7 +65,7 @@ interface UserProfile {
 }
 
 export default function RecommendationsPage() {
-  const { tripId } = useParams();
+  const tripId = useTripId();
   
   const [trip, setTrip] = useState<TripResponse | null>(null);
   const [items, setItems] = useState<ItineraryItem[]>([]);

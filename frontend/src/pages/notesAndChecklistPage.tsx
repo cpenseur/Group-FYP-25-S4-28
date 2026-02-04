@@ -1,6 +1,7 @@
 // frontend/src/pages/notesAndChecklistPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useTripId } from "../hooks/useDecodedParams";
 
 import TripSubHeader from "../components/TripSubHeader";
 import ItineraryMap, { MapItineraryItem } from "../components/ItineraryMap";
@@ -89,7 +90,7 @@ type ModalType =
 
 export default function NotesAndChecklistPage() {
   const navigate = useNavigate();
-  const { tripId } = useParams();
+  const tripId = useTripId();
 
   const tripIdNum = useMemo(() => Number(tripId), [tripId]);
 

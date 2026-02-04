@@ -1,7 +1,8 @@
 // frontend/src/pages/groupAITripGeneratorWait.tsx
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useTripId } from "../hooks/useDecodedParams";
 import { apiFetch } from "../lib/apiClient";
 
 import {
@@ -43,7 +44,7 @@ function getKeywordVisual(keyword: string) {
 
 export default function GroupAITripGeneratorWait() {
   const navigate = useNavigate();
-  const { tripId } = useParams<{ tripId: string }>();
+  const tripId = useTripId();
 
   const navigatedRef = useRef(false);
 

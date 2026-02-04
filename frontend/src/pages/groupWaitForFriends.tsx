@@ -1,7 +1,8 @@
 // frontend/src/pages/groupWaitForFriends.tsx
 
 import React, { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useTripId } from "../hooks/useDecodedParams";
 import { apiFetch } from "../lib/apiClient";
 import { supabase } from "../lib/supabaseClient";
 
@@ -13,7 +14,7 @@ type Collaborator = {
 };
 
 export default function GroupWaitForFriends() {
-  const { tripId } = useParams<{ tripId: string }>();
+  const tripId = useTripId();
   const navigate = useNavigate();
 
   const [friends, setFriends] = useState<Collaborator[]>([]);

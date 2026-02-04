@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useTripId } from "../hooks/useDecodedParams";
 import { apiFetch } from "../lib/apiClient";
 import {
   ShoppingBag,
@@ -182,7 +183,7 @@ function getKeywordVisual(keyword: string) {
 
 export default function GroupItinerarySummary() {
   const navigate = useNavigate();
-  const { tripId } = useParams<{ tripId: string }>();
+  const tripId = useTripId();
 
   const [tripDays, setTripDays] = useState(3);
   const [startDate, setStartDate] = useState<Date>(new Date());

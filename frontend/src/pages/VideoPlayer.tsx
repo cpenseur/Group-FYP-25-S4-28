@@ -1,7 +1,8 @@
 // src/pages/VideoPlayer.tsx
 
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useTripId, useHighlightId } from "../hooks/useDecodedParams";
 import { apiFetch } from "../lib/apiClient";
 import TripSubHeader from "../components/TripSubHeader";
 import { Play, Pause, Volume2, VolumeX, Maximize, ArrowLeft, Download } from "lucide-react";
@@ -17,7 +18,8 @@ interface MediaHighlight {
 }
 
 export default function VideoPlayer() {
-  const { tripId, highlightId } = useParams();
+  const tripId = useTripId();
+  const highlightId = useHighlightId();
   const navigate = useNavigate();
 
   const [highlight, setHighlight] = useState<MediaHighlight | null>(null);
