@@ -372,7 +372,7 @@ export default function AdminFAQManageView() {
 
     setBulkLoading(true);
     try {
-      const response = await fetch(`${API_BASE}bulk/`, {
+      const response = await fetchWithAuth(`${API_BASE}bulk/`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ ids: Array.from(selectedIds), is_published: isPublished }),
@@ -385,7 +385,12 @@ export default function AdminFAQManageView() {
       alert(`Successfully ${action}ed ${result.updated} FAQ(s)`);
     } catch (error) {
       console.error("Error bulk updating FAQs:", error);
-      alert("Failed to update FAQs");
+      const msg = normalizeApiError(error);
+      if (msg.includes("Not authenticated")) {
+        alert("Please sign in as an admin to perform this action.");
+      } else {
+        alert("Failed to update FAQs");
+      }
     } finally {
       setBulkLoading(false);
     }
@@ -393,7 +398,7 @@ export default function AdminFAQManageView() {
 
   const handleTogglePublish = async (faq: FAQ) => {
     try {
-      const response = await fetch(`${API_BASE}${faq.id}/`, {
+      const response = await fetchWithAuth(`${API_BASE}${faq.id}/`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ is_published: !faq.is_published }),
@@ -404,7 +409,12 @@ export default function AdminFAQManageView() {
       await fetchFAQs();
     } catch (error) {
       console.error("Error toggling publish status:", error);
-      alert("Failed to update FAQ status");
+      const msg = normalizeApiError(error);
+      if (msg.includes("Not authenticated")) {
+        alert("Please sign in as an admin to update FAQ status.");
+      } else {
+        alert("Failed to update FAQ status");
+      }
     }
   };
 
@@ -413,7 +423,7 @@ export default function AdminFAQManageView() {
     if (!confirmed) return;
 
     try {
-      const response = await fetch(`${API_BASE}${faq.id}/`, {
+      const response = await fetchWithAuth(`${API_BASE}${faq.id}/`, {
         method: "DELETE",
         headers: { Accept: "application/json" },
       });
@@ -423,7 +433,12 @@ export default function AdminFAQManageView() {
       await fetchFAQs();
     } catch (error) {
       console.error("Error deleting FAQ:", error);
-      alert("Failed to delete FAQ");
+      const msg = normalizeApiError(error);
+      if (msg.includes("Not authenticated")) {
+        alert("Please sign in as an admin to delete FAQs.");
+      } else {
+        alert("Failed to delete FAQ");
+      }
     }
   };
 
@@ -478,7 +493,7 @@ export default function AdminFAQManageView() {
       }
 
       if (modalMode === "create") {
-        const res = await fetch(API_BASE, {
+        const res = await fetchWithAuth(API_BASE, {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(payload),
@@ -489,8 +504,7 @@ export default function AdminFAQManageView() {
         }
       } else {
         if (!editingId) throw new Error("Missing FAQ id for edit.");
-
-        const res = await fetch(`${API_BASE}${editingId}/`, {
+        const res = await fetchWithAuth(`${API_BASE}${editingId}/`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(payload),
