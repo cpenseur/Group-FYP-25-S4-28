@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
+import { encodeId } from "../lib/urlObfuscation";
 
 import {
   ShoppingBag,
@@ -108,7 +109,8 @@ export default function AITripGeneratorWait() {
   const goToTrip = (tripId: number) => {
     setIsExiting(true);
     window.setTimeout(() => {
-        navigate(`/trip/${tripId}/itinerary`, { replace: true });
+        // Use obfuscated route
+        navigate(`/v/${encodeId(tripId)}/i`, { replace: true });
     }, 420); // match CSS transition duration
   };
   

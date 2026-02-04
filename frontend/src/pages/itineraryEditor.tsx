@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTripId } from "../hooks/useDecodedParams";
+import { encodeId } from "../lib/urlObfuscation";
 import { createPortal } from "react-dom";
 
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -2720,7 +2721,7 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
             {/* Planbot pill at top */}
             <button
               type="button"
-              onClick={() => navigate(`/trip/${tripId}/chatbot`)}
+              onClick={() => navigate(`/v/${encodeId(tripId!)}/ch`)}
               style={{
                 alignSelf: "stretch",
                 borderRadius: "999px",

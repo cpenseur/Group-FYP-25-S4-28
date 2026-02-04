@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTripId } from "../hooks/useDecodedParams";
 import { apiFetch } from "../lib/apiClient";
+import { encodeId } from "../lib/urlObfuscation";
 import { supabase } from "../lib/supabaseClient";
 import { generateMapTripVideo } from "../lib/videoGenerator";
 import TripSubHeader from "../components/TripSubHeader";
@@ -993,7 +994,7 @@ export default function MediaHighlights() {
                     >
                       <div 
                         style={highlightMainContent}
-                        onClick={() => navigate(`/trip/${tripId}/highlight/${highlight.id}`)}
+                        onClick={() => navigate(`/v/${encodeId(tripId!)}/h/${encodeId(highlight.id)}`)}
                       >
                         <div style={highlightThumbnail}>
                           <Play size={28} style={{ opacity: 0.9 }} />

@@ -88,7 +88,8 @@ const AiTripGeneratorStep1: React.FC = () => {
       
       console.log("✅ All invitations sent successfully!");
 
-      navigate(`/ai-trip-generator-group?tripId=${tripId}`);
+      // Navigate to group trip generator with tripId (will work with redirect preserving query params)
+      navigate(`/a/agg?tripId=${tripId}`);
       
     } catch (err: any) {
       console.error("❌ Failed to create group trip:", err);

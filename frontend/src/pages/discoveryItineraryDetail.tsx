@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTripId } from "../hooks/useDecodedParams";
+import { encodeId } from "../lib/urlObfuscation";
 
 import { MapContainer, TileLayer, Marker, Polyline, Popup } from "react-leaflet";
 import L from "leaflet";
@@ -572,7 +573,7 @@ export default function DiscoveryItineraryDetail() {
         }
       }
 
-      navigate(`/trip/${newTrip.id}/itinerary`);
+      navigate(`/v/${encodeId(newTrip.id)}/i`);
     } catch (err) {
       console.error("Failed to copy itinerary:", err);
       alert("Failed to copy itinerary. Please make sure you are logged in and try again.");

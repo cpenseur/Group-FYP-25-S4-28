@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
+import { encodeId } from "../lib/urlObfuscation";
 import { supabase } from "../lib/supabaseClient";
 import TripCard, { type TripOverview } from "../components/TripCard";
 import { Plus, Search, Info, Trash2, X, Check } from "lucide-react";
@@ -174,7 +175,7 @@ export default function TripsPage() {
           variant="grid"
           onClick={() => {
             if (deleteMode) return; // prevent accidental navigation in delete mode
-            navigate(`/trip/${t.id}/itinerary`);
+            navigate(`/v/${encodeId(t.id)}/i`);
           }}
         />
 

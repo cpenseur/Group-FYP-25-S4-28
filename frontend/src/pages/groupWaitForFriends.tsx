@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { useTripId } from "../hooks/useDecodedParams";
 import { apiFetch } from "../lib/apiClient";
 import { supabase } from "../lib/supabaseClient";
+import { encodeId } from "../lib/urlObfuscation";
 
 type Collaborator = {
   email: string;
@@ -43,13 +44,13 @@ export default function GroupWaitForFriends() {
       
       if (tripData.travel_type === "group_ai") {
         console.log("Trip already generated! Navigating to summary...");
-        navigate(`/group-trip/${tripId}/summary`);
+        navigate(`/v/${encodeId(tripId)}/gs`);
         return;
       }
       
       if (tripData.travel_type === "group_generating") {
         console.log("🔄 Trip is generating! Navigating to wait page...");
-        navigate(`/group-ai-wait/${tripId}`);
+        navigate(`/v/${encodeId(tripId)}/gaw`);
         return;
       }
 
@@ -170,8 +171,8 @@ export default function GroupWaitForFriends() {
 
       console.log("✅ AI generation started:", aiResponse);
 
-      // Navigate to AI generation wait page
-      navigate(`/group-ai-wait/${tripId}`);
+      // Navigate to AI generation wait page (obfuscated route)
+      navigate(`/v/${encodeId(tripId)}/gaw`);
       
     } catch (error: any) {
       console.error("❌ Failed to start search:", error);

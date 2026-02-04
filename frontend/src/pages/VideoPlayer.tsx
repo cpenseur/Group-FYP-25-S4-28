@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTripId, useHighlightId } from "../hooks/useDecodedParams";
 import { apiFetch } from "../lib/apiClient";
+import { encodeId } from "../lib/urlObfuscation";
 import TripSubHeader from "../components/TripSubHeader";
 import { Play, Pause, Volume2, VolumeX, Maximize, ArrowLeft, Download } from "lucide-react";
 
@@ -172,7 +173,7 @@ export default function VideoPlayer() {
         <div style={playerContainer}>
           {/* Back button */}
           <button
-            onClick={() => navigate(`/trip/${tripId}/media`)}
+            onClick={() => navigate(`/v/${encodeId(tripId!)}/m`)}
             style={backButton}
           >
             <ArrowLeft size={20} />
