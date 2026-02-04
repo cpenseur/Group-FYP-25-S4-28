@@ -272,8 +272,9 @@ const CATEGORY_TABS: (FAQCategory | "All")[] = [
 
 const FAQ_PAGE_SIZE = 8;
 
-// ✅ Make it like discoveryLocal.tsx (absolute backend URL)
-const COMMUNITY_FAQ_API = "http://127.0.0.1:8000/api/f2/community_faq/";
+// ✅ Use environment variable for API base URL
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
+const COMMUNITY_FAQ_API = `${API_BASE}/f2/community_faq/`;
 
 // --------------- helpers ---------------
 

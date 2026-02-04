@@ -66,8 +66,9 @@ type TripDayApi = {
 
 // -------------------------------------------------------------------
 
-const COMMUNITY_API = "http://127.0.0.1:8000/api/f2/community/";
-const COMMUNITY_BASE = new URL(COMMUNITY_API).origin;
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
+const COMMUNITY_API = `${API_BASE}/f2/community/`;
+const COMMUNITY_BASE = new URL(API_BASE).origin;
 
 // ---------------- Helpers ----------------
 

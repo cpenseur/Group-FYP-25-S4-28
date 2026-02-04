@@ -105,14 +105,15 @@ export default function AdminReportsView({
 
         console.log("token exists?", !!token);
 
-        const who = await fetch("http://localhost:8000/api/auth/whoami/", {
+        const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+        const who = await fetch(`${API_BASE}/auth/whoami/`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         console.log("whoami status", who.status, await who.text());
 
         if (!token) throw new Error("Not logged in (no Supabase session)");
 
-        const r = await fetch(`http://localhost:8000/api/admin/reports/preview/?${params.toString()}`, {
+        const r = await fetch(`${API_BASE}/admin/reports/preview/?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
         });
 

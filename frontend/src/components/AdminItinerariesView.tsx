@@ -28,7 +28,8 @@ export default function AdminItinerariesView() {
       const token = session.session?.access_token;
       if (!token) return;
 
-      const response = await fetch("http://localhost:8000/api/f8/trips/", {
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+      const response = await fetch(`${API_BASE}/f8/trips/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -66,7 +67,8 @@ export default function AdminItinerariesView() {
       const token = session.session?.access_token;
       if (!token) return;
 
-      const response = await fetch(`http://localhost:8000/api/f8/trips/${id}/toggle_display/`, {
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+      const response = await fetch(`${API_BASE}/f8/trips/${id}/toggle_display/`, {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -97,7 +99,8 @@ export default function AdminItinerariesView() {
       const token = session.session?.access_token;
       if (!token) return;
 
-      const response = await fetch(`http://localhost:8000/api/f8/trips/${id}/update_visibility/`, {
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+      const response = await fetch(`${API_BASE}/f8/trips/${id}/update_visibility/`, {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${token}`,

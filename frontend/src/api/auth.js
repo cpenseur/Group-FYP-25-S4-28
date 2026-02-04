@@ -1,7 +1,9 @@
 // frontend/src/api/auth.js
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
+
 export async function loginUser(username, password) {
-    const response = await fetch("http://127.0.0.1:8000/api/auth/login/", {
+    const response = await fetch(`${API_BASE}/auth/login/`, {
         method: "POST",
         credentials: "include",   // important for session cookies
         headers: {
@@ -13,7 +15,7 @@ export async function loginUser(username, password) {
 }
 
 export async function logoutUser() {
-    const response = await fetch("http://127.0.0.1:8000/api/auth/logout/", {
+    const response = await fetch(`${API_BASE}/auth/logout/`, {
         method: "POST",
         credentials: "include",
     });
@@ -21,7 +23,7 @@ export async function logoutUser() {
 }
 
 export async function getCurrentUser() {
-    const response = await fetch("http://127.0.0.1:8000/api/auth/me/", {
+    const response = await fetch(`${API_BASE}/auth/me/`, {
         method: "GET",
         credentials: "include",
     });
