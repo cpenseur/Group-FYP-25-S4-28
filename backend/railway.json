@@ -4,8 +4,8 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python manage.py collectstatic --noinput && gunicorn config.wsgi --workers 4 --bind 0.0.0.0:$PORT",
+    "startCommand": "python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn config.wsgi --workers 4 --bind 0.0.0.0:$PORT",
     "healthcheckPath": "/api/",
-    "healthcheckTimeout": 30
+    "healthcheckTimeout": 60
   }
 }

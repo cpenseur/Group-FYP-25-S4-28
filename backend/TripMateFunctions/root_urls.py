@@ -1,8 +1,17 @@
 # backend/TripMateFunctions/root_urls.py
 from django.urls import path, include
+from django.http import JsonResponse
 from .views.auth_views import WhoAmIView
 
+
+def healthcheck(request):
+    """Simple healthcheck endpoint for Railway deployment."""
+    return JsonResponse({"status": "ok", "service": "tripmate-api"})
+
+
 urlpatterns = [
+    # Healthcheck for Railway
+    path("", healthcheck, name="api-healthcheck"),
     # Function 1 - Trip planning and smart routing
     path("f1/", include("TripMateFunctions.urls.urls_f1")),
 
