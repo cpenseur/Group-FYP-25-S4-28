@@ -197,6 +197,19 @@ if FRONTEND_URL and FRONTEND_URL not in CORS_ALLOWED_ORIGINS:
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 
+# Explicitly allow these headers in CORS requests
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+]
+
 # Cookie settings for CSRF - secure in production
 CSRF_COOKIE_SAMESITE = 'Lax' if not IS_PRODUCTION else 'None'
 CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript to read CSRF cookie

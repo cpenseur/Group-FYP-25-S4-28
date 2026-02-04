@@ -152,27 +152,43 @@ class TripViewSet(BaseViewSet):
         
         collab.ensure_token()
         collab.save(update_fields=["invite_token"])
-        if collab.invitation_type == TripCollaborator.InvitationType.AI:
-            invite_url = f"http://localhost:5173/ai-invitation/{collab.invite_token}"
-        else:
-            invite_url = f"http://localhost:5173/trip-invitation/{collab.invite_token}"
         
+        # Use FRONTEND_URL from settings for production
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+        if collab.invitation_type == TripCollaborator.InvitationType.AI:
+            invite_url = f"{frontend_url}/ai-invitation/{collab.invite_token}"
+        else:
+            invite_url = f"{frontend_url}/trip-invitation/{collab.invite_token}"
+        
+        # Send email in a non-blocking way (fire and forget)
+        email_sent = False
         try:
-            send_mail(
-                subject="You're invited to a Trip on TripMate ✈️",
-                message=(
-                    f"You've been invited to join a trip.\n\n"
-                    f"Click the link below to accept the invite:\n"
-                    f"{invite_url}\n\n"
-                    f"Please note: this invitation will expire 24 hours after it is issued.\n"                    
-                    f"If you didn't expect this, you can ignore this email."
-                ),
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=False,
-            )
+            # Use a thread to send email without blocking the response
+            import threading
+            def send_invitation_email():
+                try:
+                    send_mail(
+                        subject="You're invited to a Trip on TripMate ✈️",
+                        message=(
+                            f"You've been invited to join a trip.\n\n"
+                            f"Click the link below to accept the invite:\n"
+                            f"{invite_url}\n\n"
+                            f"Please note: this invitation will expire 24 hours after it is issued.\n"                    
+                            f"If you didn't expect this, you can ignore this email."
+                        ),
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        recipient_list=[email],
+                        fail_silently=True,
+                    )
+                    logger.info(f"Invitation email sent to {email}")
+                except Exception as e:
+                    logger.error(f"Failed to send invitation email to {email}: {str(e)}")
+            
+            email_thread = threading.Thread(target=send_invitation_email)
+            email_thread.start()
+            email_sent = True  # Email is being sent (async)
         except Exception as e:
-            logger.error(f"Failed to send invitation email to {email}: {str(e)}")
+            logger.error(f"Failed to start email thread for {email}: {str(e)}")
 
         return Response(
             {
