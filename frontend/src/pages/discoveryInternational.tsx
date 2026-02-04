@@ -180,7 +180,8 @@ export default function DiscoveryInternational() {
           const results: TripPreview[] = data.results || [];
           all.push(...results);
 
-          url = data.next ?? null;
+          // Ensure HTTPS for pagination URLs to avoid mixed content errors
+          url = data.next ? data.next.replace('http://', 'https://') : null;
         }
 
         // International = everything that is NOT Singapore

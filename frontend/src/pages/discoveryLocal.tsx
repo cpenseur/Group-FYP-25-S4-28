@@ -140,7 +140,8 @@ export default function DiscoveryLocal() {
           const results: TripPreview[] = data.results || [];
           all.push(...results);
 
-          url = data.next ?? null;
+          // Ensure HTTPS for pagination URLs to avoid mixed content errors
+          url = data.next ? data.next.replace('http://', 'https://') : null;
         }
 
         // Client-side safety filter (in case backend doesn't filter yet)
