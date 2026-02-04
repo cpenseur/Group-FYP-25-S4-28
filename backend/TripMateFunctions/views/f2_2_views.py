@@ -1,6 +1,7 @@
 # backend/TripMateFunctions/views/f2_2_views.py
 import json
 import logging
+import threading
 from collections import Counter
 from datetime import timedelta, datetime
 
@@ -8,7 +9,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from django.db import transaction
+from django.db import transaction, close_old_connections
 
 from TripMateFunctions.models import (
     Trip, 
@@ -24,77 +25,25 @@ from .f1_3_views import _generate_with_fallback
 logger = logging.getLogger(__name__)
 
 
-class TripGroupPreferencesAPIView(APIView):
+def _generate_group_itinerary_background(trip_id):
     """
-    GET /api/f2/trips/{trip_id}/preferences/
-    Returns all group preferences for a trip
+    Background thread function to generate group itinerary.
+    This runs asynchronously to avoid Railway's 30-second HTTP timeout.
     """
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, trip_id):
-        try:
-            trip = Trip.objects.get(id=trip_id)
-        except Trip.DoesNotExist:
-            return Response(
-                {"error": "Trip not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        prefs = GroupPreference.objects.filter(trip=trip).select_related('user')
-
-        data = []
-        for p in prefs:
-            data.append({
-                "username": p.user.full_name or p.user.email,
-                "preferences": p.preferences,
-                "is_owner": p.user.id == trip.owner.id,
-            })
-
-        return Response(data, status=status.HTTP_200_OK)
-
-
-class F22GroupTripGeneratorView(APIView):
-    """
-    POST /api/f2/trips/{trip_id}/generate-group-itinerary/
-    NOW SUPPORTS MULTI-CITY ITINERARIES (e.g., London + Edinburgh)
-    """
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, trip_id, *args, **kwargs):
-        try:
-            trip = Trip.objects.get(id=trip_id)
-        except Trip.DoesNotExist:
-            return Response(
-                {"error": "Trip not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+    try:
+        # Close old database connections for thread safety
+        close_old_connections()
         
-        current_user = request.user
+        logger.info(f"🚀 Background thread started for trip {trip_id}")
         
-        is_collaborator = TripCollaborator.objects.filter(
-            trip=trip,
-            user=current_user,
-            status=TripCollaborator.Status.ACTIVE
-        ).exists()
-
-        if not is_collaborator:
-            return Response(
-                {"error": "Only trip collaborators can regenerate itinerary"},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        # Set intermediate status for regeneration
-        trip.travel_type = "group_generating"
-        trip.save()
-        logger.info(f"✅ Trip {trip_id} status: group_generating")
-
+        trip = Trip.objects.get(id=trip_id)
         preferences = GroupPreference.objects.filter(trip=trip).select_related('user')
         
         if preferences.count() == 0:
-            return Response(
-                {"error": "No preferences found. Please save preferences first."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            logger.error(f"No preferences found for trip {trip_id}")
+            trip.travel_type = "draft"
+            trip.save()
+            return
 
         # ========== MERGE GROUP PREFERENCES ==========
         
@@ -239,7 +188,7 @@ class F22GroupTripGeneratorView(APIView):
         top_activities = [act for act, _ in Counter(all_activities).most_common(5)] if all_activities else ["Sightseeing", "Food"]
         top_destinations = [dest for dest, _ in Counter(all_destinations).most_common(3)] if all_destinations else ["Urban", "Cultural"]
         
-        # ========== NEW: MULTI-CITY DETECTION ==========
+        # ========== MULTI-CITY DETECTION ==========
         
         # Parse cities from "City, Country" format
         parsed_cities = []
@@ -308,7 +257,7 @@ class F22GroupTripGeneratorView(APIView):
             "CAREFULLY READ and STRICTLY FOLLOW all special requirements from users."
         )
         
-        # EW: Different prompt for multi-city vs single-city
+        # Different prompt for multi-city vs single-city
         if is_multi_city:
             # Multi-city prompt
             cities_list = " → ".join(unique_cities)
@@ -366,83 +315,20 @@ MULTI-CITY REQUIREMENTS:
 - Visit ALL cities: {', '.join(unique_cities)}
 - Distribute days according to allocation: {allocation_str}
 - Include TRAVEL days between cities (train/flight)
-- Example structure for {duration} days:
-  * Days 1-{days_per_city}: Activities in {unique_cities[0]}
-  * Day {days_per_city + 1}: Travel from {unique_cities[0]} to {unique_cities[1 if len(unique_cities) > 1 else 0]} (train/flight)
-  * Days {days_per_city + 2}-{duration}: Activities in {unique_cities[1 if len(unique_cities) > 1 else 0]}
 
 GENERAL REQUIREMENTS:
 - Generate EXACTLY {duration} days of itinerary
 - 5-6 stops per day (breakfast, lunch, dinner, activities)
 - Use REAL places in each city
 - Coordinates must be accurate for each city
-- Each regeneration must use DIFFERENT places
-- Follow special requirements strictly
 
-VARIETY RULES:
-1. NEVER use same restaurants/attractions as previous generations
-2. Explore DIFFERENT neighborhoods in each city
-3. Try DIFFERENT cuisines and dining styles
-4. Visit DIFFERENT types of attractions in each city
-5. Show the unique character of each city
-
-⚠️⚠️⚠️ CRITICAL TIME CONSTRAINTS (MUST FOLLOW) ⚠️⚠️⚠️
+⚠️⚠️⚠️ CRITICAL TIME CONSTRAINTS ⚠️⚠️⚠️
 ALL times MUST be between 07:00 and 23:00 (7 AM - 11 PM)
-ABSOLUTELY NO activities before 07:00 or after 23:00
-Use 24-hour format (HH:MM)
-
-REALISTIC DAILY SCHEDULE (5-6 stops per day):
-- 07:00-09:00: Breakfast (meal) - morning dining
-- 09:30-11:30: Morning activity (sightseeing/museums)
-- 12:00-14:00: Lunch (meal) - midday dining
-- 14:30-17:30: Afternoon activity (attractions/shopping)
-- 18:00-21:00: Dinner (meal) - evening dining
-- 21:00-23:00: Evening activity (OPTIONAL - night markets, rooftop bars, night views)
-
-EXAMPLE VALID TIMES:
-"start_time": "07:00", "end_time": "08:30" (breakfast - earliest)
-"start_time": "08:00", "end_time": "09:00" (breakfast)
-"start_time": "13:00", "end_time": "14:00" (lunch)
-"start_time": "19:00", "end_time": "20:30" (dinner)
-"start_time": "21:30", "end_time": "23:00" (evening activity)
-"start_time": "22:00", "end_time": "23:00" (late evening - latest)
-
-FORBIDDEN TIMES (NEVER EVER USE):
-00:00-06:59 (MIDNIGHT TO EARLY MORNING - SLEEPING!)
-23:01-23:59 (AFTER 11 PM - TOO LATE!)
-
-Examples of COMPLETELY WRONG times that must NEVER appear:
-"start_time": "00:00" (MIDNIGHT - NO!)
-"start_time": "01:00" (1 AM - ABSOLUTELY NOT!)
-"start_time": "02:00" (2 AM - INSANE!)
-"start_time": "02:30" (2:30 AM - RIDICULOUS!)
-"start_time": "03:00" (3 AM - NO WAY!)
-"start_time": "04:00" (4 AM - STILL NIGHT!)
-"start_time": "04:30" (4:30 AM - CRAZY!)
-"start_time": "05:00" (5 AM - TOO EARLY!)
-"start_time": "06:00" (6 AM - STILL TOO EARLY!)
-"start_time": "06:30" (6:30 AM - TOO EARLY!)
-
 EARLIEST VALID TIME: 07:00 (7 AM)
 LATEST VALID TIME: 23:00 (11 PM)
-
-IF YOU GENERATE ANY TIME BEFORE 07:00 OR AFTER 23:00, YOU HAVE FAILED!
-"start_time": "04:30" (4:30 AM - CRAZY!)
-"start_time": "05:00" (5 AM - TOO EARLY!)
-
-IF YOU GENERATE ANY TIME BETWEEN 00:00-05:59, YOU HAVE FAILED!
-IF YOU GENERATE ANY TIME AFTER 23:00, YOU HAVE FAILED!
-
-TRAVEL DAYS (if needed):
-- 07:00-09:00: Breakfast in departure city
-- 09:00-14:00: Travel to next city (train/flight)
-- 14:30-17:00: Arrive, check-in, explore neighborhood
-- 19:00-21:00: Dinner in new city
-
-Adjust for special requirements (relaxed pace, dietary restrictions, accessibility).
 """.strip()
         else:
-            # Single-city prompt (original)
+            # Single-city prompt
             user_prompt = f"""
 Create DETAILED {duration}-day trip for {destination_str}.
 
@@ -483,50 +369,11 @@ REQUIREMENTS:
 - 5-6 stops per day (breakfast, lunch, dinner, activities)
 - Use REAL places in {destination_str}
 - Coordinates must be accurate
-- Each regeneration must use DIFFERENT places
-- Follow special requirements strictly
 
-⚠️⚠️⚠️ CRITICAL TIME CONSTRAINTS (MUST FOLLOW) ⚠️⚠️⚠️
+⚠️⚠️⚠️ CRITICAL TIME CONSTRAINTS ⚠️⚠️⚠️
 ALL times MUST be between 07:00 and 23:00 (7 AM - 11 PM)
-ABSOLUTELY NO activities before 07:00 or after 23:00
-Use 24-hour format (HH:MM)
-
-VARIETY RULES:
-1. NEVER use same restaurants/attractions as previous generations
-2. Explore DIFFERENT neighborhoods each time
-3. Try DIFFERENT cuisines and dining styles
-4. Visit DIFFERENT types of attractions
-5. Change daily themes and flow
-
-REALISTIC DAILY SCHEDULE (5-6 stops per day):
-- 07:00-09:00: Breakfast (meal) - morning dining
-- 09:30-11:30: Morning activity (sightseeing/museums)
-- 12:00-14:00: Lunch (meal) - midday dining
-- 14:30-17:30: Afternoon activity (attractions/shopping)
-- 18:00-21:00: Dinner (meal) - evening dining
-- 21:00-23:00: Evening activity (OPTIONAL - night markets, rooftop bars, night views)
-
-EXAMPLE VALID TIMES:
-"start_time": "07:00", "end_time": "08:30" (breakfast - earliest)
-"start_time": "08:00", "end_time": "09:00" (breakfast)
-"start_time": "13:00", "end_time": "14:00" (lunch)
-"start_time": "19:00", "end_time": "20:30" (dinner)
-"start_time": "22:00", "end_time": "23:00" (late evening - latest)
-
-FORBIDDEN TIMES (NEVER USE):
-00:00-06:59 (midnight to early morning - sleeping!)
-23:01-23:59 (after 11 PM - too late!)
-Examples of WRONG times to AVOID:
-"start_time": "02:30" (2:30 AM - NO!)
-"start_time": "04:00" (4 AM - NO!)
-"start_time": "06:00" (6 AM - TOO EARLY!)
-
 EARLIEST VALID TIME: 07:00 (7 AM)
 LATEST VALID TIME: 23:00 (11 PM)
-"start_time": "04:00" (4 AM - NO!)
-"start_time": "01:00" (1 AM - NO!)
-
-Adjust for special requirements (relaxed pace, dietary restrictions, accessibility).
 """.strip()
 
         # ========== CALL AI ==========
@@ -548,10 +395,7 @@ Adjust for special requirements (relaxed pace, dietary restrictions, accessibili
             logger.error(f"Both AI providers failed: sealion={primary_error}, gemini={fallback_error}")
             trip.travel_type = "draft"
             trip.save()
-            return Response(
-                {"detail": "AI service unavailable. Please try again later."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+            return
 
         logger.info(f"AI response received from {provider}, length: {len(ai_content)}")
 
@@ -581,10 +425,7 @@ Adjust for special requirements (relaxed pace, dietary restrictions, accessibili
                 logger.error("Cannot repair truncated response")
                 trip.travel_type = "draft"
                 trip.save()
-                return Response(
-                    {"detail": "AI response was truncated. Please try again."},
-                    status=status.HTTP_502_BAD_GATEWAY,
-                )
+                return
         
         if not cleaned_ai_content.startswith('{'):
             start_idx = cleaned_ai_content.find('{')
@@ -599,19 +440,14 @@ Adjust for special requirements (relaxed pace, dietary restrictions, accessibili
             logger.error(f"JSON parse failed: {str(e)}")
             trip.travel_type = "draft"
             trip.save()
-            return Response(
-                {"detail": f"AI returned invalid JSON: {str(e)}"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
+            return
 
         stops = itinerary.get("stops", [])
         if not stops:
+            logger.error("AI returned no activities")
             trip.travel_type = "draft"
             trip.save()
-            return Response(
-                {"detail": "AI returned no activities. Please try again."},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
+            return
 
         logger.info(f"Successfully parsed {len(stops)} stops")
 
@@ -717,19 +553,122 @@ Adjust for special requirements (relaxed pace, dietary restrictions, accessibili
 
         logger.info(f"🎉 Successfully generated {duration}-day {'multi-city' if is_multi_city else 'single-city'} itinerary for trip {trip_id} using {provider}")
 
+    except Exception as e:
+        logger.error(f"❌ Background generation failed for trip {trip_id}: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        try:
+            trip = Trip.objects.get(id=trip_id)
+            trip.travel_type = "draft"
+            trip.save()
+        except Exception:
+            pass
+    finally:
+        close_old_connections()
+
+
+class TripGroupPreferencesAPIView(APIView):
+    """
+    GET /api/f2/trips/{trip_id}/preferences/
+    Returns all group preferences for a trip
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, trip_id):
+        try:
+            trip = Trip.objects.get(id=trip_id)
+        except Trip.DoesNotExist:
+            return Response(
+                {"error": "Trip not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        prefs = GroupPreference.objects.filter(trip=trip).select_related('user')
+
+        data = []
+        for p in prefs:
+            data.append({
+                "username": p.user.full_name or p.user.email,
+                "preferences": p.preferences,
+                "is_owner": p.user.id == trip.owner.id,
+            })
+
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class F22GroupTripGeneratorView(APIView):
+    """
+    POST /api/f2/trips/{trip_id}/generate-group-itinerary/
+    NOW SUPPORTS MULTI-CITY ITINERARIES (e.g., London + Edinburgh)
+    
+    Uses background thread to avoid Railway's 30-second HTTP timeout.
+    Returns 202 Accepted immediately, frontend polls for completion.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, trip_id, *args, **kwargs):
+        try:
+            trip = Trip.objects.get(id=trip_id)
+        except Trip.DoesNotExist:
+            return Response(
+                {"error": "Trip not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        current_user = request.user
+        
+        is_collaborator = TripCollaborator.objects.filter(
+            trip=trip,
+            user=current_user,
+            status=TripCollaborator.Status.ACTIVE
+        ).exists()
+
+        if not is_collaborator:
+            return Response(
+                {"error": "Only trip collaborators can regenerate itinerary"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        preferences = GroupPreference.objects.filter(trip=trip)
+        
+        if preferences.count() == 0:
+            return Response(
+                {"error": "No preferences found. Please save preferences first."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check if already generating
+        if trip.travel_type == "group_generating":
+            logger.info(f"Trip {trip_id} is already generating, returning 202")
+            return Response(
+                {
+                    "message": "Generation already in progress",
+                    "trip_id": trip_id,
+                    "status": "generating",
+                },
+                status=status.HTTP_202_ACCEPTED
+            )
+
+        # Set intermediate status for regeneration
+        trip.travel_type = "group_generating"
+        trip.save()
+        logger.info(f"✅ Trip {trip_id} status: group_generating")
+
+        # Start background thread for AI generation
+        generation_thread = threading.Thread(
+            target=_generate_group_itinerary_background,
+            args=(trip_id,),
+            daemon=True
+        )
+        generation_thread.start()
+        logger.info(f"🚀 Started background generation thread for trip {trip_id}")
+
+        # Return immediately with 202 Accepted
         return Response(
             {
-                "message": "Group itinerary generated",
+                "message": "Generation started",
                 "trip_id": trip_id,
-                "title": trip.title,
-                "destination": destination_str,
-                "cities": unique_cities if is_multi_city else [main_city_for_db],
-                "is_multi_city": is_multi_city,
-                "days": duration,
-                "start_date": str(trip.start_date),
-                "end_date": str(trip.end_date),
-                "items_created": len(items),
-                "provider": provider,
+                "status": "generating",
             },
-            status=status.HTTP_200_OK
+            status=status.HTTP_202_ACCEPTED
         )
