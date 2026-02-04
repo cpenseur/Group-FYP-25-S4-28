@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link2, Mail, MessageCircle, Copy, Check, X, Share2 } from "lucide-react";
+import { encodeId } from "../lib/urlObfuscation";
 
 type Props = {
   isOpen: boolean;
@@ -18,8 +19,9 @@ export default function ShareTripModal({
 
   if (!isOpen) return null;
 
-  // Generate the shareable link (adjust the base URL to match your domain)
-  const shareableLink = `${window.location.origin}/trip/${tripId}/view`;
+  // Generate the shareable link with obfuscated trip ID
+  const encodedTripId = encodeId(tripId);
+  const shareableLink = `${window.location.origin}/v/${encodedTripId}/vw`;
 
   const copyToClipboard = async () => {
     try {
