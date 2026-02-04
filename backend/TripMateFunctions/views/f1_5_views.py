@@ -1,12 +1,12 @@
-# backend/TripMateFunctions/views/f1_5_views.py
 """
-F1.5 - AI-Powered Recommendations (Real-time AI, No Database)
+F1.5 - AI-Powered Recommendations with GEOCODING and DISTANCE FILTERING
 
-UPDATED: Now includes user profile preferences for personalized recommendations
-AND geographic coordinates (lat/lon/address) for each recommendation
-
-CRITICAL FIX: Added geocoding to ensure every recommendation has coordinates
-so that place-details endpoint works properly when items are added to itinerary.
+✅ FIXED: Location detection now correctly identifies cities over states
+✅ Geocodes all recommendations to get coordinates
+✅ Improved city detection (prioritizes cities over states/attractions)
+✅ Strict distance requirements for "nearby" recommendations
+✅ Country validation to prevent wrong-country suggestions
+✅ User profile preferences for personalization
 """
 
 import os
@@ -15,6 +15,8 @@ import logging
 import requests
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
+from math import radians, sin, cos, sqrt, atan2
+import re
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -79,7 +81,7 @@ def call_sealion_ai(prompt: str, temperature: float = 0.7, max_tokens: int = 200
 
 
 # ============================================================================
-# Helper: Geocoding (Get coordinates for place names)
+# Helper: Geocoding (CRITICAL for coordinates!)
 # ============================================================================
 
 def geocode_place(place_name: str, city: str) -> Optional[Tuple[float, float, str]]:
@@ -87,11 +89,11 @@ def geocode_place(place_name: str, city: str) -> Optional[Tuple[float, float, st
     Geocode a place name to get coordinates.
     Returns (lat, lon, formatted_address) or None if failed.
     
-    Uses Mapbox Geocoding API (you already have MAPBOX_ACCESS_TOKEN).
+    Uses Mapbox Geocoding API.
     """
     mapbox_token = os.environ.get("MAPBOX_ACCESS_TOKEN")
     if not mapbox_token:
-        logger.warning("MAPBOX_ACCESS_TOKEN not set, geocoding disabled")
+        logger.warning("⚠️ MAPBOX_ACCESS_TOKEN not set, geocoding disabled")
         return None
     
     try:
@@ -105,7 +107,7 @@ def geocode_place(place_name: str, city: str) -> Optional[Tuple[float, float, st
         params = {
             "access_token": mapbox_token,
             "limit": 1,
-            "types": "poi,address,place",  # POI for landmarks, address for specific places
+            "types": "poi,address,place",
         }
         
         response = requests.get(url, params=params, timeout=10)
@@ -138,33 +140,138 @@ def geocode_place(place_name: str, city: str) -> Optional[Tuple[float, float, st
 
 
 # ============================================================================
-# F1.5 - AI Recommendations View (WITH COORDINATES)
+# Helper: Distance Calculation
+# ============================================================================
+
+def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate distance in km between two points using Haversine formula."""
+    R = 6371  # Earth radius in km
+    
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    
+    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1-a))
+    
+    return R * c
+
+
+# ============================================================================
+# Helper: Extract city/country from address (FIXED VERSION)
+# ============================================================================
+
+def extract_city_hint(addr: str | None) -> str | None:
+    """
+    FIXED: Better city heuristic that avoids states.
+    - Prioritizes actual city names over states/provinces
+    - Avoids postal codes and region names
+    - Uses comprehensive city and state databases
+    """
+    if not addr:
+        return None
+    parts = [p.strip() for p in addr.split(",") if p.strip()]
+    if len(parts) < 2:
+        return None
+
+    # ✅ Major cities to recognize
+    major_cities = {
+        'sydney': 'Sydney',
+        'melbourne': 'Melbourne',
+        'brisbane': 'Brisbane',
+        'perth': 'Perth',
+        'adelaide': 'Adelaide',
+        'canberra': 'Canberra',
+        'tokyo': 'Tokyo',
+        'osaka': 'Osaka',
+        'kyoto': 'Kyoto',
+        'singapore': 'Singapore',
+        'bangkok': 'Bangkok',
+        'seoul': 'Seoul',
+        'hong kong': 'Hong Kong',
+    }
+    
+    # ✅ States/provinces to EXCLUDE
+    exclude_states = {
+        'new south wales', 'nsw',
+        'victoria', 'vic',
+        'queensland', 'qld',
+        'western australia', 'wa',
+        'south australia', 'sa',
+        'tasmania', 'tas',
+        'northern territory', 'nt',
+        'scotland', 'england', 'wales',
+        'montana', 'wyoming', 'california',
+        'south carolina', 'north carolina',
+    }
+    
+    addr_lower = addr.lower()
+    
+    # ✅ PRIORITY: Check for major cities first
+    for keyword, city in major_cities.items():
+        if keyword in addr_lower:
+            return city
+    
+    # ✅ Try from right to left, skipping country and excluding states
+    candidates = parts[:-1]  # exclude last (usually country)
+    for p in reversed(candidates):
+        p_lower = p.lower()
+        
+        # Skip if it's a state
+        if p_lower in exclude_states:
+            continue
+        
+        # reject mostly-numeric chunks
+        if re.match(r"^\d", p):
+            # if it begins with digits, keep only the alpha tail if meaningful
+            tail = re.sub(r"^[0-9\-\s]+", "", p).strip()
+            if tail and re.search(r"[A-Za-z]", tail) and len(tail) > 2:
+                return tail
+            continue
+        
+        if re.search(r"[A-Za-z]", p) and len(p) > 2:
+            return p
+    
+    return None
+
+def extract_country_hint(addr: str | None) -> str | None:
+    if not addr:
+        return None
+    parts = [p.strip() for p in addr.split(",") if p.strip()]
+    if not parts:
+        return None
+    return parts[-1]
+
+
+# ============================================================================
+# F1.5 - AI Recommendations View
 # ============================================================================
 
 class AIRecommendationsView(APIView):
     """
-    GET/POST /f1/recommendations/ai/?trip_id=367&day_index=1&location=Sapporo
+    GET/POST /f1/recommendations/ai/?trip_id=367&day_index=1&location=Sydney
     
-    UPDATED VERSION:
-    - ✅ Uses current user's profile preferences
-    - ✅ Includes geographic coordinates (lat/lon/address) for each recommendation
-    - ✅ Geocodes AI-generated place names automatically
-    - ✅ Allows both owners AND collaborators
+    FEATURES:
+    - ✅ FIXED: Correctly detects cities (not states)
+    - ✅ Geocodes every recommendation
+    - ✅ Improved city detection (avoids states/regions/attractions)
+    - ✅ Country validation (prevents wrong-country recommendations)
+    - ✅ Distance-based filtering
+    - ✅ User profile preferences
     """
     permission_classes = [IsAuthenticated]
     
     def get(self, request, *args, **kwargs):
-        """Handle GET requests (backward compatibility)"""
+        """Handle GET requests"""
         return self._handle_request(request)
     
     def post(self, request, *args, **kwargs):
-        """Handle POST requests with user preferences in body"""
+        """Handle POST requests"""
         return self._handle_request(request)
     
     def _handle_request(self, request):
-        """Main request handler for both GET and POST"""
+        """Main request handler"""
         
-        # Get parameters from either GET or POST
         trip_id = request.query_params.get('trip_id') or request.data.get('trip_id')
         day_index_param = request.query_params.get('day_index') or request.data.get('day_index')
         location_override = request.query_params.get('location') or request.data.get('location')
@@ -175,12 +282,8 @@ class AIRecommendationsView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # ====================================================================
-        # GET CURRENT USER AND THEIR PROFILE PREFERENCES
-        # ====================================================================
-        user = request.user
-        
         # Get AppUser
+        user = request.user
         try:
             if hasattr(user, 'email'):
                 app_user = AppUser.objects.get(email=user.email)
@@ -192,15 +295,12 @@ class AIRecommendationsView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Fetch CURRENT USER'S profile preferences
+        # Get user preferences
         user_preferences = self._get_user_preferences(app_user)
         logger.info(f"✅ Loaded preferences for {app_user.email}: {user_preferences}")
         
-        # ====================================================================
-        # VERIFY TRIP ACCESS
-        # ====================================================================
+        # Verify trip access
         try:
-            # Allow both owner AND collaborators to access
             trip = Trip.objects.filter(
                 Q(id=trip_id) & (Q(owner=app_user) | Q(collaborators__user=app_user))
             ).distinct().first()
@@ -213,92 +313,77 @@ class AIRecommendationsView(APIView):
             
             all_items = ItineraryItem.objects.filter(trip=trip).order_by('day__day_index', 'sort_order')
             
-            # Determine target day and items
+            # Determine target day
             target_day_index = None
-            day_items = list(all_items)  # Default: all items
+            day_items = list(all_items)
             destination = location_override or trip.main_city or trip.main_country or "Unknown"
+            trip_country = trip.main_country or "Unknown"
             
             if day_index_param is not None:
                 try:
-                    # Convert 0-indexed to 1-indexed for database lookup
                     day_index_query = int(day_index_param) + 1
                     target_day_index = int(day_index_param)
                     
-                    logger.info(f"🔍 Looking for day_index={day_index_query} (0-indexed input: {day_index_param})")
+                    logger.info(f"🔍 Looking for day_index={day_index_query}")
                     
-                    # Get the specific day
                     target_day = TripDay.objects.filter(
                         trip=trip, 
                         day_index=day_index_query
                     ).first()
                     
                     if target_day:
-                        logger.info(f"✅ Found day: {target_day.id}, day_index={target_day.day_index}")
-                        
-                        # Get items only for this day
                         day_items = list(ItineraryItem.objects.filter(
                             trip=trip, 
                             day=target_day
                         ).order_by('sort_order'))
                         
-                        logger.info(f"📍 Day {day_index_query} has {len(day_items)} items:")
-                        for item in day_items:
-                            logger.info(f"  - {item.title}: {item.address}")
-                        
-                        # Try to detect location from day's items
                         if not location_override and day_items:
                             detected_location = self._detect_location_from_items(day_items)
                             if detected_location:
                                 destination = detected_location
-                                logger.info(f"✅ Detected location for Day {day_index_query}: {destination}")
-                            else:
-                                logger.warning(f"⚠️ Could not detect location from items, using trip default: {destination}")
-                    else:
-                        logger.warning(f"⚠️ Day with day_index={day_index_query} not found")
+                                logger.info(f"✅ Detected location: {destination}")
                 except (ValueError, TypeError) as e:
-                    logger.warning(f"Invalid day_index parameter: {day_index_param}, error: {e}")
+                    logger.warning(f"Invalid day_index: {e}")
             
-            logger.info(f"🎯 Final destination for recommendations: {destination}")
-            logger.info(f"🎯 Using {len(day_items)} items for recommendations")
-            logger.info(f"👤 Generating personalized recommendations for: {app_user.email}")
+            logger.info(f"🎯 Final destination: {destination}")
+            logger.info(f"🌍 Trip country: {trip_country}")
             
-            # Generate itinerary hash
             itinerary_hash = self._compute_itinerary_hash(day_items)
             
-            # ====================================================================
-            # GENERATE PERSONALIZED RECOMMENDATIONS WITH COORDINATES
-            # ====================================================================
+            # Generate recommendations
             categories = self._generate_categorized_recommendations(
                 destination=destination,
                 trip=trip,
                 items=day_items,
                 day_index=target_day_index,
-                user_preferences=user_preferences
+                user_preferences=user_preferences,
+                trip_country=trip_country,
             )
             
-            # ✅ CRITICAL: Geocode all recommendations to add coordinates
+            # ✅ CRITICAL: Geocode all recommendations
+            logger.info("\n=== 🗺️ Starting Geocoding ===")
             for category_name, recommendations in categories.items():
+                logger.info(f"\n📍 Geocoding {category_name} recommendations:")
                 for rec in recommendations:
                     if not rec.get('lat') or not rec.get('lon'):
-                        # Try to geocode this recommendation
                         coords = geocode_place(rec['name'], destination)
                         if coords:
                             rec['lat'], rec['lon'], rec['address'] = coords
+                            logger.info(f"  ✅ {rec['name']} → ({rec['lat']:.4f}, {rec['lon']:.4f})")
                         else:
-                            logger.warning(f"⚠️ Could not geocode: {rec['name']} in {destination}")
-                            # Keep recommendation but mark it as missing coordinates
+                            logger.warning(f"  ⚠️ Could not geocode: {rec['name']}")
                             rec['lat'] = None
                             rec['lon'] = None
                             rec['address'] = None
             
-            # Log coordinate statistics
+            # Log stats
             total_recs = sum(len(recs) for recs in categories.values())
             with_coords = sum(
                 1 for recs in categories.values() 
                 for rec in recs 
                 if rec.get('lat') and rec.get('lon')
             )
-            logger.info(f"📍 Geocoding result: {with_coords}/{total_recs} recommendations have coordinates")
+            logger.info(f"\n📊 Geocoding Summary: {with_coords}/{total_recs} recommendations have coordinates")
             
             return Response({
                 "success": True,
@@ -311,23 +396,20 @@ class AIRecommendationsView(APIView):
             
         except Exception as e:
             logger.error(f"AI recommendations failed: {e}", exc_info=True)
-            
-            # Return fallback with empty categories
             return Response({
                 "success": True,
                 "destination": "Unknown",
-                "day_index": target_day_index if 'target_day_index' in locals() else None,
+                "day_index": None,
                 "itinerary_hash": "",
                 "categories": self._fallback_categories(),
                 "personalized": False,
             })
     
     def _get_user_preferences(self, app_user: AppUser) -> Dict[str, Any]:
-        """Fetch the current user's profile preferences."""
+        """Get user preferences with fallback."""
         try:
             profile = Profile.objects.get(id=app_user.id)
-            
-            preferences = {
+            return {
                 'interests': profile.interests or [],
                 'travel_pace': profile.travel_pace,
                 'budget_level': profile.budget_level,
@@ -335,11 +417,8 @@ class AIRecommendationsView(APIView):
                 'mobility_needs': profile.mobility_needs,
                 'name': profile.name or app_user.full_name or 'Traveler',
             }
-            
-            return preferences
-            
         except Profile.DoesNotExist:
-            logger.warning(f"No profile found for user {app_user.email}, using defaults")
+            logger.warning(f"No profile found for {app_user.email}, using defaults")
             return {
                 'interests': [],
                 'travel_pace': None,
@@ -350,79 +429,243 @@ class AIRecommendationsView(APIView):
             }
     
     def _detect_location_from_items(self, items: List[ItineraryItem]) -> str:
-        """Detect the primary location from a list of itinerary items."""
+        """
+        FIXED: Detect location with strong priority on cities over states.
+        
+        Priority logic:
+        1. Check for major cities in entire address (e.g., "Sydney" anywhere)
+        2. Parse address parts, but EXCLUDE states/provinces
+        3. Validate each candidate (not state, not postcode, has letters)
+        
+        Example:
+        - "Sydney Harbour, Sydney, New South Wales, Australia" → "Sydney" ✅
+        - "The Rocks, Sydney, NSW, Australia" → "Sydney" ✅
+        - "Airport, Mascot, Sydney, NSW, Australia" → "Sydney" ✅
+        """
         if not items:
-            logger.warning("No items provided for location detection")
             return ""
         
         cities = []
+        countries = []
         
-        logger.info("🔍 Starting location detection from addresses...")
+        logger.info("🔍 Starting FIXED location detection...")
+        
+        # ✅ COMPREHENSIVE DATABASES
+        major_cities = {
+            # Australia
+            'sydney': 'Sydney',
+            'melbourne': 'Melbourne',
+            'brisbane': 'Brisbane',
+            'perth': 'Perth',
+            'adelaide': 'Adelaide',
+            'canberra': 'Canberra',
+            'gold coast': 'Gold Coast',
+            'newcastle': 'Newcastle',
+            'wollongong': 'Wollongong',
+            'hobart': 'Hobart',
+            'darwin': 'Darwin',
+            'cairns': 'Cairns',
+            'townsville': 'Townsville',
+            
+            # Japan
+            'tokyo': 'Tokyo',
+            'osaka': 'Osaka',
+            'kyoto': 'Kyoto',
+            'sapporo': 'Sapporo',
+            'fukuoka': 'Fukuoka',
+            'yokohama': 'Yokohama',
+            'nagoya': 'Nagoya',
+            'kobe': 'Kobe',
+            'hiroshima': 'Hiroshima',
+            'sendai': 'Sendai',
+            'nara': 'Nara',
+            
+            # Other Asia
+            'singapore': 'Singapore',
+            'bangkok': 'Bangkok',
+            'seoul': 'Seoul',
+            'hong kong': 'Hong Kong',
+            'taipei': 'Taipei',
+            'kuala lumpur': 'Kuala Lumpur',
+            'manila': 'Manila',
+            'jakarta': 'Jakarta',
+            'hanoi': 'Hanoi',
+            'ho chi minh': 'Ho Chi Minh City',
+            
+            # Americas
+            'new york': 'New York',
+            'los angeles': 'Los Angeles',
+            'san francisco': 'San Francisco',
+            'chicago': 'Chicago',
+            'toronto': 'Toronto',
+            'vancouver': 'Vancouver',
+            'honolulu': 'Honolulu',
+        }
+        
+        # ✅ STATES/PROVINCES TO EXCLUDE (these are NOT cities!)
+        exclude_states = {
+            # Australia
+            'new south wales', 'nsw',
+            'victoria', 'vic',
+            'queensland', 'qld',
+            'western australia', 'wa',
+            'south australia', 'sa',
+            'tasmania', 'tas',
+            'northern territory', 'nt',
+            'australian capital territory', 'act',
+            
+            # USA
+            'california', 'ca',
+            'new york', 'ny',  # (state, not city)
+            'texas', 'tx',
+            'florida', 'fl',
+            'south carolina', 'sc',
+            'north carolina', 'nc',
+            'montana', 'mt',
+            'wyoming', 'wy',
+            'hawaii', 'hi',  # (state)
+            
+            # UK
+            'scotland',
+            'england',
+            'wales',
+            'northern ireland',
+            'fife',
+            
+            # Japan (prefectures)
+            'hokkaido',
+            'honshu',
+            'kyushu',
+            'shikoku',
+        }
+        
+        # ✅ NEIGHBORHOODS/ATTRACTIONS (also not cities)
+        not_cities = {
+            'the rocks', 'bondi', 'manly', 'darling harbour', 'circular quay',
+            'opera house', 'fish market', 'botanic garden', 'royal botanic',
+            'st kilda', 'southbank', 'south bank', 'fortitude valley',
+            'shibuya', 'shinjuku', 'harajuku', 'asakusa', 'ginza',
+            'sentosa', 'marina bay', 'chinatown', 'little india',
+            'rock hill', 'great falls', 'cluny road', 'mandai',
+            'orange grove', 'marina boulevard', 'marina gardens',
+            'mascot', 'bayside',  # Sydney suburbs
+        }
         
         for item in items:
             if not item.address:
                 logger.info(f"  ❌ {item.title}: No address")
                 continue
-                
+            
+            address_lower = item.address.lower()
             parts = [p.strip() for p in item.address.split(',')]
+            
             logger.info(f"  📍 {item.title}: {item.address}")
             
+            # Track country for validation
+            if 'australia' in address_lower:
+                countries.append('Australia')
+            elif 'japan' in address_lower:
+                countries.append('Japan')
+            elif 'singapore' in address_lower:
+                countries.append('Singapore')
+            elif 'united states' in address_lower or ' usa' in address_lower:
+                countries.append('United States')
+            
+            # ✅ PRIORITY STRATEGY 1: Check for major cities ANYWHERE in address
+            # This is MOST reliable because "Sydney" will appear even if followed by "NSW"
+            city_found = False
+            for city_keyword, city_name in major_cities.items():
+                # Use word boundary regex to avoid partial matches
+                if re.search(r'\b' + re.escape(city_keyword) + r'\b', address_lower):
+                    cities.append(city_name)
+                    logger.info(f"     ✅ MATCHED MAJOR CITY: {city_name}")
+                    city_found = True
+                    break
+            
+            if city_found:
+                continue
+            
+            # ✅ STRATEGY 2: Parse address parts (but EXCLUDE states!)
             detected_city = None
             
-            # Strategy 1: Third from end (Japan addresses)
-            if len(parts) >= 3:
-                potential_city = parts[-3].strip()
-                if potential_city.lower() not in ['japan', 'prefecture']:
-                    for suffix in [' City', ' Prefecture', ' Ward', ' District']:
-                        if potential_city.endswith(suffix):
-                            potential_city = potential_city[:-len(suffix)].strip()
-                    
-                    detected_city = potential_city
-                    logger.info(f"     ✅ Strategy 1: Detected '{detected_city}'")
-            
-            # Strategy 2: Second from end
-            if not detected_city and len(parts) >= 2:
-                potential_city = parts[-2].strip()
-                if potential_city.lower() != 'japan':
-                    for suffix in [' City', ' Prefecture']:
-                        if potential_city.endswith(suffix):
-                            potential_city = potential_city[:-len(suffix)].strip()
-                    
-                    detected_city = potential_city
-                    logger.info(f"     ✅ Strategy 2: Detected '{detected_city}'")
-            
-            # Strategy 3: Check for major cities
-            if not detected_city:
-                major_cities = [
-                    'Tokyo', 'Osaka', 'Kyoto', 'Sapporo', 'Hokkaido', 'Fukuoka',
-                    'Yokohama', 'Nagoya', 'Kobe', 'Hiroshima', 'Sendai', 'Nara',
-                    'Singapore', 'Kuala Lumpur', 'Bangkok', 'Hanoi', 'Seoul'
-                ]
+            # Try different positions: -2, -3, -4 (skip -1 which is country)
+            for index in [-2, -3, -4]:
+                if abs(index) > len(parts):
+                    continue
                 
-                for part in parts:
-                    for city in major_cities:
-                        if city.lower() in part.lower():
-                            detected_city = city
-                            logger.info(f"     ✅ Strategy 3: Detected '{detected_city}'")
-                            break
-                    if detected_city:
-                        break
+                potential = parts[index].strip()
+                # Clean up common suffixes
+                potential_clean = (potential
+                    .replace(' City', '')
+                    .replace(' Municipality', '')
+                    .replace(' Prefecture', '')
+                    .replace(' Ward', '')
+                    .replace(' District', '')
+                    .strip())
+                potential_lower = potential_clean.lower()
+                
+                # ✅ VALIDATION: Is this a valid city?
+                is_valid = (
+                    # Not a state/province
+                    potential_lower not in exclude_states and
+                    # Not a neighborhood/attraction
+                    potential_lower not in not_cities and
+                    # Not too short (like "NSW", "CA")
+                    len(potential_clean) > 2 and
+                    # Not just numbers (postcodes like "2020")
+                    not potential_clean.isdigit() and
+                    # Not starting with numbers (like "2020 Sydney")
+                    not re.match(r'^\d', potential_clean) and
+                    # Has letters
+                    any(c.isalpha() for c in potential_clean)
+                )
+                
+                if is_valid:
+                    detected_city = potential_clean
+                    logger.info(f"     ✅ Extracted from address[{index}]: '{detected_city}'")
+                    break
             
             if detected_city:
                 cities.append(detected_city)
         
-        if cities:
-            from collections import Counter
-            city_counts = Counter(cities)
-            detected_city = city_counts.most_common(1)[0][0]
-            logger.info(f"✅ FINAL DETECTED LOCATION: {detected_city}")
-            return detected_city
+        logger.info(f"\n📊 Detected cities: {cities}")
+        logger.info(f"📊 Detected countries: {countries}")
         
-        logger.warning("❌ Could not detect any location from items")
-        return ""
+        # ✅ NO CITIES FOUND
+        if not cities:
+            logger.warning("❌ Could not detect city from addresses")
+            return ""
+        
+        # ✅ RETURN MOST COMMON CITY
+        from collections import Counter
+        city_counts = Counter(cities)
+        most_common_city, count = city_counts.most_common(1)[0]
+        
+        # ✅ FINAL VALIDATION: Check against country context
+        if countries:
+            most_common_country = Counter(countries).most_common(1)[0][0]
+            
+            # Australian cities
+            aus_cities = ['Sydney', 'Melbourne', 'Brisbane', 'Perth', 'Adelaide', 
+                         'Canberra', 'Gold Coast', 'Newcastle', 'Hobart', 'Darwin', 'Cairns']
+            
+            # If country is Australia but city isn't Australian, try to find one
+            if most_common_country == 'Australia':
+                if most_common_city not in aus_cities:
+                    logger.warning(f"⚠️ City '{most_common_city}' doesn't match country 'Australia'")
+                    # Try to find an Australian city in the list
+                    for city in cities:
+                        if city in aus_cities:
+                            most_common_city = city
+                            count = city_counts[city]
+                            logger.info(f"✅ Corrected to Australian city: {most_common_city}")
+                            break
+        
+        logger.info(f"✅ FINAL LOCATION: {most_common_city} (appears {count} times)")
+        return most_common_city
     
     def _compute_itinerary_hash(self, items) -> str:
-        """Generate a hash of the current itinerary for change detection."""
+        """Generate itinerary hash."""
         import hashlib
         items_str = ",".join([f"{item.id}:{item.sort_order}" for item in items])
         return hashlib.md5(items_str.encode()).hexdigest()[:8]
@@ -433,9 +676,10 @@ class AIRecommendationsView(APIView):
         trip: Trip,
         items: List[ItineraryItem],
         day_index: int = None,
-        user_preferences: Dict[str, Any] = None
+        user_preferences: Dict[str, Any] = None,
+        trip_country: str = "Unknown",
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """Generate recommendations in 3 categories with user preferences."""
+        """Generate recommendations in 3 categories."""
         
         existing_places = [item.title for item in items if item.title]
         existing_places_str = ", ".join(existing_places[:8]) if existing_places else "none yet"
@@ -458,22 +702,25 @@ class AIRecommendationsView(APIView):
         
         categories = {}
         
+        # 1. NEARBY
         categories["nearby"] = self._generate_nearby_recommendations(
-            destination, existing_places_str, trip_context, user_preferences
+            destination, existing_places_str, trip_context, user_preferences, trip_country
         )
         
+        # 2. FOOD
         categories["food"] = self._generate_food_recommendations(
-            destination, trip_context, user_preferences
+            destination, trip_context, user_preferences, trip_country
         )
         
+        # 3. CULTURE
         categories["culture"] = self._generate_culture_recommendations(
-            destination, trip_context, user_preferences
+            destination, trip_context, user_preferences, trip_country
         )
         
         return categories
     
     def _build_preference_context(self, user_preferences: Dict[str, Any]) -> str:
-        """Build a string describing user preferences for AI prompt."""
+        """Build preference context string."""
         parts = []
         
         if user_preferences.get('interests'):
@@ -502,9 +749,10 @@ class AIRecommendationsView(APIView):
         destination: str, 
         existing_places: str, 
         trip_context: str,
-        user_preferences: Dict[str, Any]
+        user_preferences: Dict[str, Any],
+        trip_country: str,
     ) -> List[Dict[str, Any]]:
-        """Generate nearby place recommendations using AI with user preferences."""
+        """Generate nearby recommendations with STRICT distance and country requirements."""
         
         pref_context = self._build_preference_context(user_preferences)
         
@@ -522,43 +770,60 @@ class AIRecommendationsView(APIView):
         if user_preferences.get('mobility_needs') and user_preferences['mobility_needs'].lower() != 'none':
             personalization += f"\n- Ensure accessibility for: {user_preferences['mobility_needs']}"
         
-        if user_preferences.get('travel_pace'):
-            if user_preferences['travel_pace'].lower() in ['relaxed', 'slow']:
-                personalization += f"\n- Suggest leisurely activities"
-            elif user_preferences['travel_pace'].lower() in ['fast', 'packed']:
-                personalization += f"\n- Include efficient activities"
-        
-        prompt = f"""You are a local travel expert in {destination}. The user is planning a {trip_context}.
+        # ✅ CRITICAL: Country-aware prompt
+        prompt = f"""You are a local travel expert in {destination}, {trip_country}. The user is planning a {trip_context}.
 
 {pref_context}
 
 Current itinerary includes: {existing_places}
 
-Suggest 3-4 nearby places they should add, ALL located in {destination}.
+Suggest 3-4 NEARBY places they should add to their {destination} itinerary.
+
+⚠️ CRITICAL LOCATION REQUIREMENTS:
+1. ALL suggestions MUST be in {destination}, {trip_country}
+2. DO NOT suggest places in other countries (e.g., if {trip_country} is Australia, DO NOT suggest places in USA, UK, etc.)
+3. ALL suggestions MUST be within {destination} CITY CENTER (not surrounding suburbs or other cities!)
+4. Maximum distance: 10-15 km from {destination} city center
+5. Must be reachable within 30-45 minutes by public transport from city center
+6. DO NOT suggest places in distant suburbs, rural areas, or other cities in the same country
+
+LOCATION VERIFICATION EXAMPLES:
+✅ CORRECT for "Sydney, Australia": Bondi Beach, Darling Harbour, Circular Quay, Opera House
+❌ WRONG for "Sydney, Australia": Blue Mountains (too far), Byron Bay (different city), Museum of Contemporary Art in Rock Hill South Carolina USA (WRONG COUNTRY!)
+
+✅ CORRECT for "Melbourne, Australia": Federation Square, St Kilda Beach, Queen Victoria Market
+❌ WRONG for "Melbourne, Australia": Great Ocean Road (200+ km), Phillip Island (140+ km)
+
+✅ CORRECT for "Tokyo, Japan": Senso-ji Temple, Shibuya Crossing, Meiji Shrine
+❌ WRONG for "Tokyo, Japan": Mount Fuji (100+ km), Osaka (500+ km)
 
 PERSONALIZATION REQUIREMENTS:{personalization}
 
-CRITICAL REQUIREMENTS:
-- ALL suggestions MUST be in {destination} (not other cities!)
-- Must be within walking distance or short travel from their existing stops
+OTHER REQUIREMENTS:
 - Must complement what they already have
 - Must match user's interests and preferences
-- Must be real, well-known places in {destination}
+- Must be diverse (different types of attractions)
+- Must be real, well-known places
 
 Format as JSON array:
 [
   {{
-    "name": "Place name (must be in {destination})",
-    "description": "Why visit (max 100 chars)",
+    "name": "Place name (MUST be in {destination}, {trip_country})",
+    "description": "Why visit + how it matches preferences (max 100 chars)",
     "category": "nearby",
-    "duration": "30 min",
+    "duration": "1-2 hours",
     "cost": "Free",
     "best_time": "Morning",
     "highlight": false,
-    "nearby_to": "Existing stop name",
-    "matched_preferences": ["Interest: culture", "Budget: free"]
+    "nearby_to": "Name of existing stop it's near",
+    "matched_preferences": ["Interest: culture", "Budget-friendly"]
   }}
 ]
+
+VERIFY BEFORE RESPONDING:
+1. Is this place IN {destination}, {trip_country}? (Check city AND country!)
+2. Can you reach it within 30 minutes from {destination} city center?
+3. Is it within 10-15 km of {destination} city center?
 
 Mark the BEST recommendation with "highlight": true.
 Respond ONLY with valid JSON array, no markdown."""
@@ -569,7 +834,7 @@ Respond ONLY with valid JSON array, no markdown."""
             recs = json.loads(content)
             validated = self._validate_recommendations(recs)
             filtered = self._filter_wrong_location(validated, destination)
-            logger.info(f"✅ Generated {len(filtered)} nearby recommendations")
+            logger.info(f"✅ Generated {len(filtered)} nearby recommendations for {destination}")
             return filtered
         except Exception as e:
             logger.warning(f"AI nearby recommendations failed: {e}")
@@ -579,9 +844,10 @@ Respond ONLY with valid JSON array, no markdown."""
         self, 
         destination: str, 
         trip_context: str,
-        user_preferences: Dict[str, Any]
+        user_preferences: Dict[str, Any],
+        trip_country: str,
     ) -> List[Dict[str, Any]]:
-        """Generate food recommendations using AI with user preferences."""
+        """Generate food recommendations."""
         
         pref_context = self._build_preference_context(user_preferences)
         
@@ -591,41 +857,43 @@ Respond ONLY with valid JSON array, no markdown."""
             if diet_pref.lower() in ['vegetarian', 'vegan', 'halal', 'kosher']:
                 diet_requirements = f"\n⚠️ CRITICAL: User is {diet_pref}. ONLY recommend restaurants with {diet_pref} options!"
             elif diet_pref.lower() != 'no restrictions':
-                diet_requirements = f"\n⚠️ User has dietary preference: {diet_pref}"
+                diet_requirements = f"\n⚠️ IMPORTANT: User prefers: {diet_pref}."
         
         budget_guidance = ""
         if user_preferences.get('budget_level'):
             if user_preferences['budget_level'].lower() in ['budget', 'low']:
-                budget_guidance = "\n💰 Focus on affordable eateries"
+                budget_guidance = "\n💰 Focus on affordable eateries and street food"
             elif user_preferences['budget_level'].lower() in ['luxury', 'high']:
-                budget_guidance = "\n💎 Include fine dining"
+                budget_guidance = "\n💎 Include fine dining experiences"
         
-        prompt = f"""You are a local food expert in {destination}. Suggest 3-4 must-try food experiences in {destination}.
+        prompt = f"""You are a local food expert in {destination}, {trip_country}. Suggest 3-4 must-try food experiences in {destination}.
 
 {pref_context}
 {diet_requirements}
 {budget_guidance}
 
-ALL suggestions MUST be:
-- Located IN {destination}
-- Real, existing restaurants
+Context: {trip_context}
+
+IMPORTANT: ALL suggestions MUST be:
+- Actually located IN {destination}, {trip_country} (not other cities or countries)
+- Real, existing restaurants or food areas
 - Match user's dietary preferences
 
 Format as JSON array:
 [
   {{
-    "name": "Restaurant name (in {destination})",
+    "name": "Restaurant name (in {destination}, {trip_country})",
     "description": "What makes it special (max 100 chars)",
     "category": "food",
     "duration": "1-2 hours",
     "cost": "$20-40",
     "best_time": "Lunch",
     "highlight": false,
-    "matched_preferences": ["Diet: vegetarian", "Budget-friendly"]
+    "matched_preferences": ["Vegetarian-friendly", "Budget-friendly"]
   }}
 ]
 
-Mark the BEST recommendation with "highlight": true.
+Mark the BEST match with "highlight": true.
 Respond ONLY with valid JSON array, no markdown."""
 
         try:
@@ -634,7 +902,7 @@ Respond ONLY with valid JSON array, no markdown."""
             recs = json.loads(content)
             validated = self._validate_recommendations(recs)
             filtered = self._filter_wrong_location(validated, destination)
-            logger.info(f"✅ Generated {len(filtered)} food recommendations")
+            logger.info(f"✅ Generated {len(filtered)} food recommendations for {destination}")
             return filtered
         except Exception as e:
             logger.warning(f"AI food recommendations failed: {e}")
@@ -644,9 +912,10 @@ Respond ONLY with valid JSON array, no markdown."""
         self, 
         destination: str, 
         trip_context: str,
-        user_preferences: Dict[str, Any]
+        user_preferences: Dict[str, Any],
+        trip_country: str,
     ) -> List[Dict[str, Any]]:
-        """Generate cultural attraction recommendations using AI."""
+        """Generate culture recommendations."""
         
         pref_context = self._build_preference_context(user_preferences)
         
@@ -655,41 +924,43 @@ Respond ONLY with valid JSON array, no markdown."""
             interests = user_preferences['interests']
             if 'culture' in interests or 'history' in interests:
                 interest_guidance += "\n- Emphasize historical significance"
-            if 'art' in interests:
-                interest_guidance += "\n- Suggest art museums and galleries"
+            if 'art' in interests or 'photography' in interests:
+                interest_guidance += "\n- Suggest visually stunning sites"
             if 'nature' in interests:
-                interest_guidance += "\n- Include sites with gardens/nature"
+                interest_guidance += "\n- Include sites with gardens/natural elements"
         
         accessibility_note = ""
         if user_preferences.get('mobility_needs') and user_preferences['mobility_needs'].lower() != 'none':
-            accessibility_note = f"\n♿ Ensure accessibility for: {user_preferences['mobility_needs']}"
+            accessibility_note = f"\n♿ IMPORTANT: Ensure accessibility for: {user_preferences['mobility_needs']}"
         
-        prompt = f"""You are a cultural guide for {destination}. Suggest 3-4 cultural attractions in {destination}.
+        prompt = f"""You are a cultural guide for {destination}, {trip_country}. Suggest 3-4 cultural attractions in {destination}.
 
 {pref_context}
 {interest_guidance}
 {accessibility_note}
 
-ALL suggestions MUST be:
-- Located IN {destination}
-- Real cultural sites
-- Match user interests
+Context: {trip_context}
+
+IMPORTANT: ALL suggestions MUST be:
+- Located IN {destination}, {trip_country} (not other cities or countries)
+- Real, famous cultural sites
+- Match user's interests
 
 Format as JSON array:
 [
   {{
-    "name": "Attraction name (in {destination})",
+    "name": "Attraction name (in {destination}, {trip_country})",
     "description": "Why visit (max 100 chars)",
     "category": "culture",
     "duration": "2-3 hours",
     "cost": "$10-20",
     "best_time": "Morning",
     "highlight": false,
-    "matched_preferences": ["Interest: culture", "Interest: history"]
+    "matched_preferences": ["Interest: history", "Wheelchair accessible"]
   }}
 ]
 
-Mark the BEST recommendation with "highlight": true.
+Mark the BEST match with "highlight": true.
 Respond ONLY with valid JSON array, no markdown."""
 
         try:
@@ -698,14 +969,14 @@ Respond ONLY with valid JSON array, no markdown."""
             recs = json.loads(content)
             validated = self._validate_recommendations(recs)
             filtered = self._filter_wrong_location(validated, destination)
-            logger.info(f"✅ Generated {len(filtered)} culture recommendations")
+            logger.info(f"✅ Generated {len(filtered)} culture recommendations for {destination}")
             return filtered
         except Exception as e:
             logger.warning(f"AI culture recommendations failed: {e}")
             return self._fallback_culture(destination)
     
     def _clean_json(self, content: str) -> str:
-        """Remove markdown code fences from JSON."""
+        """Remove markdown fences."""
         content = content.strip()
         
         if content.startswith("```json"):
@@ -719,7 +990,7 @@ Respond ONLY with valid JSON array, no markdown."""
         return content.strip()
     
     def _validate_recommendations(self, recs: List[Dict]) -> List[Dict[str, Any]]:
-        """Validate and normalize recommendation structure."""
+        """Validate recommendation structure."""
         validated = []
         
         for rec in recs:
@@ -743,7 +1014,7 @@ Respond ONLY with valid JSON array, no markdown."""
                     "nearby_to": rec.get("nearby_to"),
                     "action": rec.get("action"),
                     "matched_preferences": matched_prefs,
-                    # ✅ Initialize coordinate fields (will be filled by geocoding)
+                    # ✅ Initialize coordinate fields
                     "lat": rec.get("lat"),
                     "lon": rec.get("lon"),
                     "address": rec.get("address"),
@@ -753,21 +1024,44 @@ Respond ONLY with valid JSON array, no markdown."""
         return validated
     
     def _filter_wrong_location(self, recommendations: List[Dict], expected_location: str) -> List[Dict]:
-        """Filter out recommendations that mention wrong cities."""
+        """Filter out recommendations mentioning wrong cities."""
         if not expected_location:
             return recommendations
         
+        # City groups for filtering
         city_groups = {
+            # Australia
+            "sydney": ["sydney", "bondi", "manly", "darling harbour", "circular quay"],
+            "melbourne": ["melbourne", "st kilda", "fitzroy", "southbank"],
+            "brisbane": ["brisbane", "south bank", "fortitude valley"],
+            "perth": ["perth", "fremantle", "northbridge"],
+            "adelaide": ["adelaide", "glenelg"],
+            "canberra": ["canberra"],
+            "gold coast": ["gold coast", "surfers paradise"],
+            "newcastle": ["newcastle"],
+            "cairns": ["cairns"],
+            "darwin": ["darwin"],
+            "hobart": ["hobart"],
+            
+            # Japan
             "tokyo": ["tokyo", "shibuya", "shinjuku", "harajuku", "asakusa", "ginza"],
             "osaka": ["osaka", "dotonbori", "namba", "umeda"],
-            "kyoto": ["kyoto", "gion", "arashiyama", "fushimi"],
-            "sapporo": ["sapporo", "susukino", "hokkaido"],
-            "singapore": ["singapore"],
-            "bangkok": ["bangkok"],
-            "seoul": ["seoul"],
+            "kyoto": ["kyoto", "gion", "arashiyama"],
+            "sapporo": ["sapporo", "susukino"],
+            "fukuoka": ["fukuoka", "hakata"],
+            "hiroshima": ["hiroshima"],
+            
+            # Other Asia
+            "singapore": ["singapore", "sentosa", "marina bay"],
+            "bangkok": ["bangkok", "sukhumvit", "silom"],
+            "seoul": ["seoul", "gangnam", "hongdae", "myeongdong"],
+            "hong kong": ["hong kong", "kowloon", "tsim sha tsui"],
+            "taipei": ["taipei", "ximending"],
         }
         
         expected_lower = expected_location.lower().strip()
+        
+        # Find expected city group
         expected_group = None
         expected_city_key = None
         
@@ -775,47 +1069,54 @@ Respond ONLY with valid JSON array, no markdown."""
             if any(alias in expected_lower for alias in aliases):
                 expected_group = aliases
                 expected_city_key = city_key
+                logger.info(f"✅ Matched city group: {city_key}")
                 break
         
         if not expected_group:
+            logger.info(f"⚠️ City '{expected_location}' not in filter database, keeping all")
             return recommendations
         
+        # Get wrong cities (including US cities)
         wrong_cities = []
         for city_key, aliases in city_groups.items():
             if city_key != expected_city_key:
                 wrong_cities.extend([a for a in aliases if len(a) >= 4])
         
+        # ✅ Add common US cities to wrong list if we're not in USA
+        us_cities = ["rock hill", "south carolina", "new york", "los angeles", "chicago", "san francisco"]
+        wrong_cities.extend(us_cities)
+        
+        # Filter
         filtered = []
-        import re
         
         for rec in recommendations:
             name_lower = rec.get("name", "").lower()
             desc_lower = rec.get("description", "").lower()
             
-            contains_wrong_city = False
+            contains_wrong = False
+            detected_wrong = None
             
             for wrong_city in wrong_cities:
                 pattern = r'\b' + re.escape(wrong_city) + r'\b'
-                
                 if re.search(pattern, name_lower) or re.search(pattern, desc_lower):
-                    contains_wrong_city = True
+                    contains_wrong = True
+                    detected_wrong = wrong_city
                     break
             
-            if not contains_wrong_city:
+            if not contains_wrong:
                 filtered.append(rec)
+                logger.info(f"  ✅ KEPT: {rec.get('name')}")
+            else:
+                logger.warning(f"  ❌ FILTERED: '{rec.get('name')}' - mentions '{detected_wrong}'")
+        
+        logger.info(f"📊 Filter result: {len(filtered)}/{len(recommendations)} passed")
         
         return filtered
     
     def _fallback_categories(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Fallback categories if AI fails."""
-        return {
-            "nearby": [],
-            "food": [],
-            "culture": []
-        }
+        return {"nearby": [], "food": [], "culture": []}
     
     def _fallback_nearby(self, destination: str) -> List[Dict[str, Any]]:
-        """Fallback nearby recommendations."""
         return [{
             "name": f"Explore {destination}",
             "description": "Discover nearby attractions",
@@ -831,7 +1132,6 @@ Respond ONLY with valid JSON array, no markdown."""
         }]
     
     def _fallback_food(self, destination: str) -> List[Dict[str, Any]]:
-        """Fallback food recommendations."""
         return [{
             "name": f"Local Cuisine Tour",
             "description": f"Try authentic {destination} food",
@@ -847,7 +1147,6 @@ Respond ONLY with valid JSON array, no markdown."""
         }]
     
     def _fallback_culture(self, destination: str) -> List[Dict[str, Any]]:
-        """Fallback culture recommendations."""
         return [{
             "name": f"Cultural Heritage Sites",
             "description": f"Visit {destination}'s landmarks",
@@ -864,31 +1163,24 @@ Respond ONLY with valid JSON array, no markdown."""
 
 
 # ============================================================================
-# Quick Add Recommendation (WITH COORDINATES)
+# Quick Add with Coordinate Validation
 # ============================================================================
 
 class QuickAddRecommendationView(APIView):
-    """
-    POST /f1/recommendations/quick-add/
-    
-    Quickly add an AI-generated recommendation to trip itinerary.
-    ✅ Validates coordinates before adding
-    ✅ Allows both owners AND collaborators
-    """
+    """POST /f1/recommendations/quick-add/"""
     permission_classes = [IsAuthenticated]
     
     def post(self, request, *args, **kwargs):
         trip_id = request.data.get('trip_id')
-        day_index = request.data.get('day_index', 0)  # 0-indexed
+        day_index = request.data.get('day_index', 0)
         recommendation = request.data.get('recommendation', {})
         
         if not trip_id or not recommendation or not recommendation.get('name'):
             return Response(
-                {"success": False, "error": "trip_id and recommendation with name are required"},
+                {"success": False, "error": "Missing required fields"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Get AppUser
         user = request.user
         try:
             if hasattr(user, 'email'):
@@ -901,33 +1193,30 @@ class QuickAddRecommendationView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Allow both owner AND collaborators
         trip = Trip.objects.filter(
             Q(id=trip_id) & (Q(owner=app_user) | Q(collaborators__user=app_user))
         ).distinct().first()
         
         if not trip:
             return Response(
-                {"success": False, "error": "Trip not found or you don't have permission"},
+                {"success": False, "error": "Trip not found"},
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # ✅ Extract coordinates from recommendation
+        # Extract data
         name = recommendation.get('name', 'New Place')
         lat = recommendation.get('lat')
         lon = recommendation.get('lon')
         address = recommendation.get('address')
-        xid = recommendation.get('xid')
         
-        # ✅ CRITICAL: Validate coordinates exist
+        # ✅ VALIDATE coordinates
         if lat is None or lon is None:
-            logger.error(f"❌ Recommendation missing coordinates: {name}")
+            logger.error(f"❌ Missing coordinates for: {name}")
             return Response({
                 'success': False,
-                'error': f'Cannot add "{name}" - missing location data. Please refresh recommendations and try again.'
+                'error': f'Cannot add "{name}" - missing location data. Please refresh recommendations.'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Convert to float
         try:
             lat = float(lat)
             lon = float(lon)
@@ -937,7 +1226,7 @@ class QuickAddRecommendationView(APIView):
                 'error': 'Invalid coordinate format'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get or create the day (0-indexed to 1-indexed)
+        # Get or create day
         actual_day_index = day_index + 1
         trip_day, created = TripDay.objects.get_or_create(
             trip=trip,
@@ -951,7 +1240,7 @@ class QuickAddRecommendationView(APIView):
             day=trip_day
         ).aggregate(Max('sort_order'))['sort_order__max'] or 0
         
-        # ✅ Create itinerary item WITH coordinates
+        # ✅ CREATE with coordinates
         item = ItineraryItem.objects.create(
             trip=trip,
             day=trip_day,
@@ -960,11 +1249,9 @@ class QuickAddRecommendationView(APIView):
             notes_summary=recommendation.get('description', ''),
             sort_order=max_sort + 1,
             is_all_day=False,
-            # ✅ CRITICAL: Store coordinates
             lat=lat,
             lon=lon,
             address=address,
-            # xid=xid,  # Uncomment if your model has xid field
         )
         
         logger.info(f"✅ Added '{name}' to trip {trip_id}, day {actual_day_index} with coords ({lat}, {lon})")

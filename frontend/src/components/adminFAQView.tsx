@@ -4,6 +4,28 @@ import { supabase } from "../lib/supabaseClient";
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
 
+// Valid category values for Community FAQ (enum in database)
+const COMMUNITY_FAQ_CATEGORIES = ["General", "Costs", "Photos", "Safety", "Transport"];
+
+// Countries for Community FAQ
+const COMMUNITY_FAQ_COUNTRIES = [
+  "Japan", "Korea", "Australia", "China", "France",
+  "Indonesia", "Malaysia", "Taiwan", "Thailand", "United States"
+];
+
+// Helper to get auth token with session refresh fallback
+async function getAuthTokenWithRefresh() {
+  // Try to get existing session
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (sessionData.session?.access_token) {
+    return sessionData.session.access_token;
+  }
+
+  // Try to refresh the session
+  const { data: refreshData } = await supabase.auth.refreshSession();
+  return refreshData.session?.access_token || null;
+}
+
 // Types for different FAQ tables
 type CommunityFAQ = {
   id: number;
@@ -53,10 +75,8 @@ export default function AdminFAQView() {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addForm, setAddForm] = useState<any>({});
 
-  const getAuthToken = async () => {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token;
-  };
+  // Use the improved token getter with refresh fallback
+  const getAuthToken = getAuthTokenWithRefresh;
 
   // Fetch Community FAQs via API
   const fetchCommunityFaqs = async () => {
@@ -297,7 +317,7 @@ export default function AdminFAQView() {
         question: "",
         answer: "",
         country: "",
-        category: "",
+        category: "General",  // Default to valid enum value
         is_published: true,
       });
     } else {
@@ -544,7 +564,38 @@ export default function AdminFAQView() {
             </div>
             <div className="modal-body">
               <div className="faq-form">
-                {(editingItem._category === "community_faq" || editingItem._category === "faqs") && (
+                {editingItem._category === "community_faq" && (
+                  <label className="faq-form-label">
+                    Country
+                    <select
+                      value={editForm.country || ""}
+                      onChange={(e) => setEditForm({ ...editForm, country: e.target.value })}
+                      className="faq-form-input"
+                    >
+                      <option value="">Select a country...</option>
+                      {COMMUNITY_FAQ_COUNTRIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                {editingItem._category === "community_faq" && (
+                  <label className="faq-form-label">
+                    Category
+                    <select
+                      value={editForm.category || "General"}
+                      onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+                      className="faq-form-input"
+                    >
+                      {COMMUNITY_FAQ_CATEGORIES.map((cat) => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                {editingItem._category === "faqs" && (
                   <label className="faq-form-label">
                     Category
                     <input
@@ -627,7 +678,39 @@ export default function AdminFAQView() {
             </div>
             <div className="modal-body">
               <div className="faq-form">
-                {(activeCategory === "community_faq" || activeCategory === "faqs") && (
+                {activeCategory === "community_faq" && (
+                  <label className="faq-form-label">
+                    Country
+                    <select
+                      value={addForm.country || ""}
+                      onChange={(e) => setAddForm({ ...addForm, country: e.target.value })}
+                      className="faq-form-input"
+                      required
+                    >
+                      <option value="">Select a country...</option>
+                      {COMMUNITY_FAQ_COUNTRIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                {activeCategory === "community_faq" && (
+                  <label className="faq-form-label">
+                    Category
+                    <select
+                      value={addForm.category || "General"}
+                      onChange={(e) => setAddForm({ ...addForm, category: e.target.value })}
+                      className="faq-form-input"
+                    >
+                      {COMMUNITY_FAQ_CATEGORIES.map((cat) => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                {activeCategory === "faqs" && (
                   <label className="faq-form-label">
                     Category
                     <input
