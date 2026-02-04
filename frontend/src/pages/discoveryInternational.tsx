@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { pickTripCover } from "../lib/tripCovers";
 
 type TripPreview = {
   id: number;
@@ -243,33 +244,16 @@ export default function DiscoveryInternational() {
       : countrySummaries.filter((c) => c.country.toLowerCase().startsWith(countrySearchLower));
 
   useEffect(() => {
-    let cancelled = false;
+    const newBgByCountry: Record<string, string | null> = {};
 
-    const hydrateCountryImages = async () => {
-      const jobs: Promise<void>[] = [];
+    for (const c of filteredCountries) {
+      if (bgByCountry[c.country] !== undefined) continue;
+      newBgByCountry[c.country] = pickTripCover(c.country);
+    }
 
-      for (const c of filteredCountries) {
-        if (bgByCountry[c.country] !== undefined) continue;
-
-        jobs.push(
-          (async () => {
-            // query tuned to be “country-relevant”
-            const img = await fetchOpenverseImageForPlace(null, c.country, hashInt(c.country.length)
-            );
-            if (cancelled) return;
-            setBgByCountry((prev) => ({ ...prev, [c.country]: img }));
-          })()
-        );
-      }
-
-      await Promise.all(jobs);
-    };
-
-    hydrateCountryImages();
-
-    return () => {
-      cancelled = true;
-    };
+    if (Object.keys(newBgByCountry).length > 0) {
+      setBgByCountry((prev) => ({ ...prev, ...newBgByCountry }));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredCountries]);
 
