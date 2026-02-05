@@ -600,6 +600,8 @@ const [legs, setLegs] = useState<LegInfo[]>([]);
 const [isLoading, setIsLoading] = useState(true);
 const [isOptimising, setIsOptimising] = useState(false);
 const [errorMsg, setErrorMsg] = useState<string | null>(null);
+const [travelMode, setTravelMode] = useState<"driving-car" | "cycling-regular" | "foot-walking">("driving-car");
+const [legsLoading, setLegsLoading] = useState(false);
 
   const [isOptimisingFull, setIsOptimisingFull] = useState(false);
 
@@ -1073,6 +1075,57 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
     return () => window.removeEventListener("trip-updated", handler);
   }, [tripId]);
 
+  const legSignature = useMemo(() => {
+    return items
+      .filter((it) => it.lat != null && it.lon != null)
+      .map(
+        (it) =>
+          `${it.id}:${it.day ?? "null"}:${it.sort_order ?? 0}:${it.lat ?? ""}:${it.lon ?? ""}`
+      )
+      .join("|");
+  }, [items]);
+
+  const loadLegs = async (mode: typeof travelMode) => {
+    if (!numericTripId) return;
+    const withCoords = items.filter((it) => it.lat != null && it.lon != null);
+    if (withCoords.length < 2) {
+      setLegs([]);
+      return;
+    }
+
+    setLegsLoading(true);
+    try {
+      const data = await apiFetch("/f1/route-legs/", {
+        method: "POST",
+        body: JSON.stringify({ trip_id: numericTripId, profile: mode }),
+      });
+      setLegs(data?.legs || []);
+    } catch (err) {
+      console.warn("Failed to load travel legs:", err);
+    } finally {
+      setLegsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!numericTripId) return;
+    if (!legSignature) {
+      setLegs([]);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      if (cancelled) return;
+      await loadLegs(travelMode);
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [numericTripId, legSignature, travelMode]);
+
   // If there are no coordinates yet, center the map on the trip's main city/country
   useEffect(() => {
     if (!trip || hasGeoContent) {
@@ -1166,7 +1219,7 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
     try {
       const data = await apiFetch("/f1/route-optimize/", {
         method: "POST",
-        body: JSON.stringify({ trip_id: numericTripId, profile: "driving-car" }),
+        body: JSON.stringify({ trip_id: numericTripId, profile: travelMode }),
       });
 
       const legsData: LegInfo[] = data?.legs || [];
@@ -1194,7 +1247,7 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
     try {
       const data = await apiFetch("/f1/route-optimize-full/", {
         method: "POST",
-        body: JSON.stringify({ trip_id: numericTripId, profile: "driving-car" }),
+        body: JSON.stringify({ trip_id: numericTripId, profile: travelMode }),
       });
 
       const legsData: LegInfo[] = data?.legs || [];
@@ -1284,6 +1337,12 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
 
   const findLegForPair = (fromId: number, toId: number): LegInfo | undefined =>
     legs.find((leg) => leg.from_id === fromId && leg.to_id === toId);
+
+  const travelModeLabel = useMemo(() => {
+    if (travelMode === "foot-walking") return "walking";
+    if (travelMode === "cycling-regular") return "cycling";
+    return "car";
+  }, [travelMode]);
 
   /* ------------- Day summary (stops · km · duration) ------------- */
 
@@ -2397,6 +2456,40 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
                   </div>
 
                   <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.4rem",
+                        paddingRight: "0.2rem",
+                      }}
+                    >
+                      <span style={{ fontSize: "0.78rem", color: "#6b7280", fontWeight: 600 }}>
+                        Travel mode
+                      </span>
+                      <select
+                        value={travelMode}
+                        onChange={(e) => setTravelMode(e.target.value as typeof travelMode)}
+                        style={{
+                          borderRadius: "999px",
+                          border: "1px solid #e5e7eb",
+                          backgroundColor: "white",
+                          color: "#111827",
+                          padding: "0.35rem 0.75rem",
+                          fontSize: "0.78rem",
+                          fontWeight: 600,
+                        }}
+                        title="Used to estimate time and distance between stops."
+                      >
+                        <option value="driving-car">Car</option>
+                        <option value="cycling-regular">Cycling</option>
+                        <option value="foot-walking">Walking</option>
+                      </select>
+                      {legsLoading && (
+                        <span style={{ fontSize: "0.72rem", color: "#9ca3af" }}>Updating…</span>
+                      )}
+                    </div>
+
                     <button
                       onClick={handleOptimiseRouteClick}
                       disabled={isOptimising || items.length < 2}
@@ -2724,7 +2817,7 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
                                                   marginTop: 4,
                                                 }}
                                               >
-                                                {`→ ${leg.distance_km} km, ~${leg.duration_min} min to next stop`}
+                                                {`→ ${leg.distance_km} km · ~${leg.duration_min} min (${travelModeLabel})`}
                                               </div>
                                             )}
 

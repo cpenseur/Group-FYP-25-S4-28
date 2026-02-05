@@ -45,3 +45,13 @@ class F12RouteOptimizationResponseSerializer(serializers.Serializer):
     total_distance_km = serializers.FloatField()
     total_duration_min = serializers.FloatField()
     updated_items = F12ItemOrderUpdateSerializer(many=True, required=False)
+
+
+class F12RouteLegsResponseSerializer(serializers.Serializer):
+    """
+    Response payload summarising per-leg travel time/distance (no reordering).
+    """
+    legs = F12RouteLegSerializer(many=True)
+    total_distance_km = serializers.FloatField()
+    total_duration_min = serializers.FloatField()
+    profile = serializers.CharField()
