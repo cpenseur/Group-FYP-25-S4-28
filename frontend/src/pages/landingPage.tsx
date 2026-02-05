@@ -1,10 +1,19 @@
 // frontend/src/pages/landing/LandingPage.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import hallstatt from "../assets/hallstatt.png";
 import Cappadocia from "../assets/Cappadocia.jpg";
 import Yosemite from "../assets/Yosemite.jpg";
+import mbs from "../assets/mbs.jpg";
+import sentosa from "../assets/sentosa.jpg";
+import gbtb from "../assets/gbtb.jpg";
+import beijing from "../assets/beijing.jpg";
+import shanghai from "../assets/shanghai.jpg";
+import guilin from "../assets/guilin.jpg";
+import tokyo from "../assets/tokyo.jpg";
+import kyoto from "../assets/kyoto.jpg";
+import osaka from "../assets/osaka.png";
 import heroBackground from "../assets/heroBackground.jpg";
 import LandingNavbar from "../components/landingNavbar";
 import LandingFooter from "../components/landingFooter";
@@ -27,6 +36,8 @@ import {
   UsersRound
 } from "lucide-react";
 
+import guidesData from "../data/guides.json";
+
 type LandingPageProps = {
   onLoginClick: () => void;
   onSignupClick: () => void;
@@ -34,36 +45,19 @@ type LandingPageProps = {
 
 const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, }) => {
   const navigate = useNavigate();
-  const [demoTrips, setDemoTrips] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [currentTripIndex, setCurrentTripIndex] = useState(0);
   const [email, setEmail] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
-
-  useEffect(() => {
-    const fetchDemoTrips = async () => {
-      try {
-        const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
-        const response = await fetch(`${API_BASE}/f7/demo-itineraries/`);
-        const data = await response.json();
-        setDemoTrips(data);
-      } catch (error) {
-        console.error('Error fetching demo trips:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    fetchDemoTrips();
-  }, []);
-
-  const nextSlide = () => {
-    setCurrentTripIndex((prev) => (prev + 1) % demoTrips.length);
-  };
-
-  const prevSlide = () => {
-    setCurrentTripIndex((prev) => (prev - 1 + demoTrips.length) % demoTrips.length);
+  const imageMap: Record<string, string> = {
+    "mbs.jpg": mbs,
+    "sentosa.jpg": sentosa,
+    "gbtb.jpg": gbtb,
+    "beijing.jpg": beijing,
+    "shanghai.jpg": shanghai,
+    "guilin.jpg": guilin,
+    "tokyo.jpg": tokyo,
+    "kyoto.jpg": kyoto,
+    "osaka.png": osaka,
   };
 
   const handleNewsletterSubmit = async (e: React.FormEvent) => {
@@ -156,7 +150,34 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
     { name: 'FAQ', path: '/guest-faq' },
   ];
 
-  const currentTrip = demoTrips[currentTripIndex] || {};
+  const guides = useMemo(
+    () => (guidesData as any[]).map((g) => ({ ...g, image: imageMap[g.image as string] })),
+    []
+  );
+
+  const mixedGuides = useMemo(() => {
+    const pickOrder = ["Singapore", "Japan", "China"];
+    const used = new Set<number>();
+    const result: any[] = [];
+
+    for (const region of pickOrder) {
+      const found = guides.find((g) => g.region === region);
+      if (found && !used.has(found.id)) {
+        used.add(found.id);
+        result.push(found);
+      }
+    }
+
+    for (const g of guides) {
+      if (result.length >= 4) break;
+      if (!used.has(g.id)) {
+        used.add(g.id);
+        result.push(g);
+      }
+    }
+
+    return result.slice(0, 4);
+  }, [guides]);
 
   return (
     <Container>
@@ -312,7 +333,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
             Immerse yourself in a world of wanderlust as you embark on a journey to the 
             most coveted destinations, carefully curated by fellow travelers who've 
             experienced the magic firsthand. These top-rated trips are more than just 
-            vacations—they're gateways to extraordinary experiences that leave an 
+            vacations. They're gateways to extraordinary experiences that leave an 
             indelible mark on your soul.
           </ShowcaseParagraph>
 
@@ -345,40 +366,29 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
           <SectionSubtitle>TRAVEL INTELLIGENCE</SectionSubtitle>
           <SectionTitle>Insights for the Inquisitive Traveller</SectionTitle>
           <SectionDescription>
-            Explore curated demo itineraries shared by our community
+            Explore curated travel guides and itineraries
           </SectionDescription>
         </SectionHeader>
         
         <InsightsGrid>
-          {isLoading ? (
-            <LoadingText>Loading demo trips...</LoadingText>
-          ) : demoTrips.length > 0 ? (
-            demoTrips.slice(0, 4).map((trip, index) => (
-              <InsightCard key={trip.id || index} onClick={() => navigate(`/discovery-itinerary/${trip.id}`)}>
-                {trip.cover_image ? (
-                  <InsightThumbnail src={trip.cover_image} alt={trip.title} />
-                ) : (
-                  <InsightIcon>🗺️</InsightIcon>
-                )}
-                <InsightContent>
-                  <InsightTitle>{trip.title}</InsightTitle>
-                  <InsightDescription>
-                    {trip.main_city && trip.main_country 
-                      ? `${trip.main_city}, ${trip.main_country}` 
-                      : trip.main_city || trip.main_country || 'Explore this amazing destination'}
-                    {trip.start_date && trip.end_date && (
-                      <> • {new Date(trip.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(trip.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</>
-                    )}
-                  </InsightDescription>
-                  <ReadMore>
-                    View Itinerary <ChevronRight size={14} />
-                  </ReadMore>
-                </InsightContent>
-              </InsightCard>
-            ))
-          ) : (
-            <LoadingText>No demo trips available</LoadingText>
-          )}
+          {mixedGuides.map((guide) => (
+            <InsightCard key={guide.id} onClick={() => navigate(`/travel-guides/${guide.id}`)}>
+              {guide.image ? (
+                <InsightThumbnail src={guide.image} alt={guide.title} />
+              ) : (
+                <InsightIcon>MAP</InsightIcon>
+              )}
+              <InsightContent>
+                <InsightTitle>{guide.title}</InsightTitle>
+                <InsightDescription>
+                  {guide.location} - {guide.days}
+                </InsightDescription>
+                <ReadMore>
+                  View Itinerary <ChevronRight size={14} />
+                </ReadMore>
+              </InsightContent>
+            </InsightCard>
+          ))}
         </InsightsGrid>
       </Section>
 
