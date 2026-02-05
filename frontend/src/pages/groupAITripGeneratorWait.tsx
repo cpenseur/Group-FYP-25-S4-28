@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTripId } from "../hooks/useDecodedParams";
 import { apiFetch } from "../lib/apiClient";
+import { encodeId } from "../lib/urlObfuscation";
 
 import {
   ShoppingBag,
@@ -64,7 +65,8 @@ export default function GroupAITripGeneratorWait() {
     setIsExiting(true);
     
     window.setTimeout(() => {
-      navigate(`/group-trip/${tripId}/summary`, { replace: true });
+      // Use obfuscated route
+      navigate(`/v/${encodeId(tripId)}/gs`, { replace: true });
     }, 420);
   };
 
@@ -743,7 +745,7 @@ export default function GroupAITripGeneratorWait() {
             <>
               <div style={styles.error}>{errorMsg}</div>
               <div style={styles.btnRow}>
-                <button style={styles.btn} onClick={() => navigate(`/group-wait-for-friends/${tripId}`)}>
+                <button style={styles.btn} onClick={() => navigate(`/v/${encodeId(tripId!)}/gw`)}>
                   Back to waiting page
                 </button>
                 <button style={styles.btn} onClick={() => window.location.reload()}>

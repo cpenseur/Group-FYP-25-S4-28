@@ -21,8 +21,8 @@ type FAQForm = {
   is_published: boolean;
 };
 
-const API_ROOT = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
-const API_BASE = `${API_ROOT}/api/f8/destination-faqs/`;
+const API_ROOT = import.meta.env.VITE_API_BASE_URL || "/api";
+const API_BASE = `${API_ROOT}/f8/destination-faqs/`;
 
 async function getAccessToken() {
   const { data: s1 } = await supabase.auth.getSession();

@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTripId } from "../hooks/useDecodedParams";
+import { apiFetch } from "../lib/apiClient";
 import { MapPin, Eye, Bed, CalendarDays, FileText, DollarSign, Camera, Lightbulb } from "lucide-react";
 import ItineraryMap, { MapItineraryItem } from "../components/ItineraryMap";
 import Login from "../components/login"; 
@@ -64,16 +65,9 @@ export default function ViewTripPage() {
     const fetchTripData = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/trip/${tripId}/view/`);
-        
-        if (!response.ok) {
-          if (response.status === 404) {
-            throw new Error("Trip not found");
-          }
-          throw new Error(`Failed to load trip`);
-        }
-
-        const data = await response.json();
+        // Use apiFetch to call the backend API - endpoint is /api/trip/{id}/view/
+        // apiFetch prepends API_BASE_URL which ends with /api, so we use /trip/...
+        const data = await apiFetch(`/trip/${tripId}/view/`, { method: "GET" });
         console.log("Trip data loaded:", data);
         setTripData(data);
         

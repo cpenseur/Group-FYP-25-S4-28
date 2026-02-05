@@ -24,9 +24,10 @@ export default function AdminReportsView({
     format: FormatKey;
   }) => void;
 }) {
+  const todayIso = new Date().toISOString().slice(0, 10);
   const [reportType, setReportType] = useState<ReportKey>("user_activity");
   const [fromDate, setFromDate] = useState<string>("2025-12-15");
-  const [toDate, setToDate] = useState<string>("2026-01-14");
+  const [toDate, setToDate] = useState<string>(todayIso);
   const [pdfOpen, setPdfOpen] = useState(false);
   type PreviewCard = { label: string; value: string; tone: "neutral" | "good" | "warn" };
   type PreviewData = { heading: string; cards: PreviewCard[]; note: string };
@@ -105,14 +106,15 @@ export default function AdminReportsView({
 
         console.log("token exists?", !!token);
 
-        const who = await fetch("http://localhost:8000/api/auth/whoami/", {
+        const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
+        const who = await fetch(`${API_BASE}/auth/whoami/`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         console.log("whoami status", who.status, await who.text());
 
         if (!token) throw new Error("Not logged in (no Supabase session)");
 
-        const r = await fetch(`http://localhost:8000/api/admin/reports/preview/?${params.toString()}`, {
+        const r = await fetch(`${API_BASE}/admin/reports/preview/?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
         });
 

@@ -29,8 +29,9 @@ type CountrySummary = {
   sponsored?: boolean;
 };
 
-const COMMUNITY_API = "http://127.0.0.1:8000/api/f2/community/";
-const SPONSOR_API = "http://127.0.0.1:8000/api/f2/community/sponsored-countries/";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
+const COMMUNITY_API = `${API_BASE}/f2/community/`;
+const SPONSOR_API = `${API_BASE}/f2/community/sponsored-countries/`;
 const PAGE_SIZE = 3;
 
 // ---------------- helpers ----------------
@@ -179,7 +180,8 @@ export default function DiscoveryInternational() {
           const results: TripPreview[] = data.results || [];
           all.push(...results);
 
-          url = data.next ?? null;
+          // Ensure HTTPS for pagination URLs to avoid mixed content errors
+          url = data.next ? data.next.replace('http://', 'https://') : null;
         }
 
         // International = everything that is NOT Singapore

@@ -74,9 +74,9 @@ const TripInvitationAccept: React.FC = () => {
           already_accepted: response.already_accepted
         });
         
-        // Success - redirect to trip page after 2 seconds
+        // Success - redirect to group trip page after 2 seconds
         setTimeout(() => {
-          navigate(`/ai-trip-generator-group?tripId=${response.trip_id}`);
+          navigate(`/a/agg?tripId=${response.trip_id}`);
         }, 2000);
       } else {
         // Unexpected response format

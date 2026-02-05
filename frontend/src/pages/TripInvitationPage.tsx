@@ -4,6 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import styled from "styled-components";
 import { supabase } from "../lib/supabaseClient";
 import { apiFetch } from "../lib/apiClient";
+import { encodeId } from "../lib/urlObfuscation";
 import Login from "../components/login";
 import { Check, AlertCircle, Loader2, MapPin, Users } from "lucide-react";
 
@@ -395,12 +396,12 @@ export default function TripInvitationPage() {
           await new Promise(resolve => setTimeout(resolve, 800));
           setRedirectProgress(100);
           await new Promise(resolve => setTimeout(resolve, 400));
-          navigate(`/trip/${tripId}/itinerary`);
+          navigate(`/v/${encodeId(tripId)}/i`);
         } else {
           console.error("No trip_id in response:", response);
           setShowRedirectingOverlay(false);
           setTimeout(() => {
-            navigate(`/dashboard`);
+            navigate(`/a/d`);
           }, 1000);
         }
       } catch (err: any) {
@@ -422,11 +423,11 @@ export default function TripInvitationPage() {
             await new Promise(resolve => setTimeout(resolve, 800));
             setRedirectProgress(100);
             await new Promise(resolve => setTimeout(resolve, 400));
-            navigate(`/trip/${tripId}/itinerary`);
+            navigate(`/v/${encodeId(tripId)}/i`);
           } else {
             setShowRedirectingOverlay(false);
             setTimeout(() => {
-              navigate(`/dashboard`);
+              navigate(`/a/d`);
             }, 1000);
           }
         } else {
@@ -522,14 +523,14 @@ export default function TripInvitationPage() {
 
       // Navigate to the trip itinerary after a brief success message
       setTimeout(() => {
-        navigate(`/trip/${response.trip_id}/itinerary`);
+        navigate(`/v/${encodeId(response.trip_id)}/i`);
       }, 1500);
     } catch (err: any) {
       // Check if user is already a collaborator
       if (err.message?.includes("already accepted")) {
         setAcceptSuccess(true);
         setTimeout(() => {
-          navigate(`/trip/${invitation.trip_id}/itinerary`);
+          navigate(`/v/${encodeId(invitation.trip_id)}/i`);
         }, 1500);
       } else {
         setError(err.message || "Failed to accept invitation");

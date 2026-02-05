@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTripId } from "../hooks/useDecodedParams";
+import { encodeId } from "../lib/urlObfuscation";
 import { createPortal } from "react-dom";
 
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -599,6 +600,8 @@ const [legs, setLegs] = useState<LegInfo[]>([]);
 const [isLoading, setIsLoading] = useState(true);
 const [isOptimising, setIsOptimising] = useState(false);
 const [errorMsg, setErrorMsg] = useState<string | null>(null);
+const [travelMode, setTravelMode] = useState<"driving-car" | "cycling-regular" | "foot-walking">("driving-car");
+const [legsLoading, setLegsLoading] = useState(false);
 
   const [isOptimisingFull, setIsOptimisingFull] = useState(false);
 
@@ -611,6 +614,10 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [placeTab, setPlaceTab] = useState<"about" | "travel" | "nearby" | "photos">("about");
   const [openverseLoading, setOpenverseLoading] = useState(false);
   const [photosLoading, setPhotosLoading] = useState(false);
+
+  // Fallback map center when there are no itinerary items yet
+  const [fallbackCenter, setFallbackCenter] = useState<[number, number] | null>(null); // [lon, lat]
+  const [fallbackZoom, setFallbackZoom] = useState<number | null>(null);
 
   // Lightbox (photo overlay)
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -942,6 +949,12 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
     };
   });
 
+  // Detect if we already have geocoded points (items or photos)
+  const hasGeoContent = useMemo(
+    () => items.some((it) => it.lat != null && it.lon != null),
+    [items]
+  );
+
   // Collapsed days (if you ever want collapsing)
   const [collapsedDayIds, setCollapsedDayIds] = useState<number[]>([]);
 
@@ -1062,6 +1075,132 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
     return () => window.removeEventListener("trip-updated", handler);
   }, [tripId]);
 
+  const legSignature = useMemo(() => {
+    return items
+      .filter((it) => it.lat != null && it.lon != null)
+      .map(
+        (it) =>
+          `${it.id}:${it.day ?? "null"}:${it.sort_order ?? 0}:${it.lat ?? ""}:${it.lon ?? ""}`
+      )
+      .join("|");
+  }, [items]);
+
+  const loadLegs = async (mode: typeof travelMode) => {
+    if (!numericTripId) return;
+    const withCoords = items.filter((it) => it.lat != null && it.lon != null);
+    if (withCoords.length < 2) {
+      setLegs([]);
+      return;
+    }
+
+    setLegsLoading(true);
+    try {
+      const data = await apiFetch("/f1/route-legs/", {
+        method: "POST",
+        body: JSON.stringify({ trip_id: numericTripId, profile: mode }),
+      });
+      setLegs(data?.legs || []);
+    } catch (err) {
+      console.warn("Failed to load travel legs:", err);
+    } finally {
+      setLegsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!numericTripId) return;
+    if (!legSignature) {
+      setLegs([]);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      if (cancelled) return;
+      await loadLegs(travelMode);
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [numericTripId, legSignature, travelMode]);
+
+  // If there are no coordinates yet, center the map on the trip's main city/country
+  useEffect(() => {
+    if (!trip || hasGeoContent) {
+      setFallbackCenter(null);
+      setFallbackZoom(null);
+      return;
+    }
+
+    const city = (trip.main_city || "").trim();
+    const country = (trip.main_country || "").trim();
+    const query = city && country ? `${city}, ${country}` : city || country;
+    if (!query) {
+      setFallbackCenter(null);
+      setFallbackZoom(null);
+      return;
+    }
+
+    let cancelled = false;
+    const targetZoom = city ? 10 : 5;
+
+    (async () => {
+      try {
+        const url =
+          "https://nominatim.openstreetmap.org/search?format=jsonv2" +
+          `&q=${encodeURIComponent(query)}` +
+          "&limit=1&addressdetails=1";
+
+        const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+        if (!res.ok) throw new Error(`Geocode status ${res.status}`);
+        const data = await res.json();
+        const first = Array.isArray(data) ? data[0] : null;
+        if (!first) return;
+
+        // Prefer bounding box center; fall back to lat/lon
+        if (Array.isArray(first.boundingbox) && first.boundingbox.length >= 4) {
+          const south = parseFloat(first.boundingbox[0]);
+          const north = parseFloat(first.boundingbox[1]);
+          const west = parseFloat(first.boundingbox[2]);
+          const east = parseFloat(first.boundingbox[3]);
+
+          if (
+            Number.isFinite(south) &&
+            Number.isFinite(north) &&
+            Number.isFinite(west) &&
+            Number.isFinite(east)
+          ) {
+            const centerLat = (south + north) / 2;
+            const centerLon = (west + east) / 2;
+
+            if (!cancelled) {
+              setFallbackCenter([centerLon, centerLat]);
+              setFallbackZoom(targetZoom);
+            }
+            return;
+          }
+        }
+
+        if (first.lat && first.lon) {
+          const lat = parseFloat(first.lat);
+          const lon = parseFloat(first.lon);
+          if (Number.isFinite(lat) && Number.isFinite(lon) && !cancelled) {
+            setFallbackCenter([lon, lat]);
+            setFallbackZoom(targetZoom);
+          }
+        }
+      } catch (err) {
+        console.warn("Could not geocode trip destination for map:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [trip, hasGeoContent]);
+
 
   // When days first load, default-select the first day
   useEffect(() => {
@@ -1080,7 +1219,7 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
     try {
       const data = await apiFetch("/f1/route-optimize/", {
         method: "POST",
-        body: JSON.stringify({ trip_id: numericTripId, profile: "driving-car" }),
+        body: JSON.stringify({ trip_id: numericTripId, profile: travelMode }),
       });
 
       const legsData: LegInfo[] = data?.legs || [];
@@ -1108,7 +1247,7 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
     try {
       const data = await apiFetch("/f1/route-optimize-full/", {
         method: "POST",
-        body: JSON.stringify({ trip_id: numericTripId, profile: "driving-car" }),
+        body: JSON.stringify({ trip_id: numericTripId, profile: travelMode }),
       });
 
       const legsData: LegInfo[] = data?.legs || [];
@@ -1198,6 +1337,12 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
 
   const findLegForPair = (fromId: number, toId: number): LegInfo | undefined =>
     legs.find((leg) => leg.from_id === fromId && leg.to_id === toId);
+
+  const travelModeLabel = useMemo(() => {
+    if (travelMode === "foot-walking") return "walking";
+    if (travelMode === "cycling-regular") return "cycling";
+    return "car";
+  }, [travelMode]);
 
   /* ------------- Day summary (stops · km · duration) ------------- */
 
@@ -1629,7 +1774,11 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
             }}
           >
             <div style={{ position: "relative", width: "100%", height: "100%" }}>
-              <ItineraryMap items={mapItems} />
+              <ItineraryMap
+                items={mapItems}
+                center={fallbackCenter}
+                zoom={fallbackZoom ?? undefined}
+              />
 
               <AdaptivePlannerOverlay
                 tripId={numericTripId}
@@ -2307,6 +2456,40 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
                   </div>
 
                   <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.4rem",
+                        paddingRight: "0.2rem",
+                      }}
+                    >
+                      <span style={{ fontSize: "0.78rem", color: "#6b7280", fontWeight: 600 }}>
+                        Travel mode
+                      </span>
+                      <select
+                        value={travelMode}
+                        onChange={(e) => setTravelMode(e.target.value as typeof travelMode)}
+                        style={{
+                          borderRadius: "999px",
+                          border: "1px solid #e5e7eb",
+                          backgroundColor: "white",
+                          color: "#111827",
+                          padding: "0.35rem 0.75rem",
+                          fontSize: "0.78rem",
+                          fontWeight: 600,
+                        }}
+                        title="Used to estimate time and distance between stops."
+                      >
+                        <option value="driving-car">Car</option>
+                        <option value="cycling-regular">Cycling</option>
+                        <option value="foot-walking">Walking</option>
+                      </select>
+                      {legsLoading && (
+                        <span style={{ fontSize: "0.72rem", color: "#9ca3af" }}>Updating…</span>
+                      )}
+                    </div>
+
                     <button
                       onClick={handleOptimiseRouteClick}
                       disabled={isOptimising || items.length < 2}
@@ -2634,7 +2817,7 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
                                                   marginTop: 4,
                                                 }}
                                               >
-                                                {`→ ${leg.distance_km} km, ~${leg.duration_min} min to next stop`}
+                                                {`→ ${leg.distance_km} km · ~${leg.duration_min} min (${travelModeLabel})`}
                                               </div>
                                             )}
 
@@ -2720,7 +2903,7 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
             {/* Planbot pill at top */}
             <button
               type="button"
-              onClick={() => navigate(`/trip/${tripId}/chatbot`)}
+              onClick={() => navigate(`/v/${encodeId(tripId!)}/ch`)}
               style={{
                 alignSelf: "stretch",
                 borderRadius: "999px",

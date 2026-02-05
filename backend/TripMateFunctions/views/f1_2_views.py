@@ -1,5 +1,10 @@
 # backend/TripMateFunctions/views/f1_2_views.py
 import math
+import os
+import logging
+
+import requests
+from django.conf import settings
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -9,7 +14,10 @@ from ..models import Trip, ItineraryItem, TripDay
 from ..serializers.f1_2_serializers import (
     F12RouteOptimizationRequestSerializer,
     F12RouteOptimizationResponseSerializer,
+    F12RouteLegsResponseSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -29,6 +37,89 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     )
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
+
+def _get_ors_key() -> str:
+    return (
+        getattr(settings, "OPENROUTESERVICE_API_KEY", None)
+        or os.environ.get("OPENROUTESERVICE_API_KEY")
+        or ""
+    ).strip()
+
+def _normalize_profile(profile: str) -> str:
+    p = (profile or "").strip()
+    allowed = {
+        "driving-car",
+        "driving-hgv",
+        "cycling-regular",
+        "cycling-road",
+        "cycling-mountain",
+        "cycling-electric",
+        "foot-walking",
+        "foot-hiking",
+        "wheelchair",
+    }
+    if p in allowed:
+        return p
+    return "driving-car"
+
+def _fallback_speed_kmh(profile: str) -> float:
+    p = (profile or "").strip()
+    if p == "foot-walking":
+        return 4.5
+    if p == "cycling-regular":
+        return 15.0
+    return 30.0  # driving-car fallback
+
+def _ors_leg(a, b, profile: str):
+    """
+    Returns (distance_km, duration_min) using OpenRouteService, or None on failure.
+    """
+    api_key = _get_ors_key()
+    if not api_key:
+        return None
+
+    ors_profile = _normalize_profile(profile)
+    url = f"https://api.openrouteservice.org/v2/directions/{ors_profile}"
+    headers = {
+        "Authorization": api_key,
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "coordinates": [[a.lon, a.lat], [b.lon, b.lat]],
+        "instructions": False,
+    }
+
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=8)
+        if resp.status_code != 200:
+            logger.warning("ORS error %s: %s", resp.status_code, resp.text[:200])
+            return None
+        data = resp.json()
+        routes = data.get("routes") or []
+        if not routes:
+            return None
+        summary = routes[0].get("summary") or {}
+        meters = summary.get("distance")
+        seconds = summary.get("duration")
+        if meters is None or seconds is None:
+            return None
+        return round(meters / 1000, 2), round(seconds / 60, 1)
+    except Exception as exc:
+        logger.warning("ORS request failed: %s", exc)
+        return None
+
+def _compute_leg(a, b, profile: str):
+    """
+    Compute per-leg distance/time using ORS when available, with fallback.
+    """
+    ors = _ors_leg(a, b, profile)
+    if ors:
+        return ors
+
+    dist = _haversine_km(a.lat, a.lon, b.lat, b.lon)
+    speed_kmh = _fallback_speed_kmh(profile)
+    minutes = dist / speed_kmh * 60.0
+    return round(dist, 2), round(minutes, 1)
 
 def _nearest_neighbor_route(items):
     """items must all have lat/lon. Starts from first in current order."""
@@ -87,8 +178,6 @@ class F12RouteOptimizationView(APIView):
 
         days = list(TripDay.objects.filter(trip=trip).order_by("day_index", "id"))
 
-        SPEED_KMH = 25.0
-
         all_legs = []
         total_dist = 0.0
         total_min = 0.0
@@ -106,16 +195,15 @@ class F12RouteOptimizationView(APIView):
 
             # legs within the day route
             for a, b in zip(route[:-1], route[1:]):
-                dist = _haversine_km(a.lat, a.lon, b.lat, b.lon)
-                minutes = dist / SPEED_KMH * 60.0
-                total_dist += dist
+                dist_km, minutes = _compute_leg(a, b, req_ser.validated_data.get("profile"))
+                total_dist += dist_km
                 total_min += minutes
                 all_legs.append(
                     {
                         "from_id": a.id,
                         "to_id": b.id,
-                        "distance_km": round(dist, 2),
-                        "duration_min": round(minutes, 1),
+                        "distance_km": dist_km,
+                        "duration_min": minutes,
                     }
                 )
 
@@ -189,22 +277,20 @@ class F12FullTripRouteOptimizationView(APIView):
         if sum(day_counts) == 0:
             day_counts = [len(route)] + [0] * max(0, len(days) - 1)
 
-        SPEED_KMH = 25.0
         legs = []
         total_dist = 0.0
         total_min = 0.0
 
         for a, b in zip(route[:-1], route[1:]):
-            dist = _haversine_km(a.lat, a.lon, b.lat, b.lon)
-            minutes = dist / SPEED_KMH * 60.0
-            total_dist += dist
+            dist_km, minutes = _compute_leg(a, b, req_ser.validated_data.get("profile"))
+            total_dist += dist_km
             total_min += minutes
             legs.append(
                 {
                     "from_id": a.id,
                     "to_id": b.id,
-                    "distance_km": round(dist, 2),
-                    "duration_min": round(minutes, 1),
+                    "distance_km": dist_km,
+                    "duration_min": minutes,
                 }
             )
 
@@ -238,4 +324,61 @@ class F12FullTripRouteOptimizationView(APIView):
         }
 
         res_ser = F12RouteOptimizationResponseSerializer(response_data)
+        return Response(res_ser.data, status=status.HTTP_200_OK)
+
+
+class F12RouteLegsView(APIView):
+    """
+    Compute per-leg travel time/distance between stops (no reordering).
+
+    POST /api/f1/route-legs/
+    Body:
+      {
+        "trip_id": 5,
+        "profile": "driving-car" | "foot-walking" | "cycling-regular"
+      }
+    """
+
+    def post(self, request, *args, **kwargs):
+        req_ser = F12RouteOptimizationRequestSerializer(data=request.data)
+        req_ser.is_valid(raise_exception=True)
+        trip_id = req_ser.validated_data["trip_id"]
+        profile = req_ser.validated_data.get("profile")
+
+        try:
+            trip = Trip.objects.get(pk=trip_id)
+        except Trip.DoesNotExist:
+            return Response({"detail": "Trip not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        days = list(TripDay.objects.filter(trip=trip).order_by("day_index", "id"))
+        all_legs = []
+        total_dist = 0.0
+        total_min = 0.0
+
+        for day in days:
+            day_items = list(
+                ItineraryItem.objects.filter(
+                    trip=trip, day=day, lat__isnull=False, lon__isnull=False
+                ).order_by("sort_order", "start_time", "id")
+            )
+            for a, b in zip(day_items[:-1], day_items[1:]):
+                dist_km, minutes = _compute_leg(a, b, profile)
+                total_dist += dist_km
+                total_min += minutes
+                all_legs.append(
+                    {
+                        "from_id": a.id,
+                        "to_id": b.id,
+                        "distance_km": dist_km,
+                        "duration_min": minutes,
+                    }
+                )
+
+        response_data = {
+            "legs": all_legs,
+            "total_distance_km": round(total_dist, 2),
+            "total_duration_min": round(total_min, 1),
+            "profile": profile or "driving-car",
+        }
+        res_ser = F12RouteLegsResponseSerializer(response_data)
         return Response(res_ser.data, status=status.HTTP_200_OK)

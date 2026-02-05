@@ -8,6 +8,7 @@ import ssl
 import smtplib
 import threading
 import logging
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from django.conf import settings
@@ -129,27 +130,42 @@ Best regards,
 TripMate Team
                 """.strip()
 
-                # Create message
-                msg = MIMEMultipart()
-                msg['From'] = settings.INVITATION_EMAIL_USER
-                msg['To'] = invited_email
-                msg['Subject'] = subject
-                msg.attach(MIMEText(body, 'plain'))
+                # Prefer Brevo HTTP API, fall back to SMTP
+                if getattr(settings, "BREVO_API_KEY", ""):
+                    headers = {
+                        "api-key": settings.BREVO_API_KEY,
+                        "Content-Type": "application/json",
+                    }
+                    payload = {
+                        "sender": {
+                            "email": settings.BREVO_SENDER_EMAIL,
+                            "name": settings.BREVO_SENDER_NAME,
+                        },
+                        "to": [{"email": invited_email}],
+                        "subject": subject,
+                        "textContent": body,
+                    }
+                    resp = requests.post(
+                        settings.BREVO_API_URL,
+                        headers=headers,
+                        json=payload,
+                        timeout=10,
+                    )
+                    resp.raise_for_status()
+                    logger.info(f"Invitation email sent to {invited_email} via Brevo (messageId={resp.json().get('messageId')})")
+                    return
 
-                # Create SSL context that doesn't verify certificates
+                # Fallback to SMTP if HTTP providers are not configured
                 context = ssl.create_default_context()
                 context.check_hostname = False
                 context.verify_mode = ssl.CERT_NONE
 
-                # Connect to Gmail SMTP server with timeout
                 server = smtplib.SMTP(settings.INVITATION_EMAIL_HOST, settings.INVITATION_EMAIL_PORT, timeout=10)
                 server.starttls(context=context)
                 server.login(settings.INVITATION_EMAIL_USER, settings.INVITATION_EMAIL_PASSWORD)
-                
-                # Send email
                 server.send_message(msg)
                 server.quit()
-                logger.info(f"Invitation email sent to {invited_email}")
+                logger.info(f"Invitation email sent to {invited_email} via SMTP")
 
             except Exception as e:
                 logger.error(f"Failed to send invitation email to {invited_email}: {str(e)}")

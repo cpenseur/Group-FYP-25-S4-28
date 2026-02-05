@@ -1,9 +1,11 @@
 // frontend/src/components/TripSubHeader.tsx
-import { NavLink, useParams, useLocation } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { useEffect, useState, useRef } from "react";
 import styled from "styled-components";
 import { MapPin, CalendarDays, Settings, Globe, Lock, BedDouble, Trash2, Users } from "lucide-react";
 import { apiFetch, ensureCsrfToken } from "../lib/apiClient";
+import { useTripId } from "../hooks/useDecodedParams";
+import { encodeId } from "../lib/urlObfuscation";
 import ShareTripModal from "./ShareTripModal";
 import InviteCollaboratorModal from "./InviteCollaboratorModal";
 
@@ -711,7 +713,7 @@ function HotelBookingModal({
 }
 
 export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
-  const { tripId } = useParams<{ tripId: string }>();
+  const tripId = useTripId();
   const location = useLocation();
   const [trip, setTrip] = useState<TripOverview | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -959,7 +961,8 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
 
   if (!tripId) return null;
 
-  const basePath = `/trip/${tripId}`;
+  // Use obfuscated routes
+  const basePath = `/v/${encodeId(tripId)}`;
   const isActiveTab = (suffix: string) =>
     location.pathname === `${basePath}${suffix}`;
 
@@ -1254,37 +1257,37 @@ export default function TripSubHeader({ onExport }: TripSubHeaderProps) {
       <TabsContainer>
         <TabsInner>
           <TabLink
-            to={`${basePath}/itinerary`}
-            $active={isActiveTab("/itinerary")}
+            to={`${basePath}/i`}
+            $active={isActiveTab("/i")}
             end
           >
             Itinerary
           </TabLink>
 
           <TabLink
-            to={`${basePath}/notes`}
-            $active={isActiveTab("/notes")}
+            to={`${basePath}/n`}
+            $active={isActiveTab("/n")}
           >
             Notes &amp; Checklists
           </TabLink>
 
           <TabLink
-            to={`${basePath}/budget`}
-            $active={isActiveTab("/budget")}
+            to={`${basePath}/b`}
+            $active={isActiveTab("/b")}
           >
             Budget
           </TabLink>
 
           <TabLink
-            to={`${basePath}/media`}
-            $active={isActiveTab("/media")}
+            to={`${basePath}/m`}
+            $active={isActiveTab("/m")}
           >
             Media Highlights
           </TabLink>
 
           <TabLink
-            to={`${basePath}/recommendations`}
-            $active={isActiveTab("/recommendations")}
+            to={`${basePath}/r`}
+            $active={isActiveTab("/r")}
           >
             Recommendations
           </TabLink>

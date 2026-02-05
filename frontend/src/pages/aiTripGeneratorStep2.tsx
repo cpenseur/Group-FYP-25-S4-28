@@ -420,7 +420,8 @@ export default function AITripGeneratorStep2() {
     ].filter(Boolean).slice(0, 18);
 
     // ---- go to waiting screen ----
-    navigate("/ai-trip-generator/wait", {
+    // Navigate directly to obfuscated route to preserve state
+    navigate("/a/agw", {
       state: {
         payload,
         keywords,

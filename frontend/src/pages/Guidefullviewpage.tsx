@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
+import { encodeId } from "../lib/urlObfuscation";
 import TripSubHeader from "../components/TripSubHeader";
 
 type GuideItem = {
@@ -68,7 +69,7 @@ export default function GuideFullViewPage() {
   };
 
   const handleAddToTrip = () => {
-    navigate(`/trip/${tripId}/recommendations/guide/${guideId}/add`);
+    navigate(`/v/${encodeId(tripId)}/r`);
   };
 
   if (isLoading) {
@@ -88,7 +89,7 @@ export default function GuideFullViewPage() {
         <TripSubHeader />
         <div style={{ textAlign: "center", padding: "60px 20px" }}>
           <h2>Guide not found</h2>
-          <button onClick={() => navigate(`/trip/${tripId}/recommendations`)}>
+          <button onClick={() => navigate(`/v/${encodeId(tripId)}/r`)}>
             Back to Recommendations
           </button>
         </div>
@@ -111,7 +112,7 @@ export default function GuideFullViewPage() {
       <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "32px 24px" }}>
         {/* Back Button */}
         <button
-          onClick={() => navigate(`/trip/${tripId}/recommendations`)}
+          onClick={() => navigate(`/v/${encodeId(tripId)}/r`)}
           style={{
             display: "flex",
             alignItems: "center",

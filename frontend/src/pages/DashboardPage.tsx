@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
+import { encodeId } from "../lib/urlObfuscation";
 import TripCard, { type TripOverview } from "../components/TripCard";
 import planbotSmall from "../assets/planbotSmall.png";
 import Onboarding from "../components/onboarding";
@@ -301,7 +302,7 @@ export default function DashboardPage() {
           await new Promise(resolve => setTimeout(resolve, 600));
           setInvitationProgress(100);
           await new Promise(resolve => setTimeout(resolve, 300));
-          navigate(`/trip/${tripId}/itinerary`);
+          navigate(`/v/${encodeId(tripId)}/i`);
         } else {
           setShowInvitationOverlay(false);
           return;
@@ -320,7 +321,7 @@ export default function DashboardPage() {
             setShowInvitationOverlay(true);
             setInvitationProgress(100);
             await new Promise(resolve => setTimeout(resolve, 300));
-            navigate(`/trip/${tripIdFromError}/itinerary`);
+            navigate(`/v/${encodeId(tripIdFromError)}/i`);
             return;
           } else {
             // Already accepted but no tripId, do NOT show overlay or route
@@ -475,7 +476,7 @@ export default function DashboardPage() {
               <button
                 type="button"
                 onClick={() => {
-                  if (planbotTripId) navigate(`/trip/${planbotTripId}/chatbot`);
+                  if (planbotTripId) navigate(`/v/${encodeId(planbotTripId)}/ch`);
                 }}
                 style={{
                   display: "inline-flex",
@@ -525,13 +526,13 @@ export default function DashboardPage() {
                             key={t.id}
                             trip={t}
                             variant="mini"
-                            onClick={() => navigate(`/trip/${t.id}/itinerary`)}
+                            onClick={() => navigate(`/v/${encodeId(t.id)}/i`)}
                           />
                         );
                       })}
                     </div>
 
-                    <button type="button" onClick={() => navigate("/trips")} style={arrowBtn} aria-label="See trips">
+                    <button type="button" onClick={() => navigate("/a/t")} style={arrowBtn} aria-label="See trips">
                       <ChevronRight size={18} strokeWidth={2.5} />
                     </button>
                   </div>
@@ -1023,7 +1024,7 @@ function setInvitationOverlayAndRedirect(tripIdToUse) {
   setTimeout(() => {
     setInvitationProgress(100);
     setTimeout(() => {
-      navigate(`/trip/${tripIdToUse || tripId}/itinerary`);
+      navigate(`/v/${encodeId(tripIdToUse || tripId)}/i`);
     }, 300);
   }, 600);
 }

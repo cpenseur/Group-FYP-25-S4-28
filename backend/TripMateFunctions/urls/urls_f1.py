@@ -3,7 +3,11 @@ from rest_framework.routers import DefaultRouter
 
 from ..views.f1_1_views import TripViewSet, TripDayViewSet, ItineraryItemViewSet
 from ..views.auth_views import CsrfTokenView
-from ..views.f1_2_views import F12RouteOptimizationView, F12FullTripRouteOptimizationView
+from ..views.f1_2_views import (
+    F12RouteOptimizationView,
+    F12FullTripRouteOptimizationView,
+    F12RouteLegsView,
+)
 from ..views.f1_3_views import (
     F13AITripGeneratorView, 
     F13AIChatbotView, 
@@ -50,6 +54,11 @@ urlpatterns = [
         "route-optimize-full/",
         F12FullTripRouteOptimizationView.as_view(),
         name="f1-route-optimize-full",
+    ),
+    path(
+        "route-legs/",
+        F12RouteLegsView.as_view(),
+        name="f1-route-legs",
     ),
 
     # F1.3 - AI Trip Generator & Chatbot

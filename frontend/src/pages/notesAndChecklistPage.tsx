@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTripId } from "../hooks/useDecodedParams";
+import { encodeId } from "../lib/urlObfuscation";
 
 import TripSubHeader from "../components/TripSubHeader";
 import ItineraryMap, { MapItineraryItem } from "../components/ItineraryMap";
@@ -951,7 +952,7 @@ export default function NotesAndChecklistPage() {
           >
             <button
               type="button"
-              onClick={() => navigate(`/trip/${tripIdNum}/chatbot`)}
+              onClick={() => navigate(`/v/${encodeId(tripIdNum!)}/ch`)}
               style={{
                 alignSelf: "stretch",
                 borderRadius: "999px",

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTripId } from "../hooks/useDecodedParams";
 import { apiFetch } from "../lib/apiClient";
+import { encodeId } from "../lib/urlObfuscation";
 import {
   ShoppingBag,
   Mountain,
@@ -419,7 +420,7 @@ export default function GroupItinerarySummary() {
             clearInterval(pollingIntervalRef.current);
             pollingIntervalRef.current = null;
           }
-          navigate(`/group-ai-wait/${tripId}`);
+          navigate(`/v/${encodeId(tripId)}/gaw`);
           return;
         }
 
@@ -515,7 +516,7 @@ export default function GroupItinerarySummary() {
       pollingIntervalRef.current = null;
     }
     
-    navigate(`/group-ai-wait/${tripId}`);
+    navigate(`/v/${encodeId(tripId)}/gaw`);
   };
 
   /* ================= ADD CSS ANIMATIONS ================= */
@@ -1459,7 +1460,7 @@ export default function GroupItinerarySummary() {
                   clearInterval(pollingIntervalRef.current);
                   pollingIntervalRef.current = null;
                 }
-                navigate(`/trip/${tripId}/itinerary`);
+                navigate(`/v/${encodeId(tripId)}/i`);
               } else {
                 setErrorMsg("No trip ID available. Cannot edit itinerary.");
               }

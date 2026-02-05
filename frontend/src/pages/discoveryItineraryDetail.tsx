@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTripId } from "../hooks/useDecodedParams";
+import { encodeId } from "../lib/urlObfuscation";
 
 import { MapContainer, TileLayer, Marker, Polyline, Popup } from "react-leaflet";
 import L from "leaflet";
@@ -66,8 +67,9 @@ type TripDayApi = {
 
 // -------------------------------------------------------------------
 
-const COMMUNITY_API = "http://127.0.0.1:8000/api/f2/community/";
-const COMMUNITY_BASE = new URL(COMMUNITY_API).origin;
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
+const COMMUNITY_API = `${API_BASE}/f2/community/`;
+const COMMUNITY_BASE = API_BASE.startsWith("http") ? new URL(API_BASE).origin : window.location.origin;
 
 // ---------------- Helpers ----------------
 
@@ -571,7 +573,7 @@ export default function DiscoveryItineraryDetail() {
         }
       }
 
-      navigate(`/trip/${newTrip.id}/itinerary`);
+      navigate(`/v/${encodeId(newTrip.id)}/i`);
     } catch (err) {
       console.error("Failed to copy itinerary:", err);
       alert("Failed to copy itinerary. Please make sure you are logged in and try again.");

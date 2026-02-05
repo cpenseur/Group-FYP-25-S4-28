@@ -125,7 +125,8 @@ export default function AdminDashboard() {
       if (!token) return;
 
       const params = new URLSearchParams({ type: "user_activity", from, to });
-      const r = await fetch(`http://localhost:8000/api/admin/reports/preview/?${params.toString()}`, {
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+      const r = await fetch(`${API_BASE}/admin/reports/preview/?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 

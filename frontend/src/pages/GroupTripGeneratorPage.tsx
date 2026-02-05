@@ -4,6 +4,7 @@ import React, { useState, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
 import { supabase } from "../lib/supabaseClient";
+import { encodeId } from "../lib/urlObfuscation";
 
 // Import the JSON data directly from the data folder
 import countriesCitiesRaw from "../data/countriesCities.json";
@@ -478,7 +479,8 @@ export default function GroupTripGeneratorPage() {
         body: JSON.stringify(payload),
       });
 
-      navigate(`/group-wait-for-friends/${tripId}`);
+      // Navigate to obfuscated group wait route
+      navigate(`/v/${encodeId(tripId)}/gw`);
     } catch (err: any) {
       console.error("Error saving preferences:", err);
       alert(`Failed to save preferences: ${err.message || "Please try again."}`);

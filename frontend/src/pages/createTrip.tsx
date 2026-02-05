@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch } from "../lib/apiClient";
+import { encodeId } from "../lib/urlObfuscation";
 import CountryCityPicker from "../components/CountryCityPicker";
 import InviteTripmates, { toInvitePayload } from "../components/InviteTripmates";
 
@@ -205,9 +206,9 @@ export default function CreateTrip() {
 
   const closeInviteModalAndMaybeNavigate = () => {
     setInviteModalOpen(false);
-    // after closing, go to itinerary if trip was created
+    // after closing, go to itinerary if trip was created (obfuscated route)
     if (pendingTripId) {
-      navigate(`/trip/${pendingTripId}/itinerary`);
+      navigate(`/v/${encodeId(pendingTripId)}/i`);
     }
   };
 
@@ -255,8 +256,8 @@ export default function CreateTrip() {
         return;
       }
 
-      // Redirect to itinerary editor for this trip
-      navigate(`/trip/${tripId}/itinerary`);
+      // Redirect to itinerary editor for this trip (obfuscated route)
+      navigate(`/v/${encodeId(tripId)}/i`);
     } catch (err: any) {
       console.error("Error creating trip:", err);
       setErrorMsg(err?.message || "Failed to create trip. Please try again.");

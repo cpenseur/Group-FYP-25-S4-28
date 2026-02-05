@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 
-const API_BASE = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+// Use environment variable for API base URL
+const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || "http://localhost:8000/api";
 
 type FAQCategory = "General" | "Transport" | "Costs" | "Safety" | "Photos" | string;
 
@@ -272,8 +273,8 @@ const CATEGORY_TABS: (FAQCategory | "All")[] = [
 
 const FAQ_PAGE_SIZE = 8;
 
-// ✅ Make it like discoveryLocal.tsx (absolute backend URL)
-const COMMUNITY_FAQ_API = "http://127.0.0.1:8000/api/f2/community_faq/";
+// COMMUNITY_FAQ_API uses the API_BASE defined at top of file  
+const COMMUNITY_FAQ_API = `${API_BASE}/f2/community_faq/`;
 
 // --------------- helpers ---------------
 

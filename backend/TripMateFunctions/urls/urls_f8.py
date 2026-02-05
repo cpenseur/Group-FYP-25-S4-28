@@ -10,7 +10,7 @@ from ..views.f8_views import (
     F8CommunityFAQViewSet,
     F8GeneralFAQViewSet,
     admin_analytics,
-    #admin_report_preview,
+    admin_report_preview,
     F8AdminCommunityFAQViewSet
 )
 
@@ -26,5 +26,5 @@ router.register(r"general-faqs", F8GeneralFAQViewSet, basename="f8-general-faq")
 urlpatterns = [
     *router.urls,
     path("analytics/", admin_analytics, name="admin-analytics"),
-    #path("reports/preview/", admin_report_preview, name="admin-report-preview"),
+    path("reports/preview/", admin_report_preview, name="admin-report-preview"),
 ]
