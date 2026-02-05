@@ -1727,7 +1727,6 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
             <div style={{ position: "relative", width: "100%", height: "100%" }}>
               <ItineraryMap
                 items={mapItems}
-                photos={mediaHighlightPhotos}
                 bounds={fallbackBounds}
               />
 
