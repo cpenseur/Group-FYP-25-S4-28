@@ -991,6 +991,7 @@ const ReadMore = styled.div`
   }
 `;
 
+
 const NewsletterSection = styled.section`
   padding: 5rem 2rem;
   background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);

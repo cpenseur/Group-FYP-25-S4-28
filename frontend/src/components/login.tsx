@@ -48,6 +48,7 @@ export default function Login({
   defaultMode = "signup",
 }: LoginProps) {
   const [mode, setMode] = useState<Mode>(defaultMode);
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -171,12 +172,43 @@ export default function Login({
         onClose();
       } else {
         // Sign Up Logic
-        const { error: signUpErr } = await supabase.auth.signUp({ email, password });
+        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { full_name: fullName, name: fullName } },
+        });
         if (signUpErr) {
           setStatus(`Sign-up error: ${signUpErr.message}`);
           return;
         }
-        setStatus("Check your email for verification.");
+        const authUserId = signUpData.user?.id;
+        if (authUserId) {
+          const { error: appUserErr } = await supabase.from("app_user").upsert(
+            {
+              id: authUserId,
+              auth_user_id: authUserId,
+              email,
+              full_name: fullName,
+            },
+            { onConflict: "id" }
+          );
+
+          const { error: profileErr } = await supabase.from("profiles").upsert(
+            {
+              id: authUserId,
+              name: fullName,
+            },
+            { onConflict: "id" }
+          );
+
+          if (appUserErr || profileErr) {
+            setStatus("Account created. Profile setup may be delayed.");
+          } else {
+            setStatus("Check your email for verification.");
+          }
+        } else {
+          setStatus("Check your email for verification.");
+        }
         setMode("login");
       }
     } catch (err) {
@@ -218,6 +250,28 @@ export default function Login({
           onSubmit={handleSubmit}
           style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
         >
+          {mode === "signup" && (
+            <div>
+              <label style={{ display: "block", fontSize: "0.9rem", marginBottom: "0.35rem" }}>
+                Name
+              </label>
+              <input
+                type="text"
+                required
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Your name"
+                style={{
+                  width: "100%",
+                  padding: "0.65rem 0.85rem",
+                  borderRadius: "0.5rem",
+                  border: "1px solid #e5e7eb",
+                  fontSize: "0.9rem",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+          )}
           <div>
             <label style={{ display: "block", fontSize: "0.9rem", marginBottom: "0.35rem" }}>
               Email

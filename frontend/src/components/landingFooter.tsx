@@ -1,29 +1,34 @@
 // src/components/landingFooter.tsx
-import React, { useState } from "react";
+import React from "react";
 import styled from "styled-components";
 import { useNavigate } from "react-router-dom";
-import Login from "../components/login";
+import tripmateLogo from "../assets/tripmate_logo.png";
 
 const LandingFooter: React.FC = () => {
   const navigate = useNavigate();
-  const [showLogin, setShowLogin] = useState(false);
 
   return (
     <FooterSection>
-      <FooterTitle>Ready to Transform Your Travel Planning?</FooterTitle>
+      <FooterInner>
+        <FooterLeft>
+          <BrandRow>
+            <BrandLogo src={tripmateLogo} alt="TripMate logo" />
+          </BrandRow>
+        </FooterLeft>
 
-      <FooterSubtitle>
-        Join thousands of travelers already using TripMate to create unforgettable journeys.
-      </FooterSubtitle>
+        <FooterDivider />
 
-      <CTAWrapper>
-        <CTAButton onClick={() => setShowLogin(true)}>Get Started Free</CTAButton>
-      </CTAWrapper>
-      <Login
-        isOpen={showLogin}
-        onClose={() => setShowLogin(false)}
-      />
-      <FooterNote>No credit card required • Free forever plan • Cancel anytime</FooterNote>
+        <FooterRight>
+          <FooterHeading>Stay Connected with Us</FooterHeading>
+          <ContactLine>Email Us @ tripmatebyfyp25s428@gmail.com</ContactLine>
+          <ContactLine>461 Clementi Rd, Singapore 599491</ContactLine>
+          <LegalLinks>
+            <LegalLink type="button" onClick={() => navigate("/privacy-terms#privacy")}>
+              Privacy Policy & Terms of Use
+            </LegalLink>
+          </LegalLinks>
+        </FooterRight>
+      </FooterInner>
     </FooterSection>
   );
 };
@@ -31,43 +36,105 @@ const LandingFooter: React.FC = () => {
 export default LandingFooter;
 
 const FooterSection = styled.section`
-  padding: 5rem 2rem;
-  text-align: center;
-  background: #111827;
-  color: white;
+  padding: 0.5rem 2rem;
+  background: #ffffff;
+  border-top: 1px solid #e5e7eb;
 `;
 
-const FooterTitle = styled.h2`
-  font-size: 2.5rem;
-  font-weight: 700;
+const FooterInner = styled.div`
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1.15fr auto 1fr;
+  gap: 2rem;
+  align-items: center;
+
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
 `;
 
-const FooterSubtitle = styled.p`
-  font-size: 1.1rem;
-  color: #d1d5db;
-  max-width: 600px;
-  margin: 1rem auto 2rem;
-`;
-
-const CTAWrapper = styled.div`
+const FooterLeft = styled.div`
   display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: center;
+
+  @media (max-width: 900px) {
+    align-items: center;
+  }
+`;
+
+const BrandRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
   justify-content: center;
-  margin: 2rem 0;
+  width: 100%;
 `;
 
-const CTAButton = styled.button`
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-  padding: 1rem 2.5rem;
-  font-size: 1.15rem;
-  color: white;
-  border-radius: 10px;
-  border: none;
-  font-weight: 700;
-  cursor: pointer;
+const BrandLogo = styled.img`
+  width: 240px;
+  height: 240px;
+  object-fit: contain;
 `;
 
-const FooterNote = styled.p`
-  margin-top: 2rem;
-  color: #9ca3af;
+const FooterDivider = styled.div`
+  width: 1px;
+  height: 90px;
+  background: #2f4f6f;
+  opacity: 0.45;
+
+  @media (max-width: 900px) {
+    width: 100%;
+    height: 1px;
+  }
+`;
+
+const FooterRight = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  color: #1f2937;
+
+  @media (max-width: 900px) {
+    align-items: center;
+  }
+`;
+
+const FooterHeading = styled.h3`
+  margin: 0;
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #2f1c14;
+`;
+
+const ContactLine = styled.p`
+  margin: 0;
+  font-size: 1.05rem;
+  color: #2f1c14;
+`;
+
+const LegalLinks = styled.div`
+  margin-top: 0.8rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.9rem;
   font-size: 0.9rem;
+  color: #7b6f6a;
+`;
+
+const LegalLink = styled.button`
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.9rem;
+  color: #3b5f7f;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
 `;
