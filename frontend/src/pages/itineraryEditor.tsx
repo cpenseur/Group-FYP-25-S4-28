@@ -613,6 +613,14 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [openverseLoading, setOpenverseLoading] = useState(false);
   const [photosLoading, setPhotosLoading] = useState(false);
 
+  // Fallback map bounds when there are no itinerary items yet
+  const [fallbackBounds, setFallbackBounds] = useState<{
+    minLat: number;
+    maxLat: number;
+    minLon: number;
+    maxLon: number;
+  } | null>(null);
+
   // Lightbox (photo overlay)
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -943,6 +951,15 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
     };
   });
 
+  // Detect if we already have geocoded points (items or photos)
+  const hasGeoContent = useMemo(() => {
+    const itemHasCoords = items.some((it) => it.lat != null && it.lon != null);
+    const photoHasCoords = mediaHighlightPhotos.some(
+      (p: any) => p?.lat != null && p?.lon != null
+    );
+    return itemHasCoords || photoHasCoords;
+  }, [items, mediaHighlightPhotos]);
+
   // Collapsed days (if you ever want collapsing)
   const [collapsedDayIds, setCollapsedDayIds] = useState<number[]>([]);
 
@@ -1062,6 +1079,84 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
     window.addEventListener("trip-updated", handler);
     return () => window.removeEventListener("trip-updated", handler);
   }, [tripId]);
+
+  // If there are no coordinates yet, center the map on the trip's main city/country
+  useEffect(() => {
+    if (!trip || hasGeoContent) {
+      setFallbackBounds(null);
+      return;
+    }
+
+    const city = (trip.main_city || "").trim();
+    const country = (trip.main_country || "").trim();
+    const query = city && country ? `${city}, ${country}` : city || country;
+    if (!query) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const url =
+          "https://nominatim.openstreetmap.org/search?format=jsonv2" +
+          `&q=${encodeURIComponent(query)}` +
+          "&limit=1&addressdetails=1";
+
+        const res = await fetch(url, { headers: { "Accept-Language": "en" } });
+        if (!res.ok) throw new Error(`Geocode status ${res.status}`);
+        const data = await res.json();
+        const first = Array.isArray(data) ? data[0] : null;
+        if (!first) return;
+
+        // Prefer bounding box; fall back to small square around lat/lon
+        if (Array.isArray(first.boundingbox) && first.boundingbox.length >= 4) {
+          const south = parseFloat(first.boundingbox[0]);
+          const north = parseFloat(first.boundingbox[1]);
+          const west = parseFloat(first.boundingbox[2]);
+          const east = parseFloat(first.boundingbox[3]);
+
+          if (
+            Number.isFinite(south) &&
+            Number.isFinite(north) &&
+            Number.isFinite(west) &&
+            Number.isFinite(east)
+          ) {
+            const padLat = Math.max((north - south) * 0.15, 0.05);
+            const padLon = Math.max((east - west) * 0.15, 0.05);
+
+            if (!cancelled) {
+              setFallbackBounds({
+                minLat: south - padLat,
+                maxLat: north + padLat,
+                minLon: west - padLon,
+                maxLon: east + padLon,
+              });
+            }
+            return;
+          }
+        }
+
+        if (first.lat && first.lon) {
+          const lat = parseFloat(first.lat);
+          const lon = parseFloat(first.lon);
+          if (Number.isFinite(lat) && Number.isFinite(lon) && !cancelled) {
+            const delta = 0.25;
+            setFallbackBounds({
+              minLat: lat - delta,
+              maxLat: lat + delta,
+              minLon: lon - delta,
+              maxLon: lon + delta,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("Could not geocode trip destination for map:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [trip, hasGeoContent]);
 
 
   // When days first load, default-select the first day
@@ -1630,7 +1725,11 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
             }}
           >
             <div style={{ position: "relative", width: "100%", height: "100%" }}>
-              <ItineraryMap items={mapItems} />
+              <ItineraryMap
+                items={mapItems}
+                photos={mediaHighlightPhotos}
+                bounds={fallbackBounds}
+              />
 
               <AdaptivePlannerOverlay
                 tripId={numericTripId}
