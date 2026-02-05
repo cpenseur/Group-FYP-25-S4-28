@@ -39,6 +39,7 @@ type Region = "Singapore" | "Japan" | "China" | "All";
 export default function Demo({ onLoginClick, onSignupClick }: DemoProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -65,10 +66,20 @@ export default function Demo({ onLoginClick, onSignupClick }: DemoProps) {
 
   const chips: Region[] = ["Singapore", "Japan", "China", "All"];
 
-  const filteredGuides =
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const guidesByRegion =
     selectedRegion === "All"
       ? guides
       : guides.filter((g) => g.region === selectedRegion);
+  const filteredGuides = guidesByRegion.filter((guide) => {
+    if (!normalizedQuery) return true;
+    return (
+      guide.title?.toLowerCase().includes(normalizedQuery) ||
+      guide.location?.toLowerCase().includes(normalizedQuery) ||
+      guide.region?.toLowerCase().includes(normalizedQuery) ||
+      guide.desc?.toLowerCase().includes(normalizedQuery)
+    );
+  });
 
   return (
     <div
@@ -138,6 +149,8 @@ export default function Demo({ onLoginClick, onSignupClick }: DemoProps) {
             <input
               type="text"
               placeholder="Search for a destination ..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               style={{
                 border: "none",
                 outline: "none",

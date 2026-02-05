@@ -29,6 +29,7 @@ import Login from "./components/login";
 import ResetPassword from "./pages/resetPassword";
 import SuspendAcct from "./components/suspendAcct";
 import ViewTripPage from "./pages/ViewTripPage";
+import PrivacyTerms from "./pages/privacyTerms";
 
 // KK
 import DiscoveryLocal from "./pages/discoveryLocal";
@@ -313,6 +314,9 @@ export default function App() {
           element={<TravelGuidesTutorial onLoginClick={openLogin} onSignupClick={openSignup} />}
         />
         <Route path="/guest-faq" element={<GuestFAQPage onLoginClick={openLogin} onSignupClick={openSignup} />} />
+        <Route path="/privacy-terms" element={<PrivacyTerms onLoginClick={openLogin} onSignupClick={openSignup} />} />
+        <Route path="/privacy-policy" element={<Navigate to="/privacy-terms#privacy" replace />} />
+        <Route path="/terms-of-use" element={<Navigate to="/privacy-terms#terms" replace />} />
         <Route path="/admin-dashboard" element={<ProtectedRoute user={user} authLoading={authLoading}><AdminDashboard /></ProtectedRoute>} />
         <Route path="/admin-profile" element={<ProtectedRoute user={user} authLoading={authLoading}><AdminProfile /></ProtectedRoute>} />
         <Route

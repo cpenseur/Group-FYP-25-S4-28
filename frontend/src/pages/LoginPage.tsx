@@ -6,6 +6,7 @@ type Mode = "login" | "signup";
 
 export default function LoginPage() {
   const [mode, setMode] = useState<Mode>("signup");
+  const [fullName, setFullName] = useState<string>("");
   const [email, setEmail] = useState<string>("");      // ✅ now empty by default
   const [password, setPassword] = useState<string>("");
   const [showPassword, setShowPassword] = useState<boolean>(false); // ✅ NEW
@@ -34,9 +35,10 @@ export default function LoginPage() {
         setStatus("Login successful. Redirecting to dashboard…");
         navigate("/dashboard");
       } else {
-        const { error } = await supabase.auth.signUp({
+        const { data: signUpData, error } = await supabase.auth.signUp({
           email,
           password,
+          options: { data: { full_name: fullName, name: fullName } },
         });
 
         if (error) {
@@ -44,7 +46,34 @@ export default function LoginPage() {
           return;
         }
 
-        setStatus("Sign-up successful! Check your email for verification.");
+        const authUserId = signUpData.user?.id;
+        if (authUserId) {
+          const { error: appUserErr } = await supabase.from("app_user").upsert(
+            {
+              id: authUserId,
+              auth_user_id: authUserId,
+              email,
+              full_name: fullName,
+            },
+            { onConflict: "id" }
+          );
+
+          const { error: profileErr } = await supabase.from("profiles").upsert(
+            {
+              id: authUserId,
+              name: fullName,
+            },
+            { onConflict: "id" }
+          );
+
+          if (appUserErr || profileErr) {
+            setStatus("Account created. Profile setup may be delayed.");
+          } else {
+            setStatus("Sign-up successful! Check your email for verification.");
+          }
+        } else {
+          setStatus("Sign-up successful! Check your email for verification.");
+        }
         setMode("login");
       }
     } finally {
@@ -89,6 +118,28 @@ export default function LoginPage() {
           onSubmit={handleSubmit}
           style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
         >
+          {mode === "signup" && (
+            <div>
+              <label style={{ display: "block", fontSize: "0.9rem", marginBottom: "0.35rem" }}>
+                Full name
+              </label>
+              <input
+                type="text"
+                required
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Your name"
+                style={{
+                  width: "100%",
+                  padding: "0.65rem 0.85rem",
+                  borderRadius: "0.5rem",
+                  border: "1px solid #e5e7eb",
+                  fontSize: "0.9rem",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+          )}
           {/* ✅ Email */}
           <div>
             <label style={{ display: "block", fontSize: "0.9rem", marginBottom: "0.35rem" }}>
