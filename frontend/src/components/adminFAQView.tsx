@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
 
-const API_BASE = (import.meta as any).env?.VITE_API_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
 // Valid category values for Community FAQ (enum in database)
 const COMMUNITY_FAQ_CATEGORIES = ["General", "Costs", "Photos", "Safety", "Transport"];
@@ -84,7 +84,7 @@ export default function AdminFAQView() {
       const token = await getAuthToken();
       const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
-      const res = await fetch(`${API_BASE}/api/f8/community-faqs/`, { headers });
+      const res = await fetch(`${API_BASE}/f8/community-faqs/`, { headers });
 
       if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
 
@@ -102,7 +102,7 @@ export default function AdminFAQView() {
       const token = await getAuthToken();
       const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
-      const res = await fetch(`${API_BASE}/api/f8/general-faqs/`, { headers });
+      const res = await fetch(`${API_BASE}/f8/general-faqs/`, { headers });
 
       if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
 
@@ -204,7 +204,7 @@ export default function AdminFAQView() {
         const token = await getAuthToken();
         if (!token) throw new Error("Not authenticated");
 
-        const res = await fetch(`${API_BASE}/api/f8/community-faqs/${editingItem.id}/`, {
+        const res = await fetch(`${API_BASE}/f8/community-faqs/${editingItem.id}/`, {
           method: "PATCH",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -219,7 +219,7 @@ export default function AdminFAQView() {
         const token = await getAuthToken();
         if (!token) throw new Error("Not authenticated");
 
-        const res = await fetch(`${API_BASE}/api/f8/general-faqs/${editingItem.id}/`, {
+        const res = await fetch(`${API_BASE}/f8/general-faqs/${editingItem.id}/`, {
           method: "PATCH",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -249,7 +249,7 @@ export default function AdminFAQView() {
         const token = await getAuthToken();
         if (!token) throw new Error("Not authenticated");
 
-        const res = await fetch(`${API_BASE}/api/f8/community-faqs/${item.id}/`, {
+        const res = await fetch(`${API_BASE}/f8/community-faqs/${item.id}/`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -260,7 +260,7 @@ export default function AdminFAQView() {
         const token = await getAuthToken();
         if (!token) throw new Error("Not authenticated");
 
-        const res = await fetch(`${API_BASE}/api/f8/general-faqs/${item.id}/`, {
+        const res = await fetch(`${API_BASE}/f8/general-faqs/${item.id}/`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -279,7 +279,7 @@ export default function AdminFAQView() {
         const token = await getAuthToken();
         if (!token) throw new Error("Not authenticated");
 
-        const res = await fetch(`${API_BASE}/api/f8/community-faqs/${item.id}/`, {
+        const res = await fetch(`${API_BASE}/f8/community-faqs/${item.id}/`, {
           method: "PATCH",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -294,7 +294,7 @@ export default function AdminFAQView() {
         const token = await getAuthToken();
         if (!token) throw new Error("Not authenticated");
 
-        const res = await fetch(`${API_BASE}/api/f8/general-faqs/${item.id}/`, {
+        const res = await fetch(`${API_BASE}/f8/general-faqs/${item.id}/`, {
           method: "PATCH",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -344,7 +344,7 @@ export default function AdminFAQView() {
         const token = await getAuthToken();
         if (!token) throw new Error("Not authenticated");
 
-        const res = await fetch(`${API_BASE}/api/f8/community-faqs/`, {
+        const res = await fetch(`${API_BASE}/f8/community-faqs/`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -359,7 +359,7 @@ export default function AdminFAQView() {
         const token = await getAuthToken();
         if (!token) throw new Error("Not authenticated");
 
-        const res = await fetch(`${API_BASE}/api/f8/general-faqs/`, {
+        const res = await fetch(`${API_BASE}/f8/general-faqs/`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
