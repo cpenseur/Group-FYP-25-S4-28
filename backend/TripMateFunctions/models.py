@@ -52,6 +52,25 @@ class AppUser(models.Model):
         return self.email or f"User {self.pk}"
 
 
+class UserSession(models.Model):
+    user = models.ForeignKey(
+        AppUser,
+        on_delete=models.CASCADE,
+        related_name="sessions",
+    )
+    session_start = models.DateTimeField(default=django_timezone.now)
+    session_end = models.DateTimeField(null=True, blank=True)
+    duration_sec = models.IntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "user_session"
+        ordering = ["-session_start"]
+
+    def __str__(self):
+        return f"Session {self.id} for {self.user_id}"
+
+
 class Profile(models.Model):
     id = models.UUIDField(primary_key=True)
 

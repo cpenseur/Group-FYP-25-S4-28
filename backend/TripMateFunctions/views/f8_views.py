@@ -1,5 +1,5 @@
 from .base_views import BaseViewSet
-from ..models import AppUser, Trip, DestinationFAQ, DestinationQA, SupportTicket, CommunityFAQ, GeneralFAQ, Profile
+from ..models import AppUser, Trip, DestinationFAQ, DestinationQA, SupportTicket, CommunityFAQ, GeneralFAQ, Profile, UserSession
 from ..serializers.f8_serializers import (
     F8AdminUserSerializer,
     F8AdminTripSerializer,
@@ -14,7 +14,7 @@ from ..permissions import IsAppAdmin
 from datetime import datetime, timedelta, time
 
 from django.utils import timezone
-from django.db.models import Count
+from django.db.models import Count, Avg
 from django.db.models.functions import TruncDate, Coalesce, NullIf, Trim
 from django.db.models import Value
 from django.db.models import TextField
@@ -294,10 +294,19 @@ def admin_analytics(request):
     by_day = {row["day"]: row["cnt"] for row in qs}
     active_users_series = [int(by_day.get(start_date + timedelta(days=i), 0)) for i in range(days)]
 
+    avg_session_length_min = (
+        UserSession.objects
+        .filter(session_start__gte=start_dt, session_start__lt=end_dt)
+        .exclude(duration_sec__isnull=True)
+        .aggregate(avg=Avg("duration_sec"))
+        .get("avg")
+    )
+    avg_session_length_min = round((avg_session_length_min or 0) / 60.0, 1)
+
     return Response({
         "active_users": active_users,
         "new_signups": new_signups,
-        "avg_session_length_min": 7.4,
+        "avg_session_length_min": avg_session_length_min,
         "itineraries_created": itineraries_created,
         "total_users": total_users,
         "total_itineraries": total_itineraries,
@@ -305,6 +314,137 @@ def admin_analytics(request):
         "active_users_prev_total": active_users_prev_total,
         "country_stats": country_stats,
         "popular_itineraries": popular_itineraries,
+    })
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def admin_report_preview(request):
+    report_type = (request.GET.get("type") or "user_activity").strip().lower()
+    from_str = request.GET.get("from")
+    to_str = request.GET.get("to")
+
+    if not from_str or not to_str:
+        return Response({"detail": "Missing from/to"}, status=400)
+
+    start_date = _parse_yyyy_mm_dd(from_str)
+    end_date = _parse_yyyy_mm_dd(to_str)
+
+    days = (end_date - start_date).days + 1
+    if days <= 0:
+        return Response({"detail": "to must be >= from"}, status=400)
+
+    start_dt = timezone.make_aware(datetime.combine(start_date, time.min))
+    end_dt = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), time.min))
+
+    # Base metrics
+    new_signups = AppUser.objects.filter(created_at__gte=start_dt, created_at__lt=end_dt).count()
+    active_users = AppUser.objects.filter(last_active_at__gte=start_dt, last_active_at__lt=end_dt).count()
+    itineraries_created = Trip.objects.filter(created_at__gte=start_dt, created_at__lt=end_dt).count()
+    total_users = AppUser.objects.count()
+    total_itineraries = Trip.objects.count()
+    demo_itineraries = Trip.objects.filter(is_demo=True).count()
+
+    avg_session_length_min = (
+        UserSession.objects
+        .filter(session_start__gte=start_dt, session_start__lt=end_dt)
+        .exclude(duration_sec__isnull=True)
+        .aggregate(avg=Avg("duration_sec"))
+        .get("avg")
+    )
+    avg_session_length_min = round((avg_session_length_min or 0) / 60.0, 1)
+
+    # Moderation metrics (date-range scoped)
+    approved = Trip.objects.filter(
+        moderation_status="APPROVED",
+        moderated_at__gte=start_dt,
+        moderated_at__lt=end_dt,
+    ).count()
+    rejected = Trip.objects.filter(
+        moderation_status="REJECTED",
+        moderated_at__gte=start_dt,
+        moderated_at__lt=end_dt,
+    ).count()
+
+    # There is no flagged_at field; use updated_at as a best-effort proxy.
+    flagged = Trip.objects.filter(
+        is_flagged=True,
+        updated_at__gte=start_dt,
+        updated_at__lt=end_dt,
+    ).count()
+    pending = Trip.objects.filter(
+        is_flagged=True,
+        moderation_status__isnull=True,
+        updated_at__gte=start_dt,
+        updated_at__lt=end_dt,
+    ).count()
+
+    # Top destination (simple)
+    top_place = (
+        Trip.objects
+        .filter(created_at__gte=start_dt, created_at__lt=end_dt)
+        .annotate(
+            place_key=Coalesce(
+                NullIf(Trim("main_country"), Value("", output_field=TextField())),
+                NullIf(Trim("main_city"), Value("", output_field=TextField())),
+                Value("Others", output_field=TextField()),
+                output_field=TextField(),
+            )
+        )
+        .values("place_key")
+        .annotate(cnt=Count("id"))
+        .order_by("-cnt")
+        .first()
+    )
+    top_destination = top_place["place_key"] if top_place else "Others"
+
+    def card(label: str, value: str, tone: str = "neutral"):
+        return {"label": label, "value": value, "tone": tone}
+
+    heading_map = {
+        "user_activity": "User Activity Report",
+        "itinerary_stats": "Itinerary Statistics",
+        "content_moderation": "Content Moderation Report",
+        "growth_analytics": "Growth Analytics",
+    }
+
+    if report_type == "itinerary_stats":
+        cards = [
+            card("Itineraries\nCreated", str(itineraries_created), "good" if itineraries_created > 0 else "neutral"),
+            card("Total\nItineraries", str(total_itineraries), "neutral"),
+            card("Top\nDestination", top_destination, "neutral"),
+            card("Demo\nItineraries", str(demo_itineraries), "neutral"),
+        ]
+        note = "Highlights creation volume and destination trends for the selected window."
+    elif report_type == "content_moderation":
+        cards = [
+            card("Flagged\nContent", str(flagged), "warn" if flagged > 0 else "neutral"),
+            card("Approved", str(approved), "good" if approved > 0 else "neutral"),
+            card("Rejected", str(rejected), "warn" if rejected > 0 else "neutral"),
+            card("Pending", str(pending), "warn" if pending > 0 else "neutral"),
+        ]
+        note = "Tracks moderation actions and outstanding flagged content."
+    elif report_type == "growth_analytics":
+        cards = [
+            card("Total\nUsers", str(total_users), "neutral"),
+            card("New\nSignups", str(new_signups), "good" if new_signups > 0 else "neutral"),
+            card("Active\nUsers", str(active_users), "good" if active_users > 0 else "neutral"),
+            card("Itineraries\nCreated", str(itineraries_created), "good" if itineraries_created > 0 else "neutral"),
+        ]
+        note = "Snapshot of growth and engagement for the selected window."
+    else:
+        cards = [
+            card("Active\nUsers", str(active_users), "good" if active_users > 0 else "neutral"),
+            card("New\nSignups", str(new_signups), "good" if new_signups > 0 else "neutral"),
+            card("Avg Session\nLength", f"{avg_session_length_min} min", "neutral"),
+            card("Itineraries\nCreated", str(itineraries_created), "neutral"),
+        ]
+        note = "Summary of user activity and engagement for the selected window."
+
+    return Response({
+        "heading": heading_map.get(report_type, "User Activity Report"),
+        "cards": cards,
+        "note": note,
     })
 
 

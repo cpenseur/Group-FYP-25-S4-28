@@ -24,9 +24,10 @@ export default function AdminReportsView({
     format: FormatKey;
   }) => void;
 }) {
+  const todayIso = new Date().toISOString().slice(0, 10);
   const [reportType, setReportType] = useState<ReportKey>("user_activity");
   const [fromDate, setFromDate] = useState<string>("2025-12-15");
-  const [toDate, setToDate] = useState<string>("2026-01-14");
+  const [toDate, setToDate] = useState<string>(todayIso);
   const [pdfOpen, setPdfOpen] = useState(false);
   type PreviewCard = { label: string; value: string; tone: "neutral" | "good" | "warn" };
   type PreviewData = { heading: string; cards: PreviewCard[]; note: string };
@@ -105,7 +106,7 @@ export default function AdminReportsView({
 
         console.log("token exists?", !!token);
 
-        const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+        const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
         const who = await fetch(`${API_BASE}/auth/whoami/`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         });

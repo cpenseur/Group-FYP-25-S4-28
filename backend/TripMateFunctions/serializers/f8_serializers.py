@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from ..models import AppUser, Trip, DestinationFAQ, DestinationQA, SupportTicket, CommunityFAQ, GeneralFAQ
+from ..models import AppUser, Trip, DestinationFAQ, DestinationQA, SupportTicket, CommunityFAQ, GeneralFAQ, UserSession
 
 
 class F8AdminUserSerializer(serializers.ModelSerializer):
@@ -48,4 +48,10 @@ class F8CommunityFAQSerializer(serializers.ModelSerializer):
 class F8GeneralFAQSerializer(serializers.ModelSerializer):
     class Meta:
         model = GeneralFAQ
+        fields = "__all__"
+
+
+class F8UserSessionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserSession
         fields = "__all__"

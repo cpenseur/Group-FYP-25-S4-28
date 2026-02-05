@@ -29,8 +29,8 @@ type Props = {
   initialTo?: string;
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-const ANALYTICS_ENDPOINT = `${API_BASE}/api/admin/analytics/`;
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
+const ANALYTICS_ENDPOINT = `${API_BASE}/admin/analytics/`;
 
 // ISO2 + flagcdn code (lowercase ISO2) + coords for map markers
 const COUNTRY_META: Record<string, { code: string; flag: string; coords?: [number, number] }> = {
@@ -145,8 +145,9 @@ export default function AnalyticsView({
   initialFrom,
   initialTo,
 }: Props) {
+  const todayIso = new Date().toISOString().slice(0, 10);
   const [analyticsFrom, setAnalyticsFrom] = useState(initialFrom || "2025-12-15");
-  const [analyticsTo, setAnalyticsTo] = useState(initialTo || "2026-01-14");
+  const [analyticsTo, setAnalyticsTo] = useState(initialTo || todayIso);
 
   // Update dates when props change (for export mode)
   useEffect(() => {
@@ -412,7 +413,7 @@ export default function AnalyticsView({
                 value={analyticsFrom}
                 onChange={(e) => setAnalyticsFrom(e.target.value)}
               />
-              <Calendar size={14} className="tm-cal-ico" />
+              <Calendar size={14} className="tm-cal-ico" aria-hidden="true" />
             </div>
           </div>
 
@@ -425,7 +426,7 @@ export default function AnalyticsView({
                 value={analyticsTo}
                 onChange={(e) => setAnalyticsTo(e.target.value)}
               />
-              <Calendar size={14} className="tm-cal-ico" />
+              <Calendar size={14} className="tm-cal-ico" aria-hidden="true" />
             </div>
           </div>
 
@@ -828,6 +829,13 @@ export default function AnalyticsView({
           font-size: 12px;
           background:#fff;
           color:#0f172a;
+          appearance: none;
+          -webkit-appearance: none;
+          -moz-appearance: none;
+        }
+        .tm-date::-webkit-calendar-picker-indicator{
+          opacity: 0;
+          display: none;
         }
         .tm-cal-ico{
           position:absolute;

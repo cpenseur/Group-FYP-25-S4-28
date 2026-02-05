@@ -92,6 +92,54 @@ export default function App() {
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const SESSION_ID_KEY = "currentUserSessionId";
+  const SESSION_START_KEY = "currentUserSessionStart";
+
+  const startUserSession = async (authUserId: string) => {
+    const existingSessionId = sessionStorage.getItem(SESSION_ID_KEY);
+    if (existingSessionId) return;
+
+    const sessionStart = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("user_session")
+      .insert({ user_id: authUserId, session_start: sessionStart })
+      .select("id")
+      .single();
+
+    if (error) {
+      console.error("Failed to start user session:", error);
+      return;
+    }
+
+    sessionStorage.setItem(SESSION_ID_KEY, data.id);
+    sessionStorage.setItem(SESSION_START_KEY, sessionStart);
+  };
+
+  const endUserSession = async () => {
+    const sessionId = sessionStorage.getItem(SESSION_ID_KEY);
+    const sessionStart = sessionStorage.getItem(SESSION_START_KEY);
+    if (!sessionId || !sessionStart) return;
+
+    const end = new Date();
+    const start = new Date(sessionStart);
+    const durationSec = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1000));
+
+    const { error } = await supabase
+      .from("user_session")
+      .update({
+        session_end: end.toISOString(),
+        duration_sec: durationSec,
+      })
+      .eq("id", sessionId);
+
+    if (error) {
+      console.error("Failed to end user session:", error);
+      return;
+    }
+
+    sessionStorage.removeItem(SESSION_ID_KEY);
+    sessionStorage.removeItem(SESSION_START_KEY);
+  };
 
   const openLogin = () => {
     setShowLogin(true);
@@ -116,6 +164,10 @@ export default function App() {
       const { data } = await supabase.auth.getSession();
       setUser(data.session?.user ?? null);
       setAuthLoading(false);
+
+      if (data.session?.user) {
+        startUserSession(data.session.user.id);
+      }
     };
     checkUser();
 
@@ -128,6 +180,10 @@ export default function App() {
         if (event === "SIGNED_IN") {
           // Refresh CSRF on sign in (optional)
           ensureCsrfToken();
+
+          if (session?.user) {
+            startUserSession(session.user.id);
+          }
           
           // Check for pending AI preference token and redirect
           const pendingAiToken = localStorage.getItem("pendingAiPreferenceToken");
@@ -135,6 +191,9 @@ export default function App() {
             localStorage.removeItem("pendingAiPreferenceToken");
             window.location.href = `/ai-invitation/${pendingAiToken}`;
           }
+        }
+        if (event === "SIGNED_OUT") {
+          endUserSession();
         }
       }
     );
@@ -274,7 +333,7 @@ export default function App() {
         <Route path="/trip/:tripId/budget" element={<ProtectedRoute user={user} authLoading={authLoading}><BudgetPage /></ProtectedRoute>} />
         <Route path="/trip-invitation/:token" element={<TripInvitationPage />} />
         <Route path="/ai-invitation/:token" element={<TripInvitationAccept />} />
-        <Route path="/discovery-itinerary/:tripId" element={<ProtectedRoute user={user} authLoading={authLoading}><DiscoveryItineraryDetail /></ProtectedRoute>} />
+        <Route path="/discovery-itinerary/:tripId" element={<DiscoveryItineraryDetail />} />
         <Route path="/group-wait-for-friends/:tripId" element={<ProtectedRoute user={user} authLoading={authLoading}><GroupWaitForFriends /></ProtectedRoute>} />
         <Route path="/group-trip/:tripId/summary" element={<ProtectedRoute user={user} authLoading={authLoading}><GroupItinerarySummary /></ProtectedRoute>} />
         <Route path="/group-ai-wait/:tripId" element={<ProtectedRoute user={user} authLoading={authLoading}><GroupAITripGeneratorWait /></ProtectedRoute>} />
