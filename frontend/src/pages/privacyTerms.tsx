@@ -63,7 +63,6 @@ const PrivacyTerms: React.FC<PrivacyTermsProps> = ({ onLoginClick, onSignupClick
             <CardTitle>Terms of Use</CardTitle>
             <CardMeta>Last updated: February 5, 2026</CardMeta>
             <CardList>
-              <li>Eligibility: you must be at least 13 years old to create an account.</li>
               <li>Account responsibility: keep credentials secure and report misuse.</li>
               <li>Acceptable use: no illegal activity, harassment, or access to others' data.</li>
               <li>User content: you keep ownership; you grant us a license to display it in the app.</li>
@@ -71,7 +70,7 @@ const PrivacyTerms: React.FC<PrivacyTermsProps> = ({ onLoginClick, onSignupClick
               <li>Termination: we may suspend accounts for violations; you can close yours anytime.</li>
             </CardList>
             <CardNote>
-              Questions about these terms? Reach out to support@tripmate.com.
+              Questions about these terms? Reach out to tripmatebyfyp25s428@gmail.com
             </CardNote>
           </PolicyCard>
         </CardsGrid>
@@ -85,6 +84,8 @@ export default PrivacyTerms;
 const Page = styled.div`
   min-height: 100vh;
   background: #f8fafc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
 `;
 
 const Content = styled.section`
@@ -103,15 +104,15 @@ const PageHeader = styled.div`
 
 const HeaderTitle = styled.h1`
   margin: 0;
-  font-size: 2.6rem;
-  font-weight: 800;
+  font-size: 2.5rem;
+  font-weight: 700;
   color: #111827;
 `;
 
 const HeaderSubtitle = styled.p`
   margin: 0;
   color: #6b7280;
-  font-size: 1.05rem;
+  font-size: 1.125rem;
 `;
 
 const CardsGrid = styled.div`
