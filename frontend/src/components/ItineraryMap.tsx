@@ -35,6 +35,8 @@ type ItineraryMapProps = {
   items: MapItineraryItem[];
   photos?: PhotoMarker[];
   bounds?: MapBounds | null;
+  center?: [number, number] | null;
+  zoom?: number | null;
 };
 
 const mapDayColorPalette = [
@@ -56,10 +58,12 @@ function getMapDayColor(dayIndex: number | null | undefined): string {
 
 const ROUTE_ID = "itinerary-route";
 
-const ItineraryMap: React.FC<ItineraryMapProps> = ({ 
-  items, 
+const ItineraryMap: React.FC<ItineraryMapProps> = ({
+  items,
   photos = [],
-  bounds = null
+  bounds = null,
+  center = null,
+  zoom = null,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -109,11 +113,16 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
 
     const styleUrl = "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json";
 
+    const initialCenter =
+      center && Array.isArray(center) && center.length === 2
+        ? center
+        : [139.6917, 35.6895];
+
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
       style: styleUrl,
-      center: [139.6917, 35.6895],
-      zoom: 10,
+      center: initialCenter,
+      zoom: typeof zoom === "number" ? zoom : 10,
     });
 
     map.addControl(new maplibregl.NavigationControl(), "bottom-right");
@@ -188,6 +197,22 @@ const ItineraryMap: React.FC<ItineraryMapProps> = ({
       console.error("Failed to apply bounds:", err);
     }
   }, [effectiveBounds, styleReady]);
+
+  // If no bounds are available, fall back to a provided center/zoom
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !styleReady || !center) return;
+    if (effectiveBounds) return;
+
+    try {
+      map.jumpTo({
+        center,
+        zoom: typeof zoom === "number" ? zoom : map.getZoom(),
+      });
+    } catch (err) {
+      console.error("Failed to apply fallback center:", err);
+    }
+  }, [center, zoom, effectiveBounds, styleReady]);
 
   // Update markers and route - FIX: Wait for styleReady
   useEffect(() => {

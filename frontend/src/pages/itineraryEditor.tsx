@@ -613,13 +613,9 @@ const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [openverseLoading, setOpenverseLoading] = useState(false);
   const [photosLoading, setPhotosLoading] = useState(false);
 
-  // Fallback map bounds when there are no itinerary items yet
-  const [fallbackBounds, setFallbackBounds] = useState<{
-    minLat: number;
-    maxLat: number;
-    minLon: number;
-    maxLon: number;
-  } | null>(null);
+  // Fallback map center when there are no itinerary items yet
+  const [fallbackCenter, setFallbackCenter] = useState<[number, number] | null>(null); // [lon, lat]
+  const [fallbackZoom, setFallbackZoom] = useState<number | null>(null);
 
   // Lightbox (photo overlay)
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -952,13 +948,10 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
   });
 
   // Detect if we already have geocoded points (items or photos)
-  const hasGeoContent = useMemo(() => {
-    const itemHasCoords = items.some((it) => it.lat != null && it.lon != null);
-    const photoHasCoords = mediaHighlightPhotos.some(
-      (p: any) => p?.lat != null && p?.lon != null
-    );
-    return itemHasCoords || photoHasCoords;
-  }, [items, mediaHighlightPhotos]);
+  const hasGeoContent = useMemo(
+    () => items.some((it) => it.lat != null && it.lon != null),
+    [items]
+  );
 
   // Collapsed days (if you ever want collapsing)
   const [collapsedDayIds, setCollapsedDayIds] = useState<number[]>([]);
@@ -1083,16 +1076,22 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
   // If there are no coordinates yet, center the map on the trip's main city/country
   useEffect(() => {
     if (!trip || hasGeoContent) {
-      setFallbackBounds(null);
+      setFallbackCenter(null);
+      setFallbackZoom(null);
       return;
     }
 
     const city = (trip.main_city || "").trim();
     const country = (trip.main_country || "").trim();
     const query = city && country ? `${city}, ${country}` : city || country;
-    if (!query) return;
+    if (!query) {
+      setFallbackCenter(null);
+      setFallbackZoom(null);
+      return;
+    }
 
     let cancelled = false;
+    const targetZoom = city ? 10 : 5;
 
     (async () => {
       try {
@@ -1107,7 +1106,7 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
         const first = Array.isArray(data) ? data[0] : null;
         if (!first) return;
 
-        // Prefer bounding box; fall back to small square around lat/lon
+        // Prefer bounding box center; fall back to lat/lon
         if (Array.isArray(first.boundingbox) && first.boundingbox.length >= 4) {
           const south = parseFloat(first.boundingbox[0]);
           const north = parseFloat(first.boundingbox[1]);
@@ -1120,16 +1119,12 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
             Number.isFinite(west) &&
             Number.isFinite(east)
           ) {
-            const padLat = Math.max((north - south) * 0.15, 0.05);
-            const padLon = Math.max((east - west) * 0.15, 0.05);
+            const centerLat = (south + north) / 2;
+            const centerLon = (west + east) / 2;
 
             if (!cancelled) {
-              setFallbackBounds({
-                minLat: south - padLat,
-                maxLat: north + padLat,
-                minLon: west - padLon,
-                maxLon: east + padLon,
-              });
+              setFallbackCenter([centerLon, centerLat]);
+              setFallbackZoom(targetZoom);
             }
             return;
           }
@@ -1139,13 +1134,8 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
           const lat = parseFloat(first.lat);
           const lon = parseFloat(first.lon);
           if (Number.isFinite(lat) && Number.isFinite(lon) && !cancelled) {
-            const delta = 0.25;
-            setFallbackBounds({
-              minLat: lat - delta,
-              maxLat: lat + delta,
-              minLon: lon - delta,
-              maxLon: lon + delta,
-            });
+            setFallbackCenter([lon, lat]);
+            setFallbackZoom(targetZoom);
           }
         }
       } catch (err) {
@@ -1727,7 +1717,8 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
             <div style={{ position: "relative", width: "100%", height: "100%" }}>
               <ItineraryMap
                 items={mapItems}
-                bounds={fallbackBounds}
+                center={fallbackCenter}
+                zoom={fallbackZoom ?? undefined}
               />
 
               <AdaptivePlannerOverlay
