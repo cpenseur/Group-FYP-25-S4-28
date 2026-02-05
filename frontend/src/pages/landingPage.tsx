@@ -44,7 +44,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
   useEffect(() => {
     const fetchDemoTrips = async () => {
       try {
-        const response = await fetch('/api/f7/demo-itineraries/');
+        const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
+        const response = await fetch(`${API_BASE}/f7/demo-itineraries/`);
         const data = await response.json();
         setDemoTrips(data);
       } catch (error) {
