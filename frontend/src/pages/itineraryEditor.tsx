@@ -167,6 +167,7 @@ function TimeEditModal({
 type ItineraryItem = {
   id: number;
   title: string;
+  item_type?: string | null;
   address: string | null;
   lat: number | null;
   lon: number | null;
@@ -602,6 +603,8 @@ const [isOptimising, setIsOptimising] = useState(false);
 const [errorMsg, setErrorMsg] = useState<string | null>(null);
 const [travelMode, setTravelMode] = useState<"driving-car" | "cycling-regular" | "foot-walking">("driving-car");
 const [legsLoading, setLegsLoading] = useState(false);
+const [legsMode, setLegsMode] = useState<"driving-car" | "cycling-regular" | "foot-walking">("driving-car");
+const legsRequestIdRef = useRef(0);
 
   const [isOptimisingFull, setIsOptimisingFull] = useState(false);
 
@@ -1093,17 +1096,23 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
       return;
     }
 
+    const requestId = ++legsRequestIdRef.current;
     setLegsLoading(true);
     try {
       const data = await apiFetch("/f1/route-legs/", {
         method: "POST",
         body: JSON.stringify({ trip_id: numericTripId, profile: mode }),
       });
-      setLegs(data?.legs || []);
+      if (legsRequestIdRef.current === requestId) {
+        setLegs(data?.legs || []);
+        setLegsMode(mode);
+      }
     } catch (err) {
       console.warn("Failed to load travel legs:", err);
     } finally {
-      setLegsLoading(false);
+      if (legsRequestIdRef.current === requestId) {
+        setLegsLoading(false);
+      }
     }
   };
 
@@ -1335,8 +1344,48 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
 
   /* ------------- Leg lookup ------------- */
 
-  const findLegForPair = (fromId: number, toId: number): LegInfo | undefined =>
-    legs.find((leg) => leg.from_id === fromId && leg.to_id === toId);
+  const legsByPair = useMemo(() => {
+    const map = new Map<string, LegInfo>();
+    legs.forEach((leg) => map.set(`${leg.from_id}:${leg.to_id}`, leg));
+    return map;
+  }, [legs]);
+
+  const fallbackSpeedKmh = (mode: typeof travelMode) => {
+    if (mode === "foot-walking") return 4.5;
+    if (mode === "cycling-regular") return 15;
+    return 30;
+  };
+
+  const haversineKm = (a: ItineraryItem, b: ItineraryItem) => {
+    if (a.lat == null || a.lon == null || b.lat == null || b.lon == null) return null;
+    const toRad = (x: number) => (x * Math.PI) / 180;
+    const R = 6371;
+    const dLat = toRad(b.lat - a.lat);
+    const dLon = toRad(b.lon - a.lon);
+    const lat1 = toRad(a.lat);
+    const lat2 = toRad(b.lat);
+    const s1 = Math.sin(dLat / 2);
+    const s2 = Math.sin(dLon / 2);
+    const q = s1 * s1 + Math.cos(lat1) * Math.cos(lat2) * s2 * s2;
+    const c = 2 * Math.atan2(Math.sqrt(q), Math.sqrt(1 - q));
+    return R * c;
+  };
+
+  const getLegBetween = (from: ItineraryItem, to: ItineraryItem): LegInfo | null => {
+    if (legsMode === travelMode) {
+      const existing = legsByPair.get(`${from.id}:${to.id}`);
+      if (existing) return existing;
+    }
+    const dist = haversineKm(from, to);
+    if (dist == null) return null;
+    const minutes = (dist / fallbackSpeedKmh(travelMode)) * 60;
+    return {
+      from_id: from.id,
+      to_id: to.id,
+      distance_km: Number(dist.toFixed(2)),
+      duration_min: Number(minutes.toFixed(1)),
+    };
+  };
 
   const travelModeLabel = useMemo(() => {
     if (travelMode === "foot-walking") return "walking";
@@ -1365,7 +1414,7 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
     for (let i = 0; i < dayItems.length - 1; i++) {
       const from = dayItems[i];
       const to = dayItems[i + 1];
-      const leg = findLegForPair(from.id, to.id);
+      const leg = getLegBetween(from, to);
       if (leg) {
         totalKm += leg.distance_km || 0;
         totalMin += leg.duration_min || 0;
@@ -1417,6 +1466,9 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
       const el = itemCardRefs.current.get(itemId);
       if (!container || !el) return;
 
+      const headerEl = targetDayId ? dayHeaderRefs.current.get(targetDayId) : null;
+      const headerHeight = headerEl ? headerEl.getBoundingClientRect().height : 0;
+
       const containerTop = container.getBoundingClientRect().top;
       const elTop = el.getBoundingClientRect().top;
 
@@ -1425,6 +1477,7 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
         containerTop +
         container.scrollTop -
         DAY_STICKY_OFFSET -
+        headerHeight -
         8;
 
       container.scrollTo({
@@ -1797,6 +1850,11 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
                         sort_order: u.sort_order !== undefined ? u.sort_order : it.sort_order,
                         start_time: u.start_time !== undefined ? u.start_time : it.start_time,
                         end_time: u.end_time !== undefined ? u.end_time : it.end_time,
+                        title: u.title !== undefined ? u.title : it.title,
+                        address: u.address !== undefined ? u.address : it.address,
+                        lat: u.lat !== undefined ? u.lat : it.lat,
+                        lon: u.lon !== undefined ? u.lon : it.lon,
+                        item_type: u.item_type !== undefined ? u.item_type : it.item_type,
                       };
                     })
                   );
@@ -2668,25 +2726,13 @@ const [exportModalOpen, setExportModalOpen] = useState(false);
                                     No stops scheduled for this day yet.
                                   </div>
                                 ) : (
-                                  dayItems.map((item) => {
-                                    const allItemsSorted = [...items].sort(
-                                      (a, b) =>
-                                        (a.sort_order ?? 0) -
-                                        (b.sort_order ?? 0)
-                                    );
-                                    const globalIdx = allItemsSorted.findIndex(
-                                      (i) => i.id === item.id
-                                    );
+                                  dayItems.map((item, idx) => {
                                     const next =
-                                      globalIdx >= 0 &&
-                                      globalIdx < allItemsSorted.length - 1
-                                        ? allItemsSorted[globalIdx + 1]
+                                      idx < dayItems.length - 1
+                                        ? dayItems[idx + 1]
                                         : null;
 
-                                    const leg =
-                                      next && findLegForPair(item.id, next.id)
-                                        ? findLegForPair(item.id, next.id)
-                                        : undefined;
+                                    const leg = next ? getLegBetween(item, next) : null;
 
                                     const thumbUrl = getItemThumbnail(item);
                                     const timeLabel = formatTimeRange(item);
