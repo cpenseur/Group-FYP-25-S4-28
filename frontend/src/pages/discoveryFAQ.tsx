@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect } from "react";
+import { pickTripCover } from "../lib/tripCovers";
 
 // Use environment variable for API base URL
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || "http://localhost:8000/api";
@@ -340,6 +341,7 @@ export default function DiscoveryFAQ() {
   const [countrySearch, setCountrySearch] = useState<string>("");
   const [activeCategory, setActiveCategory] = useState<string>("All");
   const [openQuestionId, setOpenQuestionId] = useState<number | null>(null);
+  const [bgByCountry, setBgByCountry] = useState<Record<string, string | null>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -387,6 +389,20 @@ export default function DiscoveryFAQ() {
       c.country.toLowerCase().startsWith(countrySearchLower)
     );
   }, [COUNTRY_LIST, countrySearchLower]);
+
+  useEffect(() => {
+    const newBgByCountry: Record<string, string | null> = {};
+
+    for (const c of filteredCountries) {
+      if (bgByCountry[c.country] !== undefined) continue;
+      newBgByCountry[c.country] = pickTripCover(c.country);
+    }
+
+    if (Object.keys(newBgByCountry).length > 0) {
+      setBgByCountry((prev) => ({ ...prev, ...newBgByCountry }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredCountries]);
 
   const faqsForCountry = useMemo(() => {
     if (!selectedCountry) return [];
@@ -582,6 +598,7 @@ export default function DiscoveryFAQ() {
             ) : (
               <CountryGridView
                 countries={filteredCountries}
+                bgByCountry={bgByCountry}
                 search={countrySearch}
                 setSearch={setCountrySearch}
                 onSelectCountry={handleOpenCountry}
@@ -598,6 +615,7 @@ export default function DiscoveryFAQ() {
 
 type CountryGridProps = {
   countries: { country: string; count: number }[];
+  bgByCountry: Record<string, string | null>;
   search: string;
   setSearch: (s: string) => void;
   onSelectCountry: (country: string) => void;
@@ -605,6 +623,7 @@ type CountryGridProps = {
 
 function CountryGridView({
   countries,
+  bgByCountry,
   search,
   setSearch,
   onSelectCountry,
@@ -648,56 +667,96 @@ function CountryGridView({
           gap: "1.5rem",
         }}
       >
-        {countries.map((c) => (
-          <button
-            key={c.country}
-            onClick={() => onSelectCountry(c.country)}
-            style={{
-              position: "relative",
-              borderRadius: "20px",
-              padding: 0,
-              height: "190px",
-              cursor: "pointer",
-              border: "none",
-              textAlign: "left",
-              background: "#ececff",
-              boxShadow:
-                "0 14px 30px rgba(15, 23, 42, 0.12), 0 0 1px rgba(15, 23, 42, 0.08)",
-            }}
-          >
-            <div
+        {countries.map((c) => {
+          const bgUrl = bgByCountry[c.country] || null;
+          return (
+            <button
+              key={c.country}
+              onClick={() => onSelectCountry(c.country)}
               style={{
-                position: "absolute",
-                top: "0.9rem",
-                left: "0.9rem",
-                padding: "4px 10px",
-                borderRadius: "999px",
-                fontSize: "0.75rem",
-                backgroundColor: "#f5f5ff",
-                border: "1px solid #d4d4f5",
-                color: "#444",
+                position: "relative",
+                borderRadius: "20px",
+                padding: 0,
+                height: "190px",
+                cursor: "pointer",
+                border: "none",
+                textAlign: "left",
+                background: "#ececff",
+                boxShadow:
+                  "0 14px 30px rgba(15, 23, 42, 0.12), 0 0 1px rgba(15, 23, 42, 0.08)",
+                overflow: "hidden",
               }}
             >
-              {c.count} FAQ{c.count === 1 ? "" : "s"}
-            </div>
+              {/* fallback background */}
+              <div style={{ position: "absolute", inset: 0, background: "#ececff" }} />
 
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                alignItems: "flex-end",
-                padding: "0 1.1rem 1.1rem",
-              }}
-            >
-              <span
-                style={{ fontSize: "1.05rem", fontWeight: 600, color: "#222" }}
+              {/* country image */}
+              {bgUrl && (
+                <img
+                  src={bgUrl}
+                  alt={c.country}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                  }}
+                  onError={(e) => {
+                    const el = e.currentTarget as HTMLImageElement;
+                    el.style.display = "none";
+                  }}
+                />
+              )}
+
+              {/* soft gradient for text legibility */}
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background: "linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0))",
+                }}
+              />
+
+              <div
+                style={{
+                  position: "absolute",
+                  top: "0.9rem",
+                  left: "0.9rem",
+                  padding: "4px 10px",
+                  borderRadius: "999px",
+                  fontSize: "0.75rem",
+                  backgroundColor: "#f5f5ff",
+                  border: "1px solid #d4d4f5",
+                  color: "#444",
+                }}
               >
-                {c.country}
-              </span>
-            </div>
-          </button>
-        ))}
+                {c.count} FAQ{c.count === 1 ? "" : "s"}
+              </div>
+
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "flex-end",
+                  padding: "0 1.1rem 1.1rem",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "1.05rem",
+                    fontWeight: 600,
+                    color: "#fff",
+                    textShadow: "0 2px 10px rgba(0,0,0,0.35)",
+                  }}
+                >
+                  {c.country}
+                </span>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </>
   );

@@ -11,7 +11,6 @@ export type TripOverview = {
   main_country: string | null;
   start_date: string | null;
   end_date: string | null;
-  updated_at?: string | null;
   travel_type?: string;
   collaborators?: Collaborator[];
   owner_initials?: string;

@@ -7,7 +7,7 @@ import { supabase } from "../lib/supabaseClient";
 import TripCard, { type TripOverview } from "../components/TripCard";
 import { Plus, Search, Info, Trash2, X, Check } from "lucide-react";
 
-type SortKey = "start_asc" | "start_desc" | "updated_desc" | "name_asc" | "name_desc";
+type SortKey = "start_asc" | "start_desc" | "name_asc" | "name_desc";
 type FilterKey = "all" | "solo" | "group";
 
 function parseISO(d: string) {
@@ -53,7 +53,6 @@ function sortTrips(list: TripOverview[], sortKey: SortKey) {
   arr.sort((a, b) => {
     if (sortKey === "start_asc") return compareDates(a.start_date, b.start_date, "asc");
     if (sortKey === "start_desc") return compareDates(a.start_date, b.start_date, "desc");
-    if (sortKey === "updated_desc") return compareDates(a.updated_at, b.updated_at, "desc");
     if (sortKey === "name_asc") {
       return (a.title || "Untitled Trip").localeCompare(b.title || "Untitled Trip", undefined, { sensitivity: "base" });
     }
@@ -324,7 +323,6 @@ export default function TripsPage() {
             >
               <option value="start_asc">Start date ↑</option>
               <option value="start_desc">Start date ↓</option>
-              <option value="updated_desc">Last updated</option>
               <option value="name_asc">Name (A–Z)</option>
               <option value="name_desc">Name (Z–A)</option>
             </select>

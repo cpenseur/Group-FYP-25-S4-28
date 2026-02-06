@@ -134,7 +134,6 @@ class TripOverviewSerializer(serializers.ModelSerializer):
             "main_country",
             "start_date",
             "end_date",
-            "updated_at",
             "collaborators",
             "location_label",
             "duration_label",
