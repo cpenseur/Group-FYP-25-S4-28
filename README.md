@@ -2,14 +2,18 @@
 CSIT-25-S4-23: TripMate - A multimedia trip planning and visualization application.
 
 Contributors:
-Vania Graciella Kwee
-Tan Chua Mingyu
-Wong Poh Yee
-Tan Kok Kiong
-Su Myat Thwe
+- Vania Graciella Kwee
+- Tan Chua Mingyu
+- Wong Poh Yee
+- Tan Kok Kiong
+- Su Myat Thwe
 
 ## Overview
 TripMate is a full-stack web app for planning trips, visualizing routes, collaborating with friends, tracking budgets and checklists, and exporting itineraries. The backend provides a REST API with Supabase-based authentication and data services, while the frontend delivers an interactive React UI with maps and planning tools.
+
+## Important Links
+- TripMate Website: `https://group-fyp-25-s4-28-tripmate.netlify.app/`
+- Marketing Website: `https://pohyeewpy4.wixsite.com/tripmate`
 
 ## Tech Stack
 Backend:
@@ -77,22 +81,6 @@ Backend runs at `http://127.0.0.1:8000/`.
    npm run dev
    ```
 Frontend runs at `http://localhost:5173/`.
-
-## Important Links
-- TripMate Website: `https://group-fyp-25-s4-28-tripmate.netlify.app/`
-- Marketing Website: `https://pohyeewpy4.wixsite.com/tripmate`
-
-## Common Scripts
-Frontend:
-- `npm run dev`
-- `npm run build`
-- `npm run preview`
-- `npm run lint`
-
-Backend:
-- `python manage.py runserver`
-- `python manage.py migrate`
-- `pytest`
 
 ## Deployment Notes
 Frontend:
