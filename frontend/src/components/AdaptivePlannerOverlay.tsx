@@ -1,6 +1,7 @@
 // frontend/src/components/AdaptivePlannerOverlay.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Lightbulb, ChevronUp, RefreshCcw } from "lucide-react";
+import { ChevronUp, RefreshCcw, Cloudy, TriangleAlert } from "lucide-react";
+import morningIcon from "../assets/morning.png";
 // @ts-expect-error: package ships without types
 import OpeningHours from "opening_hours";
 import apiClient from "../lib/apiClient";
@@ -14,8 +15,29 @@ type DaySummary = {
   hasSuggestions: boolean;
   weather?: any;
   isRainy?: boolean;
+  isBadWeather?: boolean;
+  badWeatherReasons?: string[];
   error?: string | null;
   businessHoursIssues?: { title: string; note: string; itemId?: number }[];
+  replacementSuggestions?: ReplacementSuggestion[];
+};
+
+type ReplacementOption = {
+  title: string;
+  lat: number;
+  lon: number;
+  address?: string | null;
+  distance_m?: number | null;
+  kinds?: string | null;
+  opening_hours?: string | null;
+  is_open?: boolean | null;
+  xid?: string | null;
+  source?: string | null;
+};
+
+type ReplacementSuggestion = {
+  item_id: number;
+  options: ReplacementOption[];
 };
 
 type Props = {
@@ -27,7 +49,18 @@ type Props = {
     { id: number; title?: string | null; start_time?: string | null; end_time?: string | null; opening_hours?: string | null }[]
   >;
   onApplied?: () => void;
-  onItemsPatched?: (updates: { id: number; day?: number | null; sort_order?: number; start_time?: string | null; end_time?: string | null }[]) => void;
+  onItemsPatched?: (updates: {
+    id: number;
+    day?: number | null;
+    sort_order?: number;
+    start_time?: string | null;
+    end_time?: string | null;
+    title?: string | null;
+    address?: string | null;
+    lat?: number | null;
+    lon?: number | null;
+    item_type?: string | null;
+  }[]) => void;
   onFocusItem?: (itemId: number, dayId?: number) => void;
 };
 
@@ -50,6 +83,58 @@ function weatherDescriptor(codes: number[]): string {
   if (dominant < 70) return "Rainy";
   if (dominant < 80) return "Snow / mix";
   return "Stormy";
+}
+
+function weatherIcon(code?: number | null): string {
+  if (code == null || Number.isNaN(code)) return "⛅";
+  if (code === 0) return "☀️";
+  if (code >= 1 && code <= 3) return "⛅";
+  if (code === 45 || code === 48) return "🌫️";
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return "🌧️";
+  if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) return "❄️";
+  if (code >= 95) return "⛈️";
+  return "⛅";
+}
+
+function weatherLabel(code?: number | null): string {
+  if (code == null || Number.isNaN(code)) return "Mixed";
+  if (code === 0) return "Clear";
+  if (code >= 1 && code <= 3) return "Partly cloudy";
+  if (code === 45 || code === 48) return "Foggy";
+  if (code >= 51 && code <= 67) return "Showers";
+  if (code >= 71 && code <= 77) return "Snow";
+  if (code >= 80 && code <= 82) return "Rain";
+  if (code >= 95) return "Storm";
+  return "Cloudy";
+}
+
+function formatTempRange(max?: number | null, min?: number | null) {
+  const hi = typeof max === "number" ? Math.round(max) : null;
+  const lo = typeof min === "number" ? Math.round(min) : null;
+  if (hi == null && lo == null) return "";
+  if (hi != null && lo != null) return `${hi}° / ${lo}° C`;
+  if (hi != null) return `${hi}° C`;
+  return `${lo}° C`;
+}
+
+function formatAlerts(reasons?: string[]) {
+  if (!Array.isArray(reasons) || reasons.length === 0) return "";
+  const unique = Array.from(new Set(reasons));
+  if (unique.length <= 2) return unique.join(", ");
+  return `${unique.slice(0, 2).join(", ")} +${unique.length - 2}`;
+}
+
+function formatShortDate(iso?: string) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "2-digit" });
+}
+
+function formatDistance(m?: number | null) {
+  if (!m || m <= 0) return "";
+  if (m >= 1000) return `${(m / 1000).toFixed(1)} km`;
+  return `${Math.round(m)} m`;
 }
 
 // Keep the wall-clock time component when parsing stored ISO strings
@@ -107,8 +192,12 @@ export default function AdaptivePlannerOverlay({
   const [daySummaries, setDaySummaries] = useState<DaySummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [latestSig, setLatestSig] = useState<string | null>(null);
+  const [replacingKey, setReplacingKey] = useState<string | null>(null);
+  const fetchIdRef = useRef(0);
   const lastAutoOpened = useRef<string | null>(null);
   const hasFetchedOnce = useRef(false); // Track if we've fetched at least once
+  const lastDataKeyRef = useRef<string | null>(null);
+  const dataKey = useMemo(() => JSON.stringify({ dayISOMap, itemsByDay }), [dayISOMap, itemsByDay]);
   const [ignoredSigs, setIgnoredSigs] = useState<Set<string>>(() => {
     try {
       const raw = localStorage.getItem("tm_suggestions_ignore_sigs");
@@ -152,7 +241,9 @@ export default function AdaptivePlannerOverlay({
 
     const hasHoursIssues = Array.isArray(d.businessHoursIssues) && d.businessHoursIssues.length > 0;
 
-    return hasOrderChange || hasNonHoursChange || hasHoursIssues;
+    const hasWeatherWarning = !!d.isBadWeather;
+
+    return hasOrderChange || hasNonHoursChange || hasHoursIssues || hasWeatherWarning;
   });
   const isIgnoredSig = latestSig ? ignoredSigs.has(latestSig) : false;
   // Show animation if either: client-side issues detected OR full fetch found actionable items
@@ -169,10 +260,10 @@ export default function AdaptivePlannerOverlay({
 
   const weekSummary = useMemo(() => {
     const weatherCodes: number[] = [];
-    let rainyDays = 0;
+    let badWeatherDays = 0;
     let maxRainProb = 0;
     daySummaries.forEach((d) => {
-      if (d.isRainy) rainyDays += 1;
+      if (d.isBadWeather) badWeatherDays += 1;
       const wx = d.weather || {};
       const prob = wx.precipitation_probability_max;
       if (typeof prob === "number") {
@@ -183,12 +274,17 @@ export default function AdaptivePlannerOverlay({
     });
     return {
       descriptor: weatherDescriptor(weatherCodes),
-      rainyDays,
+      badWeatherDays,
       maxRainProb,
     };
   }, [daySummaries]);
 
+  const forecastDays = useMemo(() => {
+    return [...daySummaries].sort((a, b) => a.dayIndex - b.dayIndex);
+  }, [daySummaries]);
+
   async function fetchAll() {
+    const fetchId = ++fetchIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -237,7 +333,19 @@ export default function AdaptivePlannerOverlay({
             ];
 
             const hasChanges = Array.isArray(res?.changes) && res.changes.length > 0;
-            const hasSuggestions = proposedIsDifferent || hasChanges || mergedHourIssues.length > 0;
+            const replacementSuggestions = Array.isArray(res?.replacement_suggestions)
+              ? res.replacement_suggestions
+              : [];
+            const hasReplacements = replacementSuggestions.some(
+              (r: any) => Array.isArray(r?.options) && r.options.length > 0
+            );
+            const hasWeatherWarning = !!res?.is_bad_weather;
+            const hasSuggestions =
+              proposedIsDifferent ||
+              hasChanges ||
+              mergedHourIssues.length > 0 ||
+              hasReplacements ||
+              hasWeatherWarning;
             return {
               dayId: d.id,
               dayIndex: d.day_index,
@@ -246,8 +354,11 @@ export default function AdaptivePlannerOverlay({
               proposedIsDifferent,
               hasSuggestions,
               businessHoursIssues: mergedHourIssues,
+              replacementSuggestions,
               weather: res?.weather,
               isRainy: !!res?.is_rainy,
+              isBadWeather: !!res?.is_bad_weather,
+              badWeatherReasons: Array.isArray(res?.bad_weather_reasons) ? res.bad_weather_reasons : [],
               error: null,
             } as DaySummary;
           } catch (e: any) {
@@ -258,20 +369,24 @@ export default function AdaptivePlannerOverlay({
               proposedIsDifferent: false,
               hasSuggestions: hourIssues.length > 0,
               businessHoursIssues: hourIssues,
+              replacementSuggestions: [],
+              isBadWeather: false,
+              badWeatherReasons: [],
               error: e?.message || "Failed to load",
             } as DaySummary;
           }
         });
 
       const results = await Promise.all(jobs);
+      if (fetchIdRef.current !== fetchId) return;
       setDaySummaries(results);
 
       // Build a signature of current suggestions for auto-open/ignore logic
       const codes: number[] = [];
-      let rainyDays = 0;
+      let badWeatherDays = 0;
       let maxRainProb = 0;
       results.forEach((d) => {
-        if (d.isRainy) rainyDays += 1;
+        if (d.isBadWeather) badWeatherDays += 1;
         const wx = d.weather || {};
         const prob = wx.precipitation_probability_max;
         if (typeof prob === "number") {
@@ -283,7 +398,7 @@ export default function AdaptivePlannerOverlay({
       const sig = JSON.stringify({
         week: {
           descriptor: weatherDescriptor(codes),
-          rainyDays,
+          badWeatherDays,
           maxRainProb,
         },
         days: results
@@ -294,14 +409,18 @@ export default function AdaptivePlannerOverlay({
             changes: s.preview?.changes,
             items: s.preview?.proposed_item_ids,
             hours: s.businessHoursIssues,
+            replacements: s.replacementSuggestions,
           })),
       });
       setLatestSig(sig);
       // Removed auto-open logic - panel only opens when user clicks the icon
     } catch (e: any) {
+      if (fetchIdRef.current !== fetchId) return;
       setError(e?.message || "Failed to load suggestions");
     } finally {
-      setLoading(false);
+      if (fetchIdRef.current === fetchId) {
+        setLoading(false);
+      }
     }
   }
 
@@ -336,11 +455,39 @@ export default function AdaptivePlannerOverlay({
       if (updates.length && onItemsPatched) {
         onItemsPatched(updates);
       }
+      setDaySummaries((prev) =>
+        prev.map((d) => {
+          if (d.dayId !== dayId) return d;
+          const hasReplacements = Array.isArray(d.replacementSuggestions)
+            ? d.replacementSuggestions.some(
+                (r) => Array.isArray(r?.options) && r.options.length > 0
+              )
+            : false;
+          const hasHoursIssues = Array.isArray(d.businessHoursIssues) && d.businessHoursIssues.length > 0;
+          const hasWeatherWarning = !!d.isBadWeather;
+          const hasSuggestions = hasHoursIssues || hasReplacements || hasWeatherWarning;
+
+          return {
+            ...d,
+            proposedIsDifferent: false,
+            hasSuggestions,
+            preview: {
+              ...(d.preview || {}),
+              proposed_item_ids: proposedIds,
+              changes: [],
+            },
+          };
+        })
+      );
       const appliedPromise = onApplied?.();
       if (appliedPromise && typeof (appliedPromise as any).then === "function") {
         await appliedPromise;
       }
-      await fetchAll();
+      if (open) {
+        window.setTimeout(() => {
+          fetchAll();
+        }, 250);
+      }
     } catch (e: any) {
       setError(e?.message || "Failed to apply changes");
     }
@@ -379,14 +526,53 @@ export default function AdaptivePlannerOverlay({
     }
   };
 
+  const replaceStop = async (itemId: number, option: ReplacementOption) => {
+    if (!itemId || !option) return;
+    const key = `${itemId}:${option.xid || option.title}`;
+    setReplacingKey(key);
+    try {
+      const payload: any = {
+        title: option.title,
+        lat: option.lat,
+        lon: option.lon,
+        address: option.address ?? null,
+      };
+      const res = await apiClient.patch(`/f1/itinerary-items/${itemId}/`, payload);
+      if (onItemsPatched) {
+        onItemsPatched([
+          {
+            id: itemId,
+            title: res?.title ?? payload.title,
+            address: res?.address ?? payload.address,
+            lat: res?.lat ?? payload.lat,
+            lon: res?.lon ?? payload.lon,
+          },
+        ]);
+      }
+      const appliedPromise = onApplied?.();
+      if (appliedPromise && typeof (appliedPromise as any).then === "function") {
+        await appliedPromise;
+      }
+      await fetchAll();
+    } catch (e: any) {
+      setError(e?.message || "Failed to replace stop");
+    } finally {
+      setReplacingKey(null);
+    }
+  };
+
   useEffect(() => {
     // Only fetch when panel is explicitly opened by user
     if (open) {
+      if (hasFetchedOnce.current && lastDataKeyRef.current === dataKey) {
+        return;
+      }
+      lastDataKeyRef.current = dataKey;
       fetchAll();
       hasFetchedOnce.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, tripId, JSON.stringify(dayISOMap), JSON.stringify(itemsByDay)]);
+  }, [open, tripId, dataKey]);
 
   const handleIgnore = () => {
     if (!latestSig) {
@@ -419,7 +605,7 @@ export default function AdaptivePlannerOverlay({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          title="Adaptive Planner Suggestions"
+          title="Adaptive Planner"
           style={{
             pointerEvents: "auto",
             width: 50,
@@ -459,7 +645,11 @@ export default function AdaptivePlannerOverlay({
                 : "0 1px 2px rgba(0,0,0,0.04)",
             }}
           >
-            <Lightbulb size={20} color={shouldAnimate ? "#4f46e5" : "#111827"} />
+            <img
+              src={morningIcon}
+              alt="Adaptive Planner"
+              style={{ width: 27, height: 27, objectFit: "contain" }}
+            />
           </div>
         </button>
       )}
@@ -502,13 +692,17 @@ export default function AdaptivePlannerOverlay({
                   border: "1px solid rgba(99,102,241,0.20)",
                 }}
               >
-                <Lightbulb size={16} />
+                <img
+                  src={morningIcon}
+                  alt="Adaptive Planner"
+                  style={{ width: 19, height: 19, objectFit: "contain" }}
+                />
               </div>
               <div style={{ fontWeight: 800, color: "#111827", fontSize: "0.9rem" }}>
                 Adaptive Planner
               </div>
               <div style={{ fontSize: "0.78rem", color: "#6b7280", marginLeft: 16 }}>
-                Week: {weekSummary.descriptor}<br /> Rainy days: {weekSummary.rainyDays}<br />Max rain chance:{" "}
+                Week: {weekSummary.descriptor}<br /> Bad weather days: {weekSummary.badWeatherDays}<br />Max rain chance:{" "}
                 {weekSummary.maxRainProb}%.
               </div>
             </div>
@@ -570,6 +764,54 @@ export default function AdaptivePlannerOverlay({
             </div>
           </div>
 
+          {forecastDays.length > 0 && (
+            <div
+              style={{
+                borderBottom: "1px solid rgba(229,231,235,0.9)",
+                padding: "4px 8px",
+                background: "rgba(249,250,251,0.9)",
+                display: "flex",
+                gap: 6,
+                overflowX: "auto",
+              }}
+            >
+              {forecastDays.map((d) => {
+                const wx = d.weather || {};
+                const code = wx.weathercode;
+                const tMax = typeof wx.temperature_2m_max === "number" ? Math.round(wx.temperature_2m_max) : null;
+                const tMin = typeof wx.temperature_2m_min === "number" ? Math.round(wx.temperature_2m_min) : null;
+                const label = d.dateISO ? formatShortDate(d.dateISO) : `Day ${d.dayIndex}`;
+                return (
+                  <div
+                    key={`wx-${d.dayId}`}
+                    style={{
+                      minWidth: 64,
+                      padding: "4px 6px",
+                      borderRadius: 10,
+                      border: "1px solid rgba(229,231,235,0.9)",
+                      background: "white",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 2,
+                    }}
+                  >
+                    <div style={{ fontSize: "0.68rem", color: "#6b7280", fontWeight: 700 }}>
+                      {label}
+                    </div>
+                    <div style={{ fontSize: "0.95rem" }}>{weatherIcon(code)}</div>
+                    <div style={{ fontSize: "0.68rem", color: "#111827", fontWeight: 700 }}>
+                      {tMax != null ? `${tMax}°` : "—"}
+                      <span style={{ color: "#9ca3af", fontWeight: 600 }}>
+                        {tMin != null ? ` / ${tMin}° C` : ""}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           <div
             style={{
               padding: 10,
@@ -593,17 +835,42 @@ export default function AdaptivePlannerOverlay({
             )}
 
             {!loading &&
-              actionableDays.map((d) => (
-                <div
-                  key={d.dayId}
-                  style={{
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 12,
-                    padding: "10px 12px",
-                    background: "white",
-                    fontSize: "0.85rem",
-                  }}
-                >
+              actionableDays.map((d) => {
+                const replacementsByItem = new Map<number, ReplacementOption[]>();
+                (d.replacementSuggestions || []).forEach((r) => {
+                  if (r?.item_id != null) {
+                    replacementsByItem.set(
+                      r.item_id,
+                      Array.isArray(r.options) ? r.options : []
+                    );
+                  }
+                });
+                const currentOrder = (itemsByDay[d.dayId] || []).map((i) => i.id);
+                const proposedIds = Array.isArray(d.preview?.proposed_item_ids)
+                  ? d.preview.proposed_item_ids
+                  : [];
+                const hasProposedDiff = proposedDiffers(proposedIds, currentOrder);
+                const hasNonHoursChange =
+                  Array.isArray(d.preview?.changes) &&
+                  d.preview.changes.some(
+                    (c: any) =>
+                      c?.action !== "opening_hours_warning" &&
+                      c?.action !== "opening_hours_conflict" &&
+                      c?.action !== "opening_hours_missing"
+                  );
+                const showApply = hasProposedDiff || hasNonHoursChange;
+
+                return (
+                  <div
+                    key={d.dayId}
+                    style={{
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 12,
+                      padding: "10px 12px",
+                      background: "white",
+                      fontSize: "0.85rem",
+                    }}
+                  >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div style={{ fontWeight: 750, color: "#111827", fontSize: "0.82rem" }}>
                       Day {d.dayIndex} {d.dateISO ? `• ${d.dateISO}` : ""}
@@ -615,17 +882,28 @@ export default function AdaptivePlannerOverlay({
                   </div>
 
                   {d.weather && (
-                    <div style={{ marginTop: 4, color: "#6b7280", fontSize: "0.8rem" }}>
-                      Weather: rain={String(d.weather.precipitation_probability_max ?? "–")}%, precip=
-                      {String(d.weather.precipitation_sum ?? "–")}mm
+                    <div style={{ marginTop: 4, color: "#6b7280", fontSize: "0.8rem", display: "flex", alignItems: "center", gap: 6 }}>
+                      <Cloudy size={14} />
+                      <span>
+                        {weatherLabel(d.weather.weathercode)}
+                        {formatTempRange(d.weather.temperature_2m_max, d.weather.temperature_2m_min)
+                          ? ` · ${formatTempRange(d.weather.temperature_2m_max, d.weather.temperature_2m_min)}`
+                          : ""}
+                      </span>
+                    </div>
+                  )}
+                  {Array.isArray(d.badWeatherReasons) && d.badWeatherReasons.length > 0 && (
+                    <div style={{ marginTop: 4, color: "#b45309", fontSize: "0.8rem", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                      <TriangleAlert size={14} />
+                      <span>Alert: {formatAlerts(d.badWeatherReasons)}</span>
                     </div>
                   )}
 
-                  {d.proposedIsDifferent && Array.isArray(d.preview?.proposed_item_ids) && (
+                  {hasProposedDiff && proposedIds.length > 0 && (
                     <div style={{ marginTop: 8 }}>
                       <div style={{ fontWeight: 700, color: "#111827", fontSize: "0.82rem" }}>Proposed order</div>
                       <ol style={{ marginTop: 4, paddingLeft: 18, color: "#374151", fontSize: "0.82rem" }}>
-                        {d.preview.proposed_item_ids.map((iid: number) => {
+                        {proposedIds.map((iid: number) => {
                           const titleMap = new Map(
                             (itemsByDay[d.dayId] || []).map((it) => [it.id, it.title || `Item ${it.id}`])
                           );
@@ -643,47 +921,125 @@ export default function AdaptivePlannerOverlay({
                       <ul style={{ marginTop: 4, paddingLeft: 18, color: "#b91c1c", fontSize: "0.82rem", display: "flex", flexDirection: "column", gap: 6 }}>
                         {d.businessHoursIssues.map((iss, idx) => {
                           const alt = findAlternateDay(d.dayIndex);
+                          const options =
+                            iss.itemId != null ? replacementsByItem.get(iss.itemId) || [] : [];
                           return (
-                            <li key={`${iss.title}-${idx}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                              <span>
-                                <strong>{iss.title}:</strong> {iss.note}
-                              </span>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                {iss.itemId && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onFocusItem?.(iss.itemId!, d.dayId)}
-                                    style={{
-                                      border: "1px solid #d1d5db",
-                                      borderRadius: 8,
-                                      padding: "4px 8px",
-                                      background: "white",
-                                      color: "#111827",
-                                      fontSize: "0.78rem",
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    Show stop
-                                  </button>
-                                )}
-                                {iss.itemId && alt && (
-                                  <button
-                                    type="button"
-                                    onClick={() => moveIssueToNextDay(iss, d.dayId, alt.target.id)}
-                                    style={{
-                                      border: "1px solid #e5e7eb",
-                                      borderRadius: 8,
-                                      padding: "4px 8px",
-                                      background: "white",
-                                      color: "#111827",
-                                      fontSize: "0.78rem",
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    {alt.label}
-                                  </button>
-                                )}
+                            <li key={`${iss.title}-${idx}`} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                                <span>
+                                  <strong>{iss.title}:</strong> {iss.note}
+                                </span>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  {iss.itemId && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onFocusItem?.(iss.itemId!, d.dayId)}
+                                      style={{
+                                        border: "1px solid #d1d5db",
+                                        borderRadius: 8,
+                                        padding: "4px 8px",
+                                        background: "white",
+                                        color: "#111827",
+                                        fontSize: "0.78rem",
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      Show stop
+                                    </button>
+                                  )}
+                                  {iss.itemId && alt && (
+                                    <button
+                                      type="button"
+                                      onClick={() => moveIssueToNextDay(iss, d.dayId, alt.target.id)}
+                                      style={{
+                                        border: "1px solid #e5e7eb",
+                                        borderRadius: 8,
+                                        padding: "4px 8px",
+                                        background: "white",
+                                        color: "#111827",
+                                        fontSize: "0.78rem",
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      {alt.label}
+                                    </button>
+                                  )}
+                                </div>
                               </div>
+
+                              {iss.itemId && options.length > 0 && (
+                                <div
+                                  style={{
+                                    border: "1px dashed #e5e7eb",
+                                    borderRadius: 10,
+                                    padding: "6px 8px",
+                                    background: "rgba(249,250,251,0.8)",
+                                  }}
+                                >
+                                  <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "#374151", marginBottom: 6 }}>
+                                    Alternatives nearby
+                                  </div>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                    {options.map((opt, optIdx) => {
+                                      const distLabel = formatDistance(opt.distance_m);
+                                      const openLabel =
+                                        opt.is_open === true
+                                          ? "Open at planned time"
+                                          : opt.is_open === false
+                                            ? "Likely closed"
+                                            : "Hours unknown";
+                                      const isBusy = replacingKey === `${iss.itemId}:${opt.xid || opt.title}`;
+                                      return (
+                                        <div
+                                          key={`${opt.title}-${optIdx}`}
+                                          style={{
+                                            display: "flex",
+                                            justifyContent: "space-between",
+                                            alignItems: "flex-start",
+                                            gap: 8,
+                                          }}
+                                        >
+                                          <div style={{ minWidth: 0 }}>
+                                            <div style={{ fontWeight: 700, color: "#111827" }}>{opt.title}</div>
+                                            <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>
+                                              {[distLabel, openLabel].filter(Boolean).join(" · ")}
+                                            </div>
+                                            {opt.address && (
+                                              <div style={{ color: "#9ca3af", fontSize: "0.72rem" }}>
+                                                {opt.address}
+                                              </div>
+                                            )}
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => replaceStop(iss.itemId!, opt)}
+                                            disabled={isBusy}
+                                            style={{
+                                              border: "1px solid #111827",
+                                              borderRadius: 8,
+                                              padding: "4px 8px",
+                                              background: "#111827",
+                                              color: "white",
+                                              fontSize: "0.75rem",
+                                              fontWeight: 700,
+                                              cursor: isBusy ? "not-allowed" : "pointer",
+                                              opacity: isBusy ? 0.6 : 1,
+                                              whiteSpace: "nowrap",
+                                            }}
+                                          >
+                                            {isBusy ? "Replacing…" : "Replace"}
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                              {iss.itemId && options.length === 0 && (
+                                <div style={{ fontSize: "0.76rem", color: "#9ca3af" }}>
+                                  No nearby alternatives found — try editing manually.
+                                </div>
+                              )}
                             </li>
                           );
                         })}
@@ -692,17 +1048,7 @@ export default function AdaptivePlannerOverlay({
                   )}
 
                   <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
-                    {((d.proposedIsDifferent &&
-                      Array.isArray(d.preview?.proposed_item_ids) &&
-                      d.preview.proposed_item_ids.length > 0) ||
-                      (Array.isArray(d.preview?.changes) &&
-                        d.preview.changes.some(
-                          (c: any) =>
-                            c?.action !== "opening_hours_warning" &&
-                            c?.action !== "opening_hours_conflict" &&
-                            c?.action !== "opening_hours_missing"
-                        )) ||
-                      (Array.isArray(d.businessHoursIssues) && d.businessHoursIssues.length > 0)) && (
+                    {showApply && (
                       <button
                         onClick={() => approveDay(d.dayId)}
                         disabled={loading}
@@ -723,7 +1069,8 @@ export default function AdaptivePlannerOverlay({
                     )}
                   </div>
                 </div>
-              ))}
+              );
+            })}
           </div>
         </div>
       )}

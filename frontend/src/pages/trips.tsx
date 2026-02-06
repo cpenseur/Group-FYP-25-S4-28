@@ -7,6 +7,9 @@ import { supabase } from "../lib/supabaseClient";
 import TripCard, { type TripOverview } from "../components/TripCard";
 import { Plus, Search, Info, Trash2, X, Check } from "lucide-react";
 
+type SortKey = "start_asc" | "start_desc" | "name_asc" | "name_desc";
+type FilterKey = "all" | "solo" | "group";
+
 function parseISO(d: string) {
   const [y, m, day] = d.split("-").map(Number);
   return new Date(y, (m || 1) - 1, day || 1);
@@ -35,6 +38,41 @@ function makeInitials(input?: string | null) {
   return (first + (second || "")).toUpperCase();
 }
 
+function compareDates(a?: string | null, b?: string | null, dir: "asc" | "desc" = "asc") {
+  const aTime = a ? parseISO(a).getTime() : null;
+  const bTime = b ? parseISO(b).getTime() : null;
+
+  if (aTime == null && bTime == null) return 0;
+  if (aTime == null) return 1;
+  if (bTime == null) return -1;
+  return dir === "asc" ? aTime - bTime : bTime - aTime;
+}
+
+function sortTrips(list: TripOverview[], sortKey: SortKey) {
+  const arr = [...list];
+  arr.sort((a, b) => {
+    if (sortKey === "start_asc") return compareDates(a.start_date, b.start_date, "asc");
+    if (sortKey === "start_desc") return compareDates(a.start_date, b.start_date, "desc");
+    if (sortKey === "name_asc") {
+      return (a.title || "Untitled Trip").localeCompare(b.title || "Untitled Trip", undefined, { sensitivity: "base" });
+    }
+    if (sortKey === "name_desc") {
+      return (b.title || "Untitled Trip").localeCompare(a.title || "Untitled Trip", undefined, { sensitivity: "base" });
+    }
+    return 0;
+  });
+  return arr;
+}
+
+function isGroupTrip(t: TripOverview) {
+  const count = Array.isArray(t.collaborators) ? t.collaborators.length : 0;
+  return count > 1;
+}
+
+function isSoloTrip(t: TripOverview) {
+  return !isGroupTrip(t);
+}
+
 
 
 export default function TripsPage() {
@@ -42,6 +80,10 @@ export default function TripsPage() {
   const [trips, setTrips] = useState<TripOverview[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
+  const [showUpcomingInfo, setShowUpcomingInfo] = useState(false);
+  const [showAllTripsInfo, setShowAllTripsInfo] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("start_asc");
+  const [filterKey, setFilterKey] = useState<FilterKey>("all");
 
   // NEW: delete mode + confirmation state
   const [deleteMode, setDeleteMode] = useState(false);
@@ -150,8 +192,16 @@ export default function TripsPage() {
     });
   }, [q, trips]);
 
-  const upcoming = useMemo(() => filtered.filter((t) => isUpcoming(t, today)), [filtered]);
-  const allTrips = filtered;
+  const filteredByType = useMemo(() => {
+    if (filterKey === "solo") return filtered.filter(isSoloTrip);
+    if (filterKey === "group") return filtered.filter(isGroupTrip);
+    return filtered;
+  }, [filtered, filterKey]);
+
+  const sortedTrips = useMemo(() => sortTrips(filteredByType, sortKey), [filteredByType, sortKey]);
+
+  const upcoming = useMemo(() => sortedTrips.filter((t) => isUpcoming(t, today)), [sortedTrips, today]);
+  const allTrips = sortedTrips;
 
   // NEW: reusable renderer so both grids behave the same
   const renderTrip = (t: TripOverview) => {
@@ -263,6 +313,33 @@ export default function TripsPage() {
             <div style={searchIconCircle}><Search size={16} strokeWidth={2.5} /></div>
           </div>
 
+          <div style={sortFilterRow}>
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              style={controlSelect}
+              title="Sort trips"
+              aria-label="Sort trips"
+            >
+              <option value="start_asc">Start date ↑</option>
+              <option value="start_desc">Start date ↓</option>
+              <option value="name_asc">Name (A–Z)</option>
+              <option value="name_desc">Name (Z–A)</option>
+            </select>
+
+            <select
+              value={filterKey}
+              onChange={(e) => setFilterKey(e.target.value as FilterKey)}
+              style={controlSelect}
+              title="Filter trips"
+              aria-label="Filter trips"
+            >
+              <option value="all">All trips</option>
+              <option value="solo">Solo trips</option>
+              <option value="group">Group trips</option>
+            </select>
+          </div>
+
           {/* NEW: delete mode toggle */}
           <button
             type="button"
@@ -285,7 +362,28 @@ export default function TripsPage() {
         {/* Upcoming Trips */}
         <div style={{ marginTop: 26 }}>
           <div style={{ fontWeight: 700, color: "#111827", marginBottom: 12 }}>
-            Upcoming Trips <span style={{ color: "#9ca3af", marginLeft: 8 }}><Info size={14} /></span>
+            Upcoming Trips{" "}
+            <span style={{ color: "#9ca3af", marginLeft: 8, position: "relative", display: "inline-flex" }}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowUpcomingInfo((v) => !v);
+                }}
+                title="Additional Information"
+                aria-label="Additional Information"
+                style={infoIconBtn}
+              >
+                <Info size={14} />
+              </button>
+
+              {showUpcomingInfo && (
+                <div style={infoPopover}>
+                  Upcoming Trips shows trips that are currently in progress or scheduled for future dates.
+                  Results follow the selected sort and filter options and include trips you own or collaborate on. Past trips are not shown.
+                </div>
+              )}
+            </span>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18, maxWidth: 1240, width: "100%" }}>
@@ -311,7 +409,28 @@ export default function TripsPage() {
         {/* All Trips */}
         <div style={{ marginTop: 34 }}>
           <div style={{ fontWeight: 700, color: "#111827", marginBottom: 12 }}>
-            All Trips <span style={{ color: "#9ca3af", marginLeft: 8 }}><Info size={14} /></span>
+            All Trips{" "}
+            <span style={{ color: "#9ca3af", marginLeft: 8, position: "relative", display: "inline-flex" }}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowAllTripsInfo((v) => !v);
+                }}
+                title="Additional Information"
+                aria-label="Additional Information"
+                style={infoIconBtn}
+              >
+                <Info size={14} />
+              </button>
+
+              {showAllTripsInfo && (
+                <div style={infoPopover}>
+                  All Trips displays every trip linked to your account, including upcoming and past trips.
+                  Results follow the selected sort and filter options and include trips you own or collaborate on.
+                </div>
+              )}
+            </span>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18, maxWidth: 1240, width: "100%" }}>
@@ -380,6 +499,35 @@ const deleteModeBtn: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+const infoIconBtn: React.CSSProperties = {
+  border: "none",
+  background: "transparent",
+  padding: 0,
+  margin: 0,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  color: "inherit",
+};
+
+const infoPopover: React.CSSProperties = {
+  position: "absolute",
+  top: "50%",
+  left: "100%",
+  transform: "translate(10px, -50%)",
+  width: 300,
+  maxWidth: 320,
+  background: "white",
+  color: "#111827",
+  border: "1px solid rgba(17,24,39,0.08)",
+  borderRadius: 10,
+  padding: "10px 12px",
+  fontSize: 12,
+  lineHeight: 1.4,
+  boxShadow: "0 10px 24px rgba(15,23,42,0.12)",
+  zIndex: 20,
+};
+
 const plusCircle: React.CSSProperties = {
   width: 28,
   height: 28,
@@ -419,6 +567,24 @@ const searchIconCircle: React.CSSProperties = {
   placeItems: "center",
   color: "white",
   fontWeight: 900,
+};
+
+const sortFilterRow: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 10,
+};
+
+const controlSelect: React.CSSProperties = {
+  height: 46,
+  borderRadius: 999,
+  border: "1px solid #e5e7eb",
+  background: "white",
+  color: "#111827",
+  padding: "0 12px",
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: "pointer",
 };
 
 // NEW styles
