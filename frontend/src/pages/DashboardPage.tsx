@@ -238,6 +238,7 @@ export default function DashboardPage() {
   const [trips, setTrips] = useState<TripOverview[]>([]);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showUpcomingInfo, setShowUpcomingInfo] = useState(false);
   
   // Pending invitation overlay state
   const [showInvitationOverlay, setShowInvitationOverlay] = useState(false);
@@ -508,7 +509,28 @@ export default function DashboardPage() {
             <div style={panelCard}>
               <div style={panelHeaderRow}>
                 <div style={{ fontSize: 16, color: "#111827", fontWeight: 600 }}>
-                  Upcoming Trips <span style={{ marginLeft: 10, color: "#9ca3af" }}><Info size={14} /></span>
+                  Upcoming Trips{" "}
+                  <span style={{ marginLeft: 10, color: "#9ca3af", position: "relative", display: "inline-flex" }}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowUpcomingInfo((v) => !v);
+                      }}
+                      title="Additional Information"
+                      aria-label="Additional Information"
+                      style={infoIconBtn}
+                    >
+                      <Info size={14} />
+                    </button>
+
+                    {showUpcomingInfo && (
+                      <div style={infoPopover}>
+                        Upcoming Trips shows trips that are currently in progress or scheduled for future dates.
+                        Trips are ordered by start date and include those you own or collaborate on. Past trips are not shown.
+                      </div>
+                    )}
+                  </span>
                 </div>
 
                 <button type="button" onClick={() => navigate("/trips")} style={seeMoreBtn}>
@@ -954,6 +976,35 @@ const upcomingCards: React.CSSProperties = {
   gap: 22,
   overflow: "hidden",
   alignItems: "center",
+};
+
+const infoIconBtn: React.CSSProperties = {
+  border: "none",
+  background: "transparent",
+  padding: 0,
+  margin: 0,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  color: "inherit",
+};
+
+const infoPopover: React.CSSProperties = {
+  position: "absolute",
+  top: "50%",
+  left: "100%",
+  transform: "translate(10px, -50%)",
+  width: 300,
+  maxWidth: 320,
+  background: "white",
+  color: "#111827",
+  border: "1px solid rgba(17,24,39,0.08)",
+  borderRadius: 10,
+  padding: "10px 12px",
+  fontSize: 12,
+  lineHeight: 1.4,
+  boxShadow: "0 10px 24px rgba(15,23,42,0.12)",
+  zIndex: 20,
 };
 
 // Invitation overlay styles
