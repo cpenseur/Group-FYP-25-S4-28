@@ -2,11 +2,11 @@
 CSIT-25-S4-23: TripMate - A multimedia trip planning and visualization application.
 
 Contributors:
-- Vania Graciella Kwee
-- Tan Chua Mingyu
-- Wong Poh Yee
-- Tan Kok Kiong
-- Su Myat Thwe
+- Vania Graciella Kwee (cpenseur)
+- Wong Poh Yee (pohyeewpy)
+- Tan Chua Mingyu (tcmingyu)
+- Su Myat Thwe (sumtt04)
+- Tan Kok Kiong (kktan1999)
 
 ## Overview
 TripMate is a full-stack web app for planning trips, visualizing routes, collaborating with friends, tracking budgets and checklists, and exporting itineraries. The backend provides a REST API with Supabase-based authentication and data services, while the frontend delivers an interactive React UI with maps and planning tools.
