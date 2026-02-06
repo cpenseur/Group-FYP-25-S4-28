@@ -36,7 +36,7 @@ const LandingFooter: React.FC = () => {
 export default LandingFooter;
 
 const FooterSection = styled.section`
-  padding: 0.5rem 2rem;
+  padding: 0.2rem 1.5rem;
   background: #ffffff;
   border-top: 1px solid #e5e7eb;
 `;
@@ -46,7 +46,7 @@ const FooterInner = styled.div`
   margin: 0 auto;
   display: grid;
   grid-template-columns: 1.15fr auto 1fr;
-  gap: 2rem;
+  gap: 1.25rem;
   align-items: center;
 
   @media (max-width: 900px) {
@@ -75,8 +75,8 @@ const BrandRow = styled.div`
 `;
 
 const BrandLogo = styled.img`
-  width: 240px;
-  height: 240px;
+  width: 320px;
+  height: 320px;
   object-fit: contain;
 `;
 

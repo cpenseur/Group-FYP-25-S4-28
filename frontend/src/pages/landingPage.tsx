@@ -14,7 +14,7 @@ import guilin from "../assets/guilin.jpg";
 import tokyo from "../assets/tokyo.jpg";
 import kyoto from "../assets/kyoto.jpg";
 import osaka from "../assets/osaka.png";
-import heroBackground from "../assets/heroBackground.jpg";
+import demoVideo from "../assets/demo.MP4";
 import LandingNavbar from "../components/landingNavbar";
 import LandingFooter from "../components/landingFooter";
 import Login from "../components/login";
@@ -188,6 +188,13 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLoginClick, onSignupClick, 
       <HeroSection id="hero" style={{ scrollMarginTop: '80px' }}>
         <HeroContent>
           <HeroTitle>Your Personal Travel Assistant</HeroTitle>
+
+          <VideoCard>
+            <HeroVideo controls playsInline muted autoPlay loop>
+              <source src={demoVideo} type="video/mp4" />
+              Your browser does not support the video tag.
+            </HeroVideo>
+          </VideoCard>
 
           <HeroSubtitle>
             Create, organise, and optimise your adventures with AI-powered planning, 
@@ -410,44 +417,31 @@ const Container = styled.div`
 const HeroSection = styled.section`
   position: relative;
   width: 100%;
-  height: 90vh;
+  min-height: 90vh;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  padding: 0 2rem;
+  padding: 6rem 2rem 5rem;
   text-align: center;
-
-  background-image: url(${heroBackground});
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-
-  color: white;
-
-  /* Soft overlay for text readability */
-  &::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: rgba(0,0,0,0.35);
-  }
-
-  > * {
-    position: relative;
-    z-index: 2;
-  }
+  background: #f8fafc;
 `;
 
 const HeroContent = styled.div`
-  max-width: 800px;
+  max-width: 960px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.75rem;
 `;
 
 const HeroTitle = styled.h1`
   font-size: 4rem;
   font-weight: 800;
-  margin-bottom: 1.5rem;
+  margin: 0;
   line-height: 1.1;
+  color: #0f172a;
 
   @media (max-width: 768px) {
     font-size: 2.8rem;
@@ -456,19 +450,42 @@ const HeroTitle = styled.h1`
 
 const HeroSubtitle = styled.p`
   font-size: 1.25rem;
-  margin-bottom: 2.5rem;
+  margin: 0;
   line-height: 1.6;
-  color: #f0f0f0;
+  color: #475569;
 
   @media (max-width: 768px) {
     font-size: 1.1rem;
   }
 `;
 
+const VideoCard = styled.div`
+  width: min(980px, 100%);
+  border-radius: 18px;
+  overflow: hidden;
+  background: #0f172a;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.18);
+`;
+
+const HeroVideo = styled.video`
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #0f172a;
+`;
+
+const VideoDivider = styled.div`
+  width: min(760px, 100%);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #cbd5f5, transparent);
+  margin-top: 0.5rem;
+`;
+
 const CTAGroup = styled.div`
   display: flex;
   gap: 1rem;
   justify-content: center;
+  margin-top: 0.5rem;
 
   @media (max-width: 640px) {
     flex-direction: column;
@@ -504,14 +521,13 @@ const PrimaryButton = styled(Button)<{ large?: boolean }>`
 `;
 
 const SecondaryButton = styled(Button)`
-  background: rgba(59, 130, 246, 0.15);
-  color: #bfdbfe;
-  border: 2px solid rgba(59, 130, 246, 0.5);
-  backdrop-filter: blur(4px);
+  background: linear-gradient(135deg, #2dd4bf, #0ea5e9);
+  color: #ffffff;
+  border: none;
 
   &:hover {
-    background: rgba(59, 130, 246, 0.25);
-    border-color: rgba(59, 130, 246, 0.8);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px rgba(14, 165, 233, 0.3);
   }
 `;
 
