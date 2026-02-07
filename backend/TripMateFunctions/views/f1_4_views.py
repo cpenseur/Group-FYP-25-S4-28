@@ -5,7 +5,7 @@ import time
 import hashlib
 import threading
 import requests
-from datetime import datetime, date, time as dt_time
+from datetime import datetime, date, time as dt_time, timedelta
 
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
@@ -162,6 +162,67 @@ def _open_meteo_day(lat: float, lon: float, date_str: str):
     }
 
 
+def _open_meteo_archive_day(lat: float, lon: float, date_str: str):
+    url = "https://archive-api.open-meteo.com/v1/archive"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "daily": "precipitation_sum,weather_code,temperature_2m_max,temperature_2m_min,windspeed_10m_max",
+        "timezone": "auto",
+        "start_date": date_str,
+        "end_date": date_str,
+    }
+    try:
+        r = requests.get(url, params=params, timeout=12)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+    except Exception:
+        return None
+
+    daily = data.get("daily") or {}
+    ps = (daily.get("precipitation_sum") or [None])[0]
+    wc = (daily.get("weather_code") or [None])[0]
+    tmax = (daily.get("temperature_2m_max") or [None])[0]
+    tmin = (daily.get("temperature_2m_min") or [None])[0]
+    wind = (daily.get("windspeed_10m_max") or [None])[0]
+    return {
+        "precipitation_sum": ps,
+        "precipitation_probability_max": None,
+        "weathercode": wc,
+        "temperature_2m_max": tmax,
+        "temperature_2m_min": tmin,
+        "windspeed_10m_max": wind,
+    }
+
+
+def _open_meteo_climate_day(lat: float, lon: float, date_str: str):
+    url = "https://climate-api.open-meteo.com/v1/climate"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "daily": "temperature_2m_max,temperature_2m_min",
+        "models": "EC_Earth3P_HR",
+        "start_date": date_str,
+        "end_date": date_str,
+    }
+    try:
+        r = requests.get(url, params=params, timeout=12)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+    except Exception:
+        return None
+
+    daily = data.get("daily") or {}
+    tmax = (daily.get("temperature_2m_max") or [None])[0]
+    tmin = (daily.get("temperature_2m_min") or [None])[0]
+    return {
+        "temperature_2m_max": tmax,
+        "temperature_2m_min": tmin,
+    }
+
+
 def _geocode_trip_location(trip: Trip):
     parts = []
     if trip.main_city:
@@ -241,15 +302,54 @@ def _compute_weather_context(
     anchor: ItineraryItem | None,
     fallback_coords: tuple[float, float] | None = None,
 ):
+    def _parse_date(d: str):
+        try:
+            return datetime.strptime(d, "%Y-%m-%d").date()
+        except Exception:
+            return None
+
+    def _missing_temps(data: dict | None) -> bool:
+        if not data:
+            return True
+        return data.get("temperature_2m_max") is None and data.get("temperature_2m_min") is None
+
+    def _merge(base: dict | None, extra: dict | None):
+        if not extra:
+            return base
+        if not base:
+            return extra
+        merged = dict(base)
+        for k, v in extra.items():
+            if merged.get(k) is None:
+                merged[k] = v
+        return merged
+
+    target_date = _parse_date(date_str)
+    today = date.today()
+    horizon = today + timedelta(days=16)
+
+    def _fetch_for_coords(lat: float, lon: float):
+        if target_date and target_date < today:
+            wx_local = _open_meteo_archive_day(lat, lon, date_str)
+        else:
+            wx_local = _open_meteo_day(lat, lon, date_str)
+
+        if target_date and target_date > horizon and _missing_temps(wx_local):
+            climate = _open_meteo_climate_day(lat, lon, date_str)
+            wx_local = _merge(wx_local, climate)
+
+        if target_date and target_date < today and _missing_temps(wx_local):
+            climate = _open_meteo_climate_day(lat, lon, date_str)
+            wx_local = _merge(wx_local, climate)
+
+        return wx_local
+
     wx = None
     if anchor and anchor.lat is not None and anchor.lon is not None:
-        wx = _open_meteo_day(float(anchor.lat), float(anchor.lon), date_str)
+        wx = _fetch_for_coords(float(anchor.lat), float(anchor.lon))
 
-    if (
-        (wx is None or (wx.get("temperature_2m_max") is None and wx.get("temperature_2m_min") is None))
-        and fallback_coords
-    ):
-        wx = _open_meteo_day(float(fallback_coords[0]), float(fallback_coords[1]), date_str)
+    if _missing_temps(wx) and fallback_coords:
+        wx = _merge(wx, _fetch_for_coords(float(fallback_coords[0]), float(fallback_coords[1])))
 
     rain_prob = (wx or {}).get("precipitation_probability_max")
     rain_sum = (wx or {}).get("precipitation_sum")
