@@ -30,6 +30,8 @@ _OSM_CACHE: dict[str, dict] = {}
 _OSM_CACHE_LOCK = threading.Lock()
 _OTM_CACHE: dict[str, dict] = {}
 _OTM_CACHE_LOCK = threading.Lock()
+_GEO_CACHE: dict[str, dict] = {}
+_GEO_CACHE_LOCK = threading.Lock()
 
 def _cache_key(payload: dict) -> str:
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
@@ -88,6 +90,24 @@ def _cache_otm_set(key: str, value: dict, ttl_seconds: int):
         _OTM_CACHE[key] = {"expires_at": expires_at, "value": value}
 
 
+def _cache_geo_get(key: str):
+    now = time.time()
+    with _GEO_CACHE_LOCK:
+        entry = _GEO_CACHE.get(key)
+        if not entry:
+            return False, None
+        if entry.get("expires_at", 0) <= now:
+            _GEO_CACHE.pop(key, None)
+            return False, None
+        return True, entry.get("value")
+
+
+def _cache_geo_set(key: str, value, ttl_seconds: int):
+    expires_at = time.time() + max(int(ttl_seconds), 1)
+    with _GEO_CACHE_LOCK:
+        _GEO_CACHE[key] = {"expires_at": expires_at, "value": value}
+
+
 def _is_outdoor(title: str, item_type: str | None):
     t = (title or "").lower()
     it = (item_type or "").lower()
@@ -140,6 +160,121 @@ def _open_meteo_day(lat: float, lon: float, date_str: str):
         "temperature_2m_min": tmin,
         "windspeed_10m_max": wind,
     }
+
+
+def _geocode_trip_location(trip: Trip):
+    parts = []
+    if trip.main_city:
+        parts.append(str(trip.main_city).strip())
+    if trip.main_country:
+        parts.append(str(trip.main_country).strip())
+    query = ", ".join([p for p in parts if p])
+    if not query:
+        return None
+
+    cache_key = f"geo:{query.lower()}"
+    hit, cached = _cache_geo_get(cache_key)
+    if hit:
+        return cached
+
+    try:
+        r = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={
+                "name": query,
+                "count": 1,
+                "language": "en",
+                "format": "json",
+            },
+            timeout=8,
+        )
+        if r.status_code != 200:
+            return None
+        data = r.json() or {}
+        results = data.get("results") or []
+        if not results:
+            _cache_geo_set(cache_key, None, 60 * 60 * 24)
+            return None
+        first = results[0] or {}
+        lat = first.get("latitude")
+        lon = first.get("longitude")
+        if lat is None or lon is None:
+            _cache_geo_set(cache_key, None, 60 * 60 * 24)
+            return None
+        coords = (float(lat), float(lon))
+        _cache_geo_set(cache_key, coords, 60 * 60 * 24 * 7)
+        return coords
+    except Exception:
+        return None
+
+
+def _find_anchor_item(trip_id: int, day: TripDay, day_items: list[ItineraryItem]):
+    for it in day_items:
+        if it.lat is not None and it.lon is not None:
+            return it
+
+    candidates = list(
+        ItineraryItem.objects.filter(
+            trip_id=trip_id,
+            lat__isnull=False,
+            lon__isnull=False,
+        ).select_related("day")
+    )
+    if not candidates:
+        return None
+
+    target_index = day.day_index
+    best = None
+    best_delta = None
+    for it in candidates:
+        day_index = it.day.day_index if it.day else None
+        delta = abs(day_index - target_index) if day_index is not None else 10_000
+        if best is None or delta < best_delta:
+            best = it
+            best_delta = delta
+
+    return best
+
+
+def _compute_weather_context(
+    date_str: str,
+    anchor: ItineraryItem | None,
+    fallback_coords: tuple[float, float] | None = None,
+):
+    wx = None
+    if anchor and anchor.lat is not None and anchor.lon is not None:
+        wx = _open_meteo_day(float(anchor.lat), float(anchor.lon), date_str)
+    elif fallback_coords:
+        wx = _open_meteo_day(float(fallback_coords[0]), float(fallback_coords[1]), date_str)
+
+    rain_prob = (wx or {}).get("precipitation_probability_max")
+    rain_sum = (wx or {}).get("precipitation_sum")
+    weather_code = (wx or {}).get("weathercode")
+    temp_max = (wx or {}).get("temperature_2m_max")
+    temp_min = (wx or {}).get("temperature_2m_min")
+    wind_max = (wx or {}).get("windspeed_10m_max")
+
+    is_rainy = False
+    if isinstance(rain_prob, (int, float)) and rain_prob >= 60:
+        is_rainy = True
+    if isinstance(rain_sum, (int, float)) and rain_sum >= 5:
+        is_rainy = True
+
+    bad_weather_reasons = []
+    if isinstance(rain_prob, (int, float)) and rain_prob >= 60:
+        bad_weather_reasons.append("High rain risk")
+    if isinstance(rain_sum, (int, float)) and rain_sum >= 5:
+        bad_weather_reasons.append("Heavy precipitation")
+    if isinstance(weather_code, (int, float)) and weather_code >= 80:
+        bad_weather_reasons.append("Storm or thunder risk")
+    if isinstance(temp_max, (int, float)) and temp_max >= 35:
+        bad_weather_reasons.append("Extreme heat")
+    if isinstance(temp_min, (int, float)) and temp_min <= 5:
+        bad_weather_reasons.append("Very cold")
+    if isinstance(wind_max, (int, float)) and wind_max >= 60:
+        bad_weather_reasons.append("High winds")
+
+    return wx, is_rainy, len(bad_weather_reasons) > 0, bad_weather_reasons
 
 
 def _round_coord(val: float) -> float:
@@ -433,6 +568,7 @@ class F14AdaptivePlanningView(APIView):
         date_str = str(data["date"])
         trip_date = data.get("date")
         apply_changes = data.get("apply_changes", False)
+        weather_only = data.get("weather_only", False)
         proposed_item_ids = data.get("proposed_item_ids") or []
 
         allowed_trip_ids = Trip.objects.filter(
@@ -442,12 +578,48 @@ class F14AdaptivePlanningView(APIView):
         if trip_id not in set(allowed_trip_ids):
             return Response({"detail": "Forbidden."}, status=status.HTTP_403_FORBIDDEN)
 
+        trip = get_object_or_404(Trip, pk=trip_id)
         day = get_object_or_404(TripDay, pk=day_id, trip_id=trip_id)
         items_qs = ItineraryItem.objects.filter(trip_id=trip_id, day_id=day.id).order_by("sort_order", "id")
         items = list(items_qs)
 
         if not items:
-            payload = {"applied": False, "reason": "No items for this day.", "proposed_item_ids": [], "changes": []}
+            ttl = int(os.getenv("SEALION_ADAPTIVE_CACHE_TTL_SECONDS", "300"))
+            anchor = _find_anchor_item(trip_id, day, items)
+            fallback_coords = _geocode_trip_location(trip) if anchor is None else None
+            cache_key = _cache_key(
+                {
+                    "trip_id": trip_id,
+                    "day_id": day_id,
+                    "date": date_str,
+                    "anchor_lat": float(anchor.lat) if anchor and anchor.lat is not None else None,
+                    "anchor_lon": float(anchor.lon) if anchor and anchor.lon is not None else None,
+                    "fallback_lat": float(fallback_coords[0]) if fallback_coords else None,
+                    "fallback_lon": float(fallback_coords[1]) if fallback_coords else None,
+                    "mode": "empty_day",
+                }
+            )
+            cached = _cache_get(cache_key)
+            if cached:
+                return Response(cached, status=status.HTTP_200_OK)
+
+            wx, is_rainy, is_bad_weather, bad_weather_reasons = _compute_weather_context(
+                date_str,
+                anchor,
+                fallback_coords,
+            )
+            payload = {
+                "applied": False,
+                "weather": wx,
+                "is_rainy": is_rainy,
+                "is_bad_weather": is_bad_weather,
+                "bad_weather_reasons": bad_weather_reasons,
+                "reason": "No items for this day.",
+                "proposed_item_ids": [],
+                "changes": [],
+                "replacement_suggestions": [],
+            }
+            _cache_set(cache_key, payload, ttl)
             return Response(payload, status=status.HTTP_200_OK)
 
         # -------------------
@@ -555,18 +727,57 @@ class F14AdaptivePlanningView(APIView):
 
             return Response({"applied": True, "updated_items": updated_items_payload}, status=status.HTTP_200_OK)
 
+        anchor = _find_anchor_item(trip_id, day, items)
+        fallback_coords = _geocode_trip_location(trip) if anchor is None else None
+        ttl = int(os.getenv("SEALION_ADAPTIVE_CACHE_TTL_SECONDS", "300"))
+
+        if weather_only:
+            cache_key = _cache_key(
+                {
+                    "trip_id": trip_id,
+                    "day_id": day_id,
+                    "date": date_str,
+                    "anchor_lat": float(anchor.lat) if anchor and anchor.lat is not None else None,
+                    "anchor_lon": float(anchor.lon) if anchor and anchor.lon is not None else None,
+                    "fallback_lat": float(fallback_coords[0]) if fallback_coords else None,
+                    "fallback_lon": float(fallback_coords[1]) if fallback_coords else None,
+                    "mode": "weather_only",
+                }
+            )
+            cached = _cache_get(cache_key)
+            if cached:
+                return Response(cached, status=status.HTTP_200_OK)
+
+            wx, is_rainy, is_bad_weather, bad_weather_reasons = _compute_weather_context(
+                date_str,
+                anchor,
+                fallback_coords,
+            )
+            payload = {
+                "applied": False,
+                "weather": wx,
+                "is_rainy": is_rainy,
+                "is_bad_weather": is_bad_weather,
+                "bad_weather_reasons": bad_weather_reasons,
+                "reason": "Weather-only preview.",
+                "proposed_item_ids": [],
+                "changes": [],
+                "replacement_suggestions": [],
+            }
+            _cache_set(cache_key, payload, ttl)
+            return Response(payload, status=status.HTTP_200_OK)
+
         # -------------------
         # PREVIEW FLOW (cached)
         # -------------------
-        ttl = int(os.getenv("SEALION_ADAPTIVE_CACHE_TTL_SECONDS", "300"))
-        anchor = next((it for it in items if it.lat is not None and it.lon is not None), None) or items[0]
-
         key = _cache_key({
             "trip_id": trip_id,
             "day_id": day_id,
             "date": date_str,
-            "anchor_lat": float(anchor.lat) if anchor.lat is not None else None,
-            "anchor_lon": float(anchor.lon) if anchor.lon is not None else None,
+            "anchor_lat": float(anchor.lat) if anchor and anchor.lat is not None else None,
+            "anchor_lon": float(anchor.lon) if anchor and anchor.lon is not None else None,
+            "fallback_lat": float(fallback_coords[0]) if fallback_coords else None,
+            "fallback_lon": float(fallback_coords[1]) if fallback_coords else None,
             "item_ids": [it.id for it in items],
             "sort_orders": [it.sort_order for it in items],
         })
@@ -575,38 +786,11 @@ class F14AdaptivePlanningView(APIView):
         if cached:
             return Response(cached, status=status.HTTP_200_OK)
 
-        wx = None
-        if anchor.lat is not None and anchor.lon is not None:
-            wx = _open_meteo_day(float(anchor.lat), float(anchor.lon), date_str)
-
-        rain_prob = (wx or {}).get("precipitation_probability_max")
-        rain_sum = (wx or {}).get("precipitation_sum")
-        weather_code = (wx or {}).get("weathercode")
-        temp_max = (wx or {}).get("temperature_2m_max")
-        temp_min = (wx or {}).get("temperature_2m_min")
-        wind_max = (wx or {}).get("windspeed_10m_max")
-
-        is_rainy = False
-        if isinstance(rain_prob, (int, float)) and rain_prob >= 60:
-            is_rainy = True
-        if isinstance(rain_sum, (int, float)) and rain_sum >= 5:
-            is_rainy = True
-
-        bad_weather_reasons = []
-        if isinstance(rain_prob, (int, float)) and rain_prob >= 60:
-            bad_weather_reasons.append("High rain risk")
-        if isinstance(rain_sum, (int, float)) and rain_sum >= 5:
-            bad_weather_reasons.append("Heavy precipitation")
-        if isinstance(weather_code, (int, float)) and weather_code >= 80:
-            bad_weather_reasons.append("Storm or thunder risk")
-        if isinstance(temp_max, (int, float)) and temp_max >= 35:
-            bad_weather_reasons.append("Extreme heat")
-        if isinstance(temp_min, (int, float)) and temp_min <= 5:
-            bad_weather_reasons.append("Very cold")
-        if isinstance(wind_max, (int, float)) and wind_max >= 60:
-            bad_weather_reasons.append("High winds")
-
-        is_bad_weather = len(bad_weather_reasons) > 0
+        wx, is_rainy, is_bad_weather, bad_weather_reasons = _compute_weather_context(
+            date_str,
+            anchor,
+            fallback_coords,
+        )
 
         old_order = [it.id for it in items]
 

@@ -194,6 +194,10 @@ export default function AdaptivePlannerOverlay({
   const [latestSig, setLatestSig] = useState<string | null>(null);
   const [replacingKey, setReplacingKey] = useState<string | null>(null);
   const fetchIdRef = useRef(0);
+  const weatherFetchIdRef = useRef(0);
+  const weatherSnapshotRef = useRef<
+    Map<number, { weather?: any; isRainy?: boolean; isBadWeather?: boolean; badWeatherReasons?: string[] }>
+  >(new Map());
   const lastAutoOpened = useRef<string | null>(null);
   const hasFetchedOnce = useRef(false); // Track if we've fetched at least once
   const lastDataKeyRef = useRef<string | null>(null);
@@ -283,11 +287,81 @@ export default function AdaptivePlannerOverlay({
     return [...daySummaries].sort((a, b) => a.dayIndex - b.dayIndex);
   }, [daySummaries]);
 
-  async function fetchAll() {
-    const fetchId = ++fetchIdRef.current;
+  async function fetchWeatherOnly() {
+    const fetchId = ++weatherFetchIdRef.current;
+    try {
+      const fallbackWeather = weatherSnapshotRef.current;
+      const jobs = days
+        .filter((d) => dayISOMap[d.id])
+        .map(async (d) => {
+          const body = { trip_id: tripId, day_id: d.id, date: dayISOMap[d.id], weather_only: true };
+          try {
+            const res = await apiClient.post("/f1/adaptive-plan/", body);
+            return {
+              dayId: d.id,
+              dayIndex: d.day_index,
+              dateISO: dayISOMap[d.id],
+              preview: res,
+              proposedIsDifferent: false,
+              hasSuggestions: false,
+              weather: res?.weather,
+              isRainy: !!res?.is_rainy,
+              isBadWeather: !!res?.is_bad_weather,
+              badWeatherReasons: Array.isArray(res?.bad_weather_reasons) ? res.bad_weather_reasons : [],
+              error: null,
+            } as DaySummary;
+          } catch (e: any) {
+            const fallback = fallbackWeather.get(d.id);
+            return {
+              dayId: d.id,
+              dayIndex: d.day_index,
+              dateISO: dayISOMap[d.id],
+              preview: null,
+              proposedIsDifferent: false,
+              hasSuggestions: false,
+              weather: fallback?.weather,
+              isRainy: fallback?.isRainy ?? false,
+              isBadWeather: fallback?.isBadWeather ?? false,
+              badWeatherReasons: fallback?.badWeatherReasons ?? [],
+              error: e?.message || "Failed to load",
+            } as DaySummary;
+          }
+        });
+
+      const results = await Promise.all(jobs);
+      if (weatherFetchIdRef.current !== fetchId) return;
+      weatherSnapshotRef.current = new Map(
+        results.map((d) => [
+          d.dayId,
+          {
+            weather: d.weather,
+            isRainy: d.isRainy,
+            isBadWeather: d.isBadWeather,
+            badWeatherReasons: d.badWeatherReasons,
+          },
+        ])
+      );
+      setDaySummaries(results);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function fetchWeatherThenAll() {
     setLoading(true);
     setError(null);
+    await fetchWeatherOnly();
+    await fetchAll({ skipLoading: true });
+  }
+
+  async function fetchAll(opts?: { skipLoading?: boolean }) {
+    const fetchId = ++fetchIdRef.current;
+    if (!opts?.skipLoading) {
+      setLoading(true);
+    }
+    setError(null);
     try {
+      const fallbackWeather = weatherSnapshotRef.current;
       const jobs = days
         .filter((d) => dayISOMap[d.id])
         .map(async (d) => {
@@ -362,6 +436,7 @@ export default function AdaptivePlannerOverlay({
               error: null,
             } as DaySummary;
           } catch (e: any) {
+            const fallback = fallbackWeather.get(d.id);
             return {
               dayId: d.id,
               dayIndex: d.day_index,
@@ -370,8 +445,10 @@ export default function AdaptivePlannerOverlay({
               hasSuggestions: hourIssues.length > 0,
               businessHoursIssues: hourIssues,
               replacementSuggestions: [],
-              isBadWeather: false,
-              badWeatherReasons: [],
+              weather: fallback?.weather,
+              isRainy: fallback?.isRainy ?? false,
+              isBadWeather: fallback?.isBadWeather ?? false,
+              badWeatherReasons: fallback?.badWeatherReasons ?? [],
               error: e?.message || "Failed to load",
             } as DaySummary;
           }
@@ -379,7 +456,33 @@ export default function AdaptivePlannerOverlay({
 
       const results = await Promise.all(jobs);
       if (fetchIdRef.current !== fetchId) return;
-      setDaySummaries(results);
+      const merged = results.map((d) => {
+        const fallback = fallbackWeather.get(d.dayId);
+        const hasWeather = d.weather && Object.keys(d.weather).length > 0;
+        if (hasWeather || !fallback?.weather) return d;
+        return {
+          ...d,
+          weather: fallback.weather,
+          isRainy: fallback.isRainy ?? d.isRainy,
+          isBadWeather: fallback.isBadWeather ?? d.isBadWeather,
+          badWeatherReasons:
+            Array.isArray(d.badWeatherReasons) && d.badWeatherReasons.length > 0
+              ? d.badWeatherReasons
+              : fallback.badWeatherReasons ?? d.badWeatherReasons,
+        } as DaySummary;
+      });
+      setDaySummaries(merged);
+      weatherSnapshotRef.current = new Map(
+        merged.map((d) => [
+          d.dayId,
+          {
+            weather: d.weather,
+            isRainy: d.isRainy,
+            isBadWeather: d.isBadWeather,
+            badWeatherReasons: d.badWeatherReasons,
+          },
+        ])
+      );
 
       // Build a signature of current suggestions for auto-open/ignore logic
       const codes: number[] = [];
@@ -568,7 +671,7 @@ export default function AdaptivePlannerOverlay({
         return;
       }
       lastDataKeyRef.current = dataKey;
-      fetchAll();
+      fetchWeatherThenAll();
       hasFetchedOnce.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -710,7 +813,7 @@ export default function AdaptivePlannerOverlay({
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <button
                 type="button"
-                onClick={fetchAll}
+                onClick={fetchWeatherThenAll}
                 title="Refresh"
                 style={{
                   border: "none",

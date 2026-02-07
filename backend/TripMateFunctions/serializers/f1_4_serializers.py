@@ -7,6 +7,9 @@ class AdaptivePlanRequestSerializer(serializers.Serializer):
     day_id = serializers.IntegerField()
     date = serializers.DateField()
 
+    # optional weather-only flow (skips recommendations)
+    weather_only = serializers.BooleanField(required=False, default=False)
+
     # optional “apply” flow
     apply_changes = serializers.BooleanField(required=False, default=False)
     apply_opening_hours = serializers.BooleanField(required=False, default=False)
@@ -84,3 +87,5 @@ class F14AdaptivePlanResponseSerializer(serializers.Serializer):
 
 # ✅ aliases so existing views imports keep working
 F14AdaptivePlanRequestSerializer = AdaptivePlanRequestSerializer
+
+

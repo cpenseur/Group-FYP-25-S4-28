@@ -321,6 +321,7 @@ GENERAL REQUIREMENTS:
 - 5-6 stops per day (breakfast, lunch, dinner, activities)
 - Use REAL places in each city
 - Coordinates must be accurate for each city
+- Every stop MUST include both lat and lon as real float coordinates (non-null). If you cannot supply coordinates for a stop, omit that stop.
 
 ⚠️⚠️⚠️ CRITICAL TIME CONSTRAINTS ⚠️⚠️⚠️
 ALL times MUST be between 07:00 and 23:00 (7 AM - 11 PM)
@@ -369,6 +370,7 @@ REQUIREMENTS:
 - 5-6 stops per day (breakfast, lunch, dinner, activities)
 - Use REAL places in {destination_str}
 - Coordinates must be accurate
+- Every stop MUST include both lat and lon as real float coordinates (non-null). If you cannot supply coordinates for a stop, omit that stop.
 
 ⚠️⚠️⚠️ CRITICAL TIME CONSTRAINTS ⚠️⚠️⚠️
 ALL times MUST be between 07:00 and 23:00 (7 AM - 11 PM)
