@@ -244,7 +244,11 @@ def _compute_weather_context(
     wx = None
     if anchor and anchor.lat is not None and anchor.lon is not None:
         wx = _open_meteo_day(float(anchor.lat), float(anchor.lon), date_str)
-    elif fallback_coords:
+
+    if (
+        (wx is None or (wx.get("temperature_2m_max") is None and wx.get("temperature_2m_min") is None))
+        and fallback_coords
+    ):
         wx = _open_meteo_day(float(fallback_coords[0]), float(fallback_coords[1]), date_str)
 
     rain_prob = (wx or {}).get("precipitation_probability_max")
@@ -586,7 +590,7 @@ class F14AdaptivePlanningView(APIView):
         if not items:
             ttl = int(os.getenv("SEALION_ADAPTIVE_CACHE_TTL_SECONDS", "300"))
             anchor = _find_anchor_item(trip_id, day, items)
-            fallback_coords = _geocode_trip_location(trip) if anchor is None else None
+            fallback_coords = _geocode_trip_location(trip) if (trip.main_city or trip.main_country) else None
             cache_key = _cache_key(
                 {
                     "trip_id": trip_id,
@@ -728,7 +732,7 @@ class F14AdaptivePlanningView(APIView):
             return Response({"applied": True, "updated_items": updated_items_payload}, status=status.HTTP_200_OK)
 
         anchor = _find_anchor_item(trip_id, day, items)
-        fallback_coords = _geocode_trip_location(trip) if anchor is None else None
+        fallback_coords = _geocode_trip_location(trip) if (trip.main_city or trip.main_country) else None
         ttl = int(os.getenv("SEALION_ADAPTIVE_CACHE_TTL_SECONDS", "300"))
 
         if weather_only:

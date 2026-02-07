@@ -109,8 +109,16 @@ function weatherLabel(code?: number | null): string {
 }
 
 function formatTempRange(max?: number | null, min?: number | null) {
-  const hi = typeof max === "number" ? Math.round(max) : null;
-  const lo = typeof min === "number" ? Math.round(min) : null;
+  const parseTemp = (val?: number | string | null) => {
+    if (typeof val === "number") return Math.round(val);
+    if (typeof val === "string") {
+      const num = Number(val);
+      return Number.isFinite(num) ? Math.round(num) : null;
+    }
+    return null;
+  };
+  const hi = parseTemp(max as any);
+  const lo = parseTemp(min as any);
   if (hi == null && lo == null) return "";
   if (hi != null && lo != null) return `${hi}° / ${lo}° C`;
   if (hi != null) return `${hi}° C`;
@@ -881,8 +889,16 @@ export default function AdaptivePlannerOverlay({
               {forecastDays.map((d) => {
                 const wx = d.weather || {};
                 const code = wx.weathercode;
-                const tMax = typeof wx.temperature_2m_max === "number" ? Math.round(wx.temperature_2m_max) : null;
-                const tMin = typeof wx.temperature_2m_min === "number" ? Math.round(wx.temperature_2m_min) : null;
+                const toTemp = (val: any) => {
+                  if (typeof val === "number") return Math.round(val);
+                  if (typeof val === "string") {
+                    const num = Number(val);
+                    return Number.isFinite(num) ? Math.round(num) : null;
+                  }
+                  return null;
+                };
+                const tMax = toTemp(wx.temperature_2m_max);
+                const tMin = toTemp(wx.temperature_2m_min);
                 const label = d.dateISO ? formatShortDate(d.dateISO) : `Day ${d.dayIndex}`;
                 return (
                   <div
