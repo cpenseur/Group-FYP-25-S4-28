@@ -365,7 +365,7 @@ class AIRecommendationsView(APIView):
             for category_name, recommendations in categories.items():
                 logger.info(f"\n📍 Geocoding {category_name} recommendations:")
                 for rec in recommendations:
-                    if not rec.get('lat') or not rec.get('lon'):
+                    if rec.get('lat') is None or rec.get('lon') is None:
                         coords = geocode_place(rec['name'], destination)
                         if coords:
                             rec['lat'], rec['lon'], rec['address'] = coords
@@ -804,8 +804,9 @@ OTHER REQUIREMENTS:
 - Must match user's interests and preferences
 - Must be diverse (different types of attractions)
 - Must be real, well-known places
+- Include accurate "lat" and "lon" (decimal degrees) for EVERY suggestion
 
-Format as JSON array:
+Format as JSON array (include accurate coordinates for each place):
 [
   {{
     "name": "Place name (MUST be in {destination}, {trip_country})",
@@ -815,6 +816,8 @@ Format as JSON array:
     "cost": "Free",
     "best_time": "Morning",
     "highlight": false,
+    "lat": 35.6895,
+    "lon": 139.6917,
     "nearby_to": "Name of existing stop it's near",
     "matched_preferences": ["Interest: culture", "Budget-friendly"]
   }}
@@ -878,8 +881,9 @@ IMPORTANT: ALL suggestions MUST be:
 - Actually located IN {destination}, {trip_country} (not other cities or countries)
 - Real, existing restaurants or food areas
 - Match user's dietary preferences
+- Include accurate "lat" and "lon" (decimal degrees) for EVERY suggestion
 
-Format as JSON array:
+Format as JSON array (include accurate coordinates for each place):
 [
   {{
     "name": "Restaurant name (in {destination}, {trip_country})",
@@ -889,6 +893,8 @@ Format as JSON array:
     "cost": "$20-40",
     "best_time": "Lunch",
     "highlight": false,
+    "lat": 35.6895,
+    "lon": 139.6917,
     "matched_preferences": ["Vegetarian-friendly", "Budget-friendly"]
   }}
 ]
@@ -945,8 +951,9 @@ IMPORTANT: ALL suggestions MUST be:
 - Located IN {destination}, {trip_country} (not other cities or countries)
 - Real, famous cultural sites
 - Match user's interests
+- Include accurate "lat" and "lon" (decimal degrees) for EVERY suggestion
 
-Format as JSON array:
+Format as JSON array (include accurate coordinates for each place):
 [
   {{
     "name": "Attraction name (in {destination}, {trip_country})",
@@ -956,6 +963,8 @@ Format as JSON array:
     "cost": "$10-20",
     "best_time": "Morning",
     "highlight": false,
+    "lat": 35.6895,
+    "lon": 139.6917,
     "matched_preferences": ["Interest: history", "Wheelchair accessible"]
   }}
 ]
@@ -1002,7 +1011,23 @@ Respond ONLY with valid JSON array, no markdown."""
                 matched_prefs = rec.get("matched_preferences", [])
                 if not isinstance(matched_prefs, list):
                     matched_prefs = []
-                
+
+                # Normalize coordinates if provided
+                lat = rec.get("lat")
+                lon = rec.get("lon")
+                try:
+                    lat = float(lat) if lat is not None else None
+                except (TypeError, ValueError):
+                    lat = None
+                try:
+                    lon = float(lon) if lon is not None else None
+                except (TypeError, ValueError):
+                    lon = None
+                if lat is not None and (lat < -90 or lat > 90):
+                    lat = None
+                if lon is not None and (lon < -180 or lon > 180):
+                    lon = None
+
                 validated.append({
                     "name": rec.get("name", "Unknown"),
                     "description": description,
@@ -1015,8 +1040,8 @@ Respond ONLY with valid JSON array, no markdown."""
                     "action": rec.get("action"),
                     "matched_preferences": matched_prefs,
                     # ✅ Initialize coordinate fields
-                    "lat": rec.get("lat"),
-                    "lon": rec.get("lon"),
+                    "lat": lat,
+                    "lon": lon,
                     "address": rec.get("address"),
                     "xid": rec.get("xid"),
                 })
