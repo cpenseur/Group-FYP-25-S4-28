@@ -101,6 +101,9 @@ export default function AdminDashboard() {
   const [viewOpen, setViewOpen] = useState(false);
   const [viewUser, setViewUser] = useState<AdminUserRow | null>(null);
 
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteUser, setDeleteUser] = useState<AdminUserRow | null>(null);
+
   // Export mode state from URL params
   const [exportMode, setExportMode] = useState(false);
   const [hidePopularItineraries, setHidePopularItineraries] = useState(false);
@@ -511,11 +514,22 @@ export default function AdminDashboard() {
     }
   };
 
-  const deleteUserRow = async (userId: string) => {
-    const ok = window.confirm("Remove this user from the list?");
-    if (!ok) return;
+  const openDeleteModal = (user: AdminUserRow) => {
+    setDeleteUser(user);
+    setDeleteOpen(true);
+  };
 
-    setUsers((prev) => prev.filter((u) => u.id !== userId));
+  const confirmDeleteUser = async () => {
+    if (!deleteUser) return;
+
+    setUsers((prev) => prev.filter((u) => u.id !== deleteUser.id));
+    setDeleteOpen(false);
+    setDeleteUser(null);
+  };
+
+  const closeDeleteModal = () => {
+    setDeleteOpen(false);
+    setDeleteUser(null);
   };
 
   const openViewUser = (u: AdminUserRow) => {
@@ -917,7 +931,7 @@ export default function AdminDashboard() {
                                              🔒
                                               </button>
                                             )}
-                                            <button className="users-action-btn users-action-btn--danger" title="Delete" onClick={() => deleteUserRow(u.id)} disabled={!!rowActionLoading[u.id]}>
+                                            <button className="users-action-btn users-action-btn--danger" title="Delete" onClick={() => openDeleteModal(u)} disabled={!!rowActionLoading[u.id]}>
                                               🗑️
                                             </button>
                                         </div>
@@ -1081,7 +1095,7 @@ export default function AdminDashboard() {
                                             🔒
                                             </button>
                                           )}
-                                          <button className="users-action-btn users-action-btn--danger" title="Delete" onClick={() => deleteUserRow(u.id)} disabled={!!rowActionLoading[u.id]}>
+                                          <button className="users-action-btn users-action-btn--danger" title="Delete" onClick={() => openDeleteModal(u)} disabled={!!rowActionLoading[u.id]}>
                                             🗑️
                                           </button>
                                     </div>
@@ -1150,7 +1164,7 @@ export default function AdminDashboard() {
                 <p className="modal-sub">View user details</p>
               </div>
               <button className="modal-close" onClick={() => setViewOpen(false)} aria-label="Close">
-                ✕
+                x
               </button>
             </div>
 
@@ -1219,13 +1233,48 @@ export default function AdminDashboard() {
                   className="btn"
                   style={{ borderColor: "#fecaca", color: "#b91c1c" }}
                   onClick={async () => {
-                    await deleteUserRow(viewUser.id);
                     setViewOpen(false);
+                    openDeleteModal(viewUser);
                   }}
                   disabled={!!rowActionLoading[viewUser.id]}
                   title="Delete user"
                 >
                   Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {deleteOpen && deleteUser && (
+        <div className="modal-backdrop" onClick={closeDeleteModal}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <h2 className="modal-title modal-title--danger">Delete User</h2>
+                <p className="modal-sub">Warning: Are you sure you want to delete this user? We may not be able to recover the information.</p>
+              </div>
+              <button className="modal-close" onClick={closeDeleteModal} aria-label="Close">
+                x
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="delete-user-summary">
+                <div className="delete-user-name">{deleteUser.name ?? "Unnamed User"}</div>
+                <div className="delete-user-email">{deleteUser.email}</div>
+              </div>
+
+              <div className="modal-actions">
+                <button className="btn btn-outline" onClick={closeDeleteModal}>
+                  Cancel
+                </button>
+                <button
+                  className="btn"
+                  style={{ borderColor: "#fecaca", color: "#b91c1c" }}
+                  onClick={confirmDeleteUser}
+                >
+                  Confirm Delete
                 </button>
               </div>
             </div>
@@ -2023,6 +2072,10 @@ export default function AdminDashboard() {
           font-size: 1.05rem;
         }
 
+        .modal-title--danger {
+          color: #b91c1c;
+        }
+
         .modal-sub {
           margin: 0.2rem 0 0;
           font-size: 0.82rem;
@@ -2079,6 +2132,25 @@ export default function AdminDashboard() {
           gap: 10px;
           justify-content: flex-end;
           flex-wrap: wrap;
+        }
+
+        .delete-user-summary {
+          margin-bottom: 16px;
+          padding: 12px 14px;
+          border-radius: 12px;
+          background: #fef2f2;
+          border: 1px solid #fecaca;
+        }
+
+        .delete-user-name {
+          font-weight: 600;
+          color: #111827;
+        }
+
+        .delete-user-email {
+          font-size: 0.85rem;
+          color: #6b7280;
+          margin-top: 4px;
         }
 
 
@@ -2439,3 +2511,4 @@ export default function AdminDashboard() {
     </>
   );
 }
+
