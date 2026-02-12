@@ -192,8 +192,13 @@ def fx_latest(request):
         _set_cached_fx_payload(payload)
         return Response(payload, status=status.HTTP_200_OK)
     except Exception:
+        # If fetch fails, prefer returning any previously cached rates (even if stale)
+        cached_payload = FX_CACHE.get("payload") or {}
+        if cached_payload.get("as_of"):
+            return Response(cached_payload, status=status.HTTP_200_OK)
+
+        # Otherwise, return safe fallback WITHOUT caching so we can retry soon
         payload = {"base": "SGD", "sgd_per_unit": {"SGD": 1.0}, "as_of": None}
-        _set_cached_fx_payload(payload)
         return Response(payload, status=status.HTTP_200_OK)
 
 
