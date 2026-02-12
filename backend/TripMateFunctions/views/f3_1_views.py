@@ -6,9 +6,10 @@ import time
 from urllib.parse import urlencode, urlparse, parse_qs, urlunparse
 from urllib.request import Request, urlopen
 
-from rest_framework.decorators import action, api_view
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 
 from .base_views import BaseViewSet
 from ..models import (
@@ -73,6 +74,9 @@ SCALE_BY_CODE = {
     "KRW": 100,
     "IDR": 100,
     "THB": 100,
+    "TWD": 100,
+    "INR": 100,
+    "PHP": 100,
 }
 
 MONTHS = {
@@ -135,8 +139,44 @@ def _set_cached_fx_payload(payload):
     FX_CACHE["payload"] = payload
     FX_CACHE["updated_at"] = int(time.time())
 
+def _env_truthy(value):
+    if value is None:
+        return None
+    v = str(value).strip().lower()
+    if v in ("1", "true", "yes", "y", "on"):
+        return True
+    if v in ("0", "false", "no", "n", "off"):
+        return False
+    return None
+
+def _should_invert_rates(raw_rates):
+    """
+    Heuristic: MAS data should be ~SGD per unit of foreign currency.
+    If we see USD < 0.5 (e.g. ~0.74), that's likely USD per SGD → invert.
+    """
+    usd = raw_rates.get("USD")
+    if usd is not None:
+        if usd < 0.5:
+            return True
+        if usd > 2.5:
+            return False
+        return False
+
+    eur = raw_rates.get("EUR")
+    if eur is not None and eur < 0.5:
+        return True
+
+    return False
+
+def _get_query_bool(request, name):
+    val = request.query_params.get(name)
+    if val is None:
+        return None
+    return _env_truthy(val)
+
 
 @api_view(["GET"])
+@permission_classes([AllowAny])
 def fx_currencies(request):
     currencies = []
     seen = set()
@@ -150,15 +190,24 @@ def fx_currencies(request):
 
 
 @api_view(["GET"])
+@permission_classes([AllowAny])
 def fx_latest(request):
     """
     Fetch latest monthly FX rates from data.gov.sg and convert to SGD per unit.
     The dataset values appear to be SGD per unit of foreign currency,
     except some that are quoted per 100 units (scaled below).
     """
+    refresh = _get_query_bool(request, "refresh")
+    strict = _get_query_bool(request, "strict")
+    if strict is None:
+        strict = _env_truthy(os.environ.get("MAS_FX_STRICT")) or False
+
     cached = _get_cached_fx_payload()
-    if cached:
-        return Response(cached, status=status.HTTP_200_OK)
+    if cached and not refresh:
+        cached_with_source = dict(cached)
+        cached_with_source.setdefault("source", "cache")
+        cached_with_source.setdefault("fallback", False)
+        return Response(cached_with_source, status=status.HTTP_200_OK)
 
     try:
         data = _fetch_data_gov_json()
@@ -170,7 +219,7 @@ def fx_latest(request):
         if not latest_col:
             raise ValueError("No date columns")
 
-        sgd_per_unit = {"SGD": 1.0}
+        raw_rates = {}
         for rec in records:
             name = rec.get("DataSeries") or rec.get("data_series")
             if not name:
@@ -185,20 +234,62 @@ def fx_latest(request):
                 val = float(str(raw_val).replace(",", ""))
             except ValueError:
                 continue
+            # Normalize "per 100 units" quotes to "per 1 unit" for consistent inversion
             scale = SCALE_BY_CODE.get(code, 1)
-            sgd_per_unit[code] = val / scale
+            raw_rates[code] = val / scale
 
-        payload = {"base": "SGD", "sgd_per_unit": sgd_per_unit, "as_of": latest_col}
+        sgd_per_unit = {"SGD": 1.0}
+        env_invert = _env_truthy(os.environ.get("MAS_FX_INVERT"))
+        invert = env_invert if env_invert is not None else _should_invert_rates(raw_rates)
+
+        for code, val in raw_rates.items():
+            if invert:
+                if val == 0:
+                    continue
+                sgd_per_unit[code] = 1.0 / val
+            else:
+                sgd_per_unit[code] = val
+
+        payload = {
+            "base": "SGD",
+            "sgd_per_unit": sgd_per_unit,
+            "as_of": latest_col,
+            "inverted": invert,
+            "source": "data.gov.sg",
+            "fallback": False,
+        }
         _set_cached_fx_payload(payload)
         return Response(payload, status=status.HTTP_200_OK)
     except Exception:
         # If fetch fails, prefer returning any previously cached rates (even if stale)
         cached_payload = FX_CACHE.get("payload") or {}
         if cached_payload.get("as_of"):
-            return Response(cached_payload, status=status.HTTP_200_OK)
+            cached_with_source = dict(cached_payload)
+            cached_with_source.setdefault("source", "cache_stale")
+            cached_with_source.setdefault("fallback", False)
+            return Response(cached_with_source, status=status.HTTP_200_OK)
+
+        if strict:
+            return Response(
+                {
+                    "detail": "FX provider unavailable",
+                    "base": "SGD",
+                    "sgd_per_unit": {"SGD": 1.0},
+                    "as_of": None,
+                    "fallback": True,
+                    "source": "error",
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         # Otherwise, return safe fallback WITHOUT caching so we can retry soon
-        payload = {"base": "SGD", "sgd_per_unit": {"SGD": 1.0}, "as_of": None}
+        payload = {
+            "base": "SGD",
+            "sgd_per_unit": {"SGD": 1.0},
+            "as_of": None,
+            "fallback": True,
+            "source": "fallback",
+        }
         return Response(payload, status=status.HTTP_200_OK)
 
 
